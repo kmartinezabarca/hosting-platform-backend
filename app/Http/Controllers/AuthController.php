@@ -17,8 +17,14 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
+        // Split name into first_name and last_name
+        $nameParts = explode(' ', $request->name, 2);
+        $firstName = $nameParts[0] ?? '';
+        $lastName = $nameParts[1] ?? '';
+
         $user = User::create([
-            'name' => $request->name,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'role' => 'client', // Default role for new registrations
