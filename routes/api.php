@@ -24,3 +24,17 @@ Route::post("auth/login", [App\Http\Controllers\AuthController::class, "login"])
 Route::post("auth/logout", [App\Http\Controllers\AuthController::class, "logout"])->middleware("auth:sanctum");
 
 
+
+// Dashboard routes (protected)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/dashboard/stats', [App\Http\Controllers\DashboardController::class, 'getStats']);
+    Route::get('/dashboard/services', [App\Http\Controllers\DashboardController::class, 'getServices']);
+    Route::get('/dashboard/activity', [App\Http\Controllers\DashboardController::class, 'getActivity']);
+});
+
+
+// Temporary routes for testing (without authentication)
+Route::get('/test/dashboard/stats', [App\Http\Controllers\DashboardController::class, 'getStats']);
+Route::get('/test/dashboard/services', [App\Http\Controllers\DashboardController::class, 'getServices']);
+Route::get('/test/dashboard/activity', [App\Http\Controllers\DashboardController::class, 'getActivity']);
+
