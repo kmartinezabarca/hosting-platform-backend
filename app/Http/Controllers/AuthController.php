@@ -55,14 +55,51 @@ class AuthController extends Controller
             ]);
         }
 
+        // Check if account is active
+        if ($user->status !== 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Account is not active. Please contact support.',
+                'error_code' => 'ACCOUNT_INACTIVE'
+            ], 403);
+        }
+
+        // Update last login
+        $user->update(['last_login_at' => now()]);
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
             'message' => 'Logged in successfully',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => $user,
+            'user' => [
+                'id' => $user->id,
+                'uuid' => $user->uuid,
+                'email' => $user->email,
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'role' => $user->role,
+                'status' => $user->status,
+            ],
+            'redirect_to' => $this->getRedirectPath($user->role)
         ]);
+    }
+
+    /**
+     * Get redirect path based on user role
+     */
+    private function getRedirectPath($role)
+    {
+        switch ($role) {
+            case 'super_admin':
+            case 'admin':
+                return '/admin/dashboard';
+            case 'support':
+                return '/admin/tickets';
+            default:
+                return '/client/dashboard';
+        }
     }
 
     public function logout(Request $request)
