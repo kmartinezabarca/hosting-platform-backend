@@ -112,3 +112,56 @@ Route::get('/test/dashboard/stats', [App\Http\Controllers\DashboardController::c
 Route::get('/test/dashboard/services', [App\Http\Controllers\DashboardController::class, 'getServices']);
 Route::get('/test/dashboard/activity', [App\Http\Controllers\DashboardController::class, 'getActivity']);
 
+
+// Product routes (public)
+Route::get('/products', [App\Http\Controllers\ProductController::class, 'index']);
+Route::get('/products/{uuid}', [App\Http\Controllers\ProductController::class, 'show']);
+Route::get('/products/service-type/{serviceType}', [App\Http\Controllers\ProductController::class, 'getByServiceType']);
+
+// Protected routes (require authentication)
+Route::middleware(['auth:sanctum'])->group(function () {
+    // Invoice management
+    Route::prefix('invoices')->group(function () {
+        Route::get('/', [App\Http\Controllers\InvoiceController::class, 'index']);
+        Route::get('/stats', [App\Http\Controllers\InvoiceController::class, 'getStats']);
+        Route::get('/{uuid}', [App\Http\Controllers\InvoiceController::class, 'show']);
+    });
+
+    // Ticket management
+    Route::prefix('tickets')->group(function () {
+        Route::get('/', [App\Http\Controllers\TicketController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\TicketController::class, 'store']);
+        Route::get('/stats', [App\Http\Controllers\TicketController::class, 'getStats']);
+        Route::get('/{uuid}', [App\Http\Controllers\TicketController::class, 'show']);
+        Route::post('/{uuid}/reply', [App\Http\Controllers\TicketController::class, 'addReply']);
+        Route::put('/{uuid}/close', [App\Http\Controllers\TicketController::class, 'close']);
+    });
+
+    // Domain management
+    Route::prefix('domains')->group(function () {
+        Route::get('/', [App\Http\Controllers\DomainController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\DomainController::class, 'store']);
+        Route::get('/stats', [App\Http\Controllers\DomainController::class, 'getStats']);
+        Route::post('/check-availability', [App\Http\Controllers\DomainController::class, 'checkAvailability']);
+        Route::get('/{uuid}', [App\Http\Controllers\DomainController::class, 'show']);
+        Route::put('/{uuid}', [App\Http\Controllers\DomainController::class, 'update']);
+        Route::post('/{uuid}/renew', [App\Http\Controllers\DomainController::class, 'renew']);
+    });
+});
+
+// Admin routes (protected by admin middleware)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    // Product management (Admin only)
+    Route::prefix('products')->group(function () {
+        Route::post('/', [App\Http\Controllers\ProductController::class, 'store']);
+        Route::put('/{uuid}', [App\Http\Controllers\ProductController::class, 'update']);
+        Route::delete('/{uuid}', [App\Http\Controllers\ProductController::class, 'destroy']);
+    });
+
+    // Invoice management (Admin only)
+    Route::prefix('invoices')->group(function () {
+        Route::post('/', [App\Http\Controllers\InvoiceController::class, 'store']);
+        Route::put('/{uuid}/status', [App\Http\Controllers\InvoiceController::class, 'updateStatus']);
+    });
+});
+

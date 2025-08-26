@@ -18,15 +18,19 @@ class Service extends Model
     protected $fillable = [
         'uuid',
         'user_id',
-        'plan_id',
+        'product_id',
+        'server_node_id',
         'name',
         'status',
+        'external_id',
+        'connection_details',
+        'configuration',
+        'next_due_date',
         'billing_cycle',
-        'domain',
-        'payment_intent_id',
-        'additional_options',
-        'next_billing_date',
-        'canceled_at',
+        'price',
+        'setup_fee',
+        'notes',
+        'terminated_at',
     ];
 
     /**
@@ -35,9 +39,12 @@ class Service extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'additional_options' => 'array',
-        'next_billing_date' => 'datetime',
-        'canceled_at' => 'datetime',
+        'connection_details' => 'array',
+        'configuration' => 'array',
+        'next_due_date' => 'date',
+        'price' => 'decimal:2',
+        'setup_fee' => 'decimal:2',
+        'terminated_at' => 'datetime',
     ];
 
     /**
