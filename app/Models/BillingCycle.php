@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
-class Product extends Model
+class BillingCycle extends Model
 {
     use HasFactory;
 
@@ -17,10 +17,10 @@ class Product extends Model
      */
     protected $fillable = [
         'uuid',
+        'slug',
         'name',
-        'description',
-        'service_plan_id',
-        'setup_fee',
+        'months',
+        'discount_percentage',
         'is_active',
         'sort_order',
     ];
@@ -31,7 +31,7 @@ class Product extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'setup_fee' => 'decimal:2',
+        'discount_percentage' => 'decimal:2',
         'is_active' => 'boolean',
     ];
 
@@ -46,6 +46,9 @@ class Product extends Model
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
+            if (empty($model->slug) && !empty($model->name)) {
+                $model->slug = Str::slug($model->name);
+            }
         });
     }
 
@@ -58,7 +61,7 @@ class Product extends Model
     }
 
     /**
-     * Scope a query to only include active products.
+     * Scope a query to only include active billing cycles.
      */
     public function scopeActive($query)
     {
@@ -66,19 +69,28 @@ class Product extends Model
     }
 
     /**
-     * Get the service plan for this product.
+     * Get the plan pricing for this billing cycle.
      */
-    public function servicePlan()
+    public function planPricing()
     {
-        return $this->belongsTo(ServicePlan::class);
+        return $this->hasMany(PlanPricing::class);
     }
 
     /**
-     * Get the services for this product.
+     * Calculate discounted price from base price.
      */
-    public function services()
+    public function calculateDiscountedPrice($basePrice)
     {
-        return $this->hasMany(Service::class);
+        $discount = $this->discount_percentage / 100;
+        return $basePrice * (1 - $discount);
+    }
+
+    /**
+     * Get discount amount from base price.
+     */
+    public function getDiscountAmount($basePrice)
+    {
+        return $basePrice * ($this->discount_percentage / 100);
     }
 }
 

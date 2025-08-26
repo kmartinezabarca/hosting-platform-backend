@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
-class Product extends Model
+class Category extends Model
 {
     use HasFactory;
 
@@ -17,10 +17,12 @@ class Product extends Model
      */
     protected $fillable = [
         'uuid',
+        'slug',
         'name',
         'description',
-        'service_plan_id',
-        'setup_fee',
+        'icon',
+        'color',
+        'bg_color',
         'is_active',
         'sort_order',
     ];
@@ -31,7 +33,6 @@ class Product extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'setup_fee' => 'decimal:2',
         'is_active' => 'boolean',
     ];
 
@@ -46,6 +47,9 @@ class Product extends Model
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
+            if (empty($model->slug) && !empty($model->name)) {
+                $model->slug = Str::slug($model->name);
+            }
         });
     }
 
@@ -58,7 +62,7 @@ class Product extends Model
     }
 
     /**
-     * Scope a query to only include active products.
+     * Scope a query to only include active categories.
      */
     public function scopeActive($query)
     {
@@ -66,19 +70,27 @@ class Product extends Model
     }
 
     /**
-     * Get the service plan for this product.
+     * Get the service plans for this category.
      */
-    public function servicePlan()
+    public function servicePlans()
     {
-        return $this->belongsTo(ServicePlan::class);
+        return $this->hasMany(ServicePlan::class);
     }
 
     /**
-     * Get the services for this product.
+     * Get active service plans for this category.
      */
-    public function services()
+    public function activeServicePlans()
     {
-        return $this->hasMany(Service::class);
+        return $this->hasMany(ServicePlan::class)->where('is_active', true);
+    }
+
+    /**
+     * Get the products for this category (legacy support).
+     */
+    public function products()
+    {
+        return $this->hasMany(Product::class, 'service_type', 'slug');
     }
 }
 
