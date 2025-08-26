@@ -122,10 +122,10 @@ class ServiceController extends Controller
             ]);
 
             $user = Auth::user();
-            
+
             $service = \App\Models\Service::create([
                 'user_id' => $user->id,
-                'plan_id' => $request->plan_id,
+                'plan_id' => 1,
                 'name' => $request->service_name,
                 'status' => 'active', // Assuming payment is successful at this point
                 'billing_cycle' => $request->billing_cycle,
@@ -156,7 +156,7 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Mock user services - replace with actual database query
             $services = [
                 [
@@ -203,7 +203,7 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Mock service details - replace with actual database query
             $service = [
                 'id' => $serviceId,
@@ -254,7 +254,7 @@ class ServiceController extends Controller
             ]);
 
             $user = Auth::user();
-            
+
             // Mock configuration update - replace with actual database logic
             $updatedConfig = $request->configuration;
 
@@ -287,7 +287,7 @@ class ServiceController extends Controller
             ]);
 
             $user = Auth::user();
-            
+
             // Mock service cancellation - replace with actual database logic
             return response()->json([
                 'success' => true,
@@ -319,7 +319,7 @@ class ServiceController extends Controller
             ]);
 
             $user = Auth::user();
-            
+
             // Mock service suspension - replace with actual database logic
             return response()->json([
                 'success' => true,
@@ -347,7 +347,7 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Mock service reactivation - replace with actual database logic
             return response()->json([
                 'success' => true,
@@ -374,7 +374,7 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Mock usage statistics - replace with actual monitoring data
             $usage = [
                 'service_id' => $serviceId,
@@ -424,7 +424,7 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Mock backup data - replace with actual backup system integration
             $backups = [
                 [
@@ -477,7 +477,7 @@ class ServiceController extends Controller
             ]);
 
             $user = Auth::user();
-            
+
             // Mock backup creation - replace with actual backup system integration
             $backup = [
                 'id' => rand(100, 999),
@@ -509,7 +509,7 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Mock backup restoration - replace with actual backup system integration
             return response()->json([
                 'success' => true,
