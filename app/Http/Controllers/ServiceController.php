@@ -113,33 +113,32 @@ class ServiceController extends Controller
     {
         try {
             $request->validate([
-                'plan_id' => 'required|integer',
-                'billing_cycle' => 'required|string|in:monthly,yearly',
+                'plan_id' => 'required|string',
+                'billing_cycle' => 'required|string|in:monthly,quarterly,annually',
                 'domain' => 'nullable|string',
+                'service_name' => 'required|string',
+                'payment_intent_id' => 'required|string',
                 'additional_options' => 'nullable|array'
             ]);
 
             $user = Auth::user();
             
-            // Mock service creation - replace with actual database logic
-            $service = [
-                'id' => rand(1000, 9999),
+            $service = \App\Models\Service::create([
                 'user_id' => $user->id,
                 'plan_id' => $request->plan_id,
-                'status' => 'pending_payment',
+                'name' => $request->service_name,
+                'status' => 'active', // Assuming payment is successful at this point
                 'billing_cycle' => $request->billing_cycle,
                 'domain' => $request->domain,
-                'created_at' => now(),
-                'next_billing_date' => now()->addMonth()
-            ];
-
-            // In a real implementation, save to database
-            // Service::create($service);
+                'payment_intent_id' => $request->payment_intent_id,
+                'additional_options' => $request->additional_options,
+                'next_billing_date' => now()->add(1, $request->billing_cycle === 'monthly' ? 'month' : ($request->billing_cycle === 'quarterly' ? 'quarter' : 'year'))
+            ]);
 
             return response()->json([
                 'success' => true,
                 'data' => $service,
-                'message' => 'Service contracted successfully. Please complete payment.'
+                'message' => 'Service contracted successfully.'
             ]);
         } catch (\Exception $e) {
             Log::error('Error contracting service: ' . $e->getMessage());
