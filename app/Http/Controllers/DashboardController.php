@@ -17,7 +17,7 @@ class DashboardController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized'], 401);
             }
@@ -35,19 +35,38 @@ class DashboardController extends Controller
             $maintenanceServices = $servicesStats['maintenance'] ?? 0;
             $suspendedServices = $servicesStats['suspended'] ?? 0;
 
-            // Mock data for domains (would come from domains table in real implementation)
-            $totalDomains = 5;
+            // Calculate service trends (compare with last month)
+            $lastMonthServices = Service::where('user_id', $user->id)
+                ->where('created_at', '>=', now()->subMonth())
+                ->count();
+            $serviceTrend = $lastMonthServices > 0 ? round(($lastMonthServices / max($totalServices - $lastMonthServices, 1)) * 100) : 0;
 
-            // Calculate monthly spending (mock data - would come from invoices)
-            $monthlySpend = 127.50;
+            // Get domains count (mock for now - would come from domains table)
+            $totalDomains = 0; // No domains table yet
+            $activeDomains = 0;
+            $pendingDomains = 0;
 
-            // Mock support tickets data
-            $supportTickets = [
-                'total' => 2,
-                'open' => 1,
-                'resolved' => 1,
-                'avg_response_time' => '2h'
-            ];
+            // Calculate monthly spending from user's services
+            $monthlySpend = Service::where('user_id', $user->id)
+                ->where('status', 'active')
+                ->sum('price');
+
+            // Calculate billing trend (compare with last month)
+            $lastMonthSpend = $monthlySpend; // Would be calculated from invoices in real implementation
+            $billingTrend = 0; // No change for now
+
+            // Calculate performance metrics based on active services
+            $performanceUptime = null;
+            if ($activeServices > 0) {
+                // Mock uptime calculation - in real implementation would come from monitoring data
+                if ($suspendedServices === 0 && $maintenanceServices === 0) {
+                    $performanceUptime = 99.9;
+                } else if ($suspendedServices > 0) {
+                    $performanceUptime = 95.0;
+                } else {
+                    $performanceUptime = 98.5;
+                }
+            }
 
             return response()->json([
                 'success' => true,
@@ -57,18 +76,23 @@ class DashboardController extends Controller
                         'active' => $activeServices,
                         'maintenance' => $maintenanceServices,
                         'suspended' => $suspendedServices,
-                        'trend' => '+2 this month'
+                        'trend' => $serviceTrend > 0 ? $serviceTrend : null
                     ],
                     'domains' => [
                         'total' => $totalDomains,
-                        'trend' => '+1 this week'
+                        'active' => $activeDomains,
+                        'pending' => $pendingDomains,
+                        'trend' => null // No trend data available yet
                     ],
                     'billing' => [
                         'monthly_spend' => $monthlySpend,
                         'currency' => 'USD',
-                        'trend' => '-$12.50 vs last month'
+                        'cycle' => 'Mensual',
+                        'trend' => $billingTrend !== 0 ? $billingTrend : null
                     ],
-                    'support' => $supportTickets
+                    'performance' => [
+                        'uptime' => $performanceUptime
+                    ]
                 ]
             ]);
 
@@ -88,7 +112,7 @@ class DashboardController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized'], 401);
             }
@@ -134,7 +158,7 @@ class DashboardController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             if (!$user) {
                 return response()->json(['error' => 'Unauthorized'], 401);
             }
@@ -147,7 +171,7 @@ class DashboardController extends Controller
                     'service' => 'Web Hosting Pro',
                     'time' => '2 hours ago',
                     'type' => 'deployment',
-                    'icon' => 'zap'
+                    'icon' => 'Zap'
                 ],
                 [
                     'id' => 2,
@@ -259,4 +283,3 @@ class DashboardController extends Controller
         }
     }
 }
-

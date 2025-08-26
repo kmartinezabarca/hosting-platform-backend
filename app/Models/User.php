@@ -19,6 +19,7 @@ class User extends Authenticatable
      * @var array<int, string>
      */
     protected $fillable = [
+        'google_id',
         'uuid',
         'email',
         'password',
@@ -44,6 +45,7 @@ class User extends Authenticatable
      * @var array<int, string>
      */
     protected $hidden = [
+        'google_id',
         'password',
         'two_factor_secret',
     ];
@@ -66,7 +68,7 @@ class User extends Authenticatable
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($model) {
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();

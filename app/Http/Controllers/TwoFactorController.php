@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Auth;
 use PragmaRX\Google2FA\Google2FA;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
+use Illuminate\Support\Facades\Validator;
+use App\Models\User;
 
 class TwoFactorController extends Controller
 {
@@ -24,30 +26,30 @@ class TwoFactorController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Generate a new secret key
             $secret = $this->google2fa->generateSecretKey();
-            
+
             // Save the secret to the user (temporarily, until verified)
             $user->update(['two_factor_secret' => encrypt($secret)]);
-            
+
             // Generate QR code
             $qrCodeUrl = $this->google2fa->getQRCodeUrl(
                 config('app.name'),
                 $user->email,
                 $secret
             );
-            
+
             // Create QR code image
             $qrCode = new QrCode($qrCodeUrl);
             $qrCode->setSize(200);
             $qrCode->setMargin(10);
-            
+
             $writer = new PngWriter();
             $result = $writer->write($qrCode);
-            
+
             $qrCodeImage = base64_encode($result->getString());
-            
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -56,7 +58,7 @@ class TwoFactorController extends Controller
                     'manual_entry_key' => $secret
                 ]
             ]);
-            
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -77,7 +79,7 @@ class TwoFactorController extends Controller
             ]);
 
             $user = Auth::user();
-            
+
             if (!$user->two_factor_secret) {
                 return response()->json([
                     'success' => false,
@@ -86,10 +88,10 @@ class TwoFactorController extends Controller
             }
 
             $secret = decrypt($user->two_factor_secret);
-            
+
             // Verify the provided code
             $valid = $this->google2fa->verifyKey($secret, $request->code);
-            
+
             if (!$valid) {
                 return response()->json([
                     'success' => false,
@@ -139,7 +141,7 @@ class TwoFactorController extends Controller
             if ($user->two_factor_enabled && $user->two_factor_secret) {
                 $secret = decrypt($user->two_factor_secret);
                 $valid = $this->google2fa->verifyKey($secret, $request->code);
-                
+
                 if (!$valid) {
                     return response()->json([
                         'success' => false,
@@ -213,13 +215,57 @@ class TwoFactorController extends Controller
     }
 
     /**
+     * Verifica el código 2FA durante el proceso de login.
+     * Esta es una ruta pública, por lo que busca al usuario por email.
+     */
+    public function verifyLogin(Request $request)
+    {
+        // 1. Validar la petición
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|exists:users,email',
+            'code' => 'required|string|digits:6',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // 2. Encontrar al usuario por su email
+        $user = User::where('email', $request->email)->first();
+
+        // 3. Verificar que el usuario realmente tiene 2FA activado
+        if (!$user || !$user->two_factor_enabled || !$user->two_factor_secret) {
+            return response()->json(['message' => 'La autenticación de dos factores no está activada para esta cuenta.'], 422);
+        }
+
+        // 4. Validar el código 2FA
+        $google2fa = new Google2FA();
+        $secret = decrypt($user->two_factor_secret);
+        $isValid = $google2fa->verifyKey($secret, $request->code);
+
+        if (!$isValid) {
+            return response()->json(['message' => 'El código de verificación es incorrecto.'], 401);
+        }
+
+        // 5. ¡Éxito! El código es correcto. Generar el token de sesión final.
+        $token = $user->createToken('2fa-verified-auth-token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Verificación exitosa.',
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'user' => $user,
+        ]);
+    }
+
+    /**
      * Get 2FA status
      */
     public function getStatus()
     {
         try {
             $user = Auth::user();
-            
+
             return response()->json([
                 'success' => true,
                 'data' => [

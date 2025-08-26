@@ -22,6 +22,8 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 Route::post("auth/register", [App\Http\Controllers\AuthController::class, "register"]);
 Route::post("auth/login", [App\Http\Controllers\AuthController::class, "login"]);
 Route::post("auth/logout", [App\Http\Controllers\AuthController::class, "logout"])->middleware("auth:sanctum");
+Route::post('auth/google/callback', [App\Http\Controllers\GoogleLoginController::class, 'handleGoogleCallback']);
+Route::post('auth/2fa/verify', [App\Http\Controllers\TwoFactorController::class, 'verifyLogin']);
 
 // Protected routes (require authentication)
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -66,13 +68,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 // Admin routes (protected by admin middleware)
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     Route::get('/dashboard/stats', [App\Http\Controllers\AdminController::class, 'getDashboardStats']);
-    
+
     // User management
     Route::get('/users', [App\Http\Controllers\AdminController::class, 'getUsers']);
     Route::post('/users', [App\Http\Controllers\AdminController::class, 'createUser']);
     Route::put('/users/{id}', [App\Http\Controllers\AdminController::class, 'updateUser']);
     Route::delete('/users/{id}', [App\Http\Controllers\AdminController::class, 'deleteUser']);
-    
+
     // Service management
     Route::get('/services', [App\Http\Controllers\AdminController::class, 'getServices']);
 });

@@ -11,21 +11,23 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('ticket_replies', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('ticket_id')->constrained()->onDelete('cascade');
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->text('message');
-            $table->boolean('is_internal')->default(false);
-            $table->json('attachments')->nullable();
-            $table->timestamps();
-            $table->softDeletes();
+        if (!Schema::hasTable('ticket_replies')) {
+            Schema::create('ticket_replies', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('ticket_id')->constrained()->onDelete('cascade');
+                $table->foreignId('user_id')->constrained()->onDelete('cascade');
+                $table->text('message');
+                $table->boolean('is_internal')->default(false);
+                $table->json('attachments')->nullable();
+                $table->timestamps();
+                $table->softDeletes();
 
-            // Índices para mejorar el rendimiento
-            $table->index(['ticket_id', 'created_at']);
-            $table->index(['user_id', 'created_at']);
-            $table->index(['is_internal', 'created_at']);
-        });
+                // Índices para mejorar el rendimiento
+                $table->index(['ticket_id', 'created_at']);
+                $table->index(['user_id', 'created_at']);
+                $table->index(['is_internal', 'created_at']);
+            });
+        }
     }
 
     /**
