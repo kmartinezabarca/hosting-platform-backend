@@ -4,12 +4,21 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
 use App\Models\Invoice;
+use Stripe\Stripe;
+use Stripe\PaymentIntent;
+use Stripe\Exception\ApiErrorException;
 
 class PaymentController extends Controller
 {
+    public function __construct()
+    {
+        // Set Stripe API key
+        Stripe::setApiKey(env('STRIPE_SECRET'));
+    }
     /**
      * Get user payment methods
      */
@@ -180,74 +189,79 @@ class PaymentController extends Controller
     }
 
     /**
-     * Process payment for invoice
+     * Process payment for invoice or service
      */
     public function processPayment(Request $request)
     {
         try {
             $validated = $request->validate([
-                'invoice_id' => 'required|exists:invoices,id',
-                'payment_method_id' => 'required|exists:payment_methods,id',
-                'provider' => 'required|in:stripe,conekta,paypal'
+                'amount' => 'required|numeric|min:1',
+                'currency' => 'sometimes|string|size:3',
+                'payment_method_id' => 'sometimes|string',
+                'service_id' => 'sometimes|integer',
+                'invoice_id' => 'sometimes|exists:invoices,id',
+                'description' => 'sometimes|string|max:500'
             ]);
 
             $user = Auth::user();
+            $amount = $validated['amount'];
+            $currency = $validated['currency'] ?? 'usd';
             
-            // Verify invoice belongs to user
-            $invoice = Invoice::where('id', $validated['invoice_id'])
-                ->where('user_id', $user->id)
-                ->where('status', 'pending')
-                ->firstOrFail();
+            // Create Stripe Payment Intent
+            try {
+                $paymentIntent = PaymentIntent::create([
+                    'amount' => $amount * 100, // Convert to cents
+                    'currency' => $currency,
+                    'metadata' => [
+                        'user_id' => $user->id,
+                        'service_id' => $validated['service_id'] ?? null,
+                        'invoice_id' => $validated['invoice_id'] ?? null,
+                    ],
+                    'description' => $validated['description'] ?? 'Service payment'
+                ]);
 
-            // Verify payment method belongs to user
-            $paymentMethod = PaymentMethod::where('id', $validated['payment_method_id'])
-                ->where('user_id', $user->id)
-                ->where('is_active', true)
-                ->firstOrFail();
+                // Create transaction record
+                $transaction = [
+                    'id' => rand(1000, 9999),
+                    'user_id' => $user->id,
+                    'payment_intent_id' => $paymentIntent->id,
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'status' => 'pending',
+                    'created_at' => now()
+                ];
 
-            // Create transaction record
-            $transaction = Transaction::create([
-                'uuid' => \Str::uuid(),
-                'user_id' => $user->id,
-                'invoice_id' => $invoice->id,
-                'payment_method_id' => $paymentMethod->id,
-                'transaction_id' => 'TXN_' . strtoupper(\Str::random(12)),
-                'type' => 'payment',
-                'status' => 'pending',
-                'amount' => $invoice->total,
-                'currency' => 'MXN',
-                'provider' => $validated['provider'],
-                'description' => "Payment for invoice #{$invoice->invoice_number}"
-            ]);
+                // In a real implementation, save to database
+                // Transaction::create($transaction);
 
-            // Here you would integrate with actual payment providers
-            // For now, we'll simulate a successful payment
-            $transaction->update([
-                'status' => 'completed',
-                'provider_transaction_id' => 'MOCK_' . strtoupper(\Str::random(16)),
-                'processed_at' => now()
-            ]);
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'payment_intent' => [
+                            'id' => $paymentIntent->id,
+                            'client_secret' => $paymentIntent->client_secret,
+                            'amount' => $paymentIntent->amount,
+                            'currency' => $paymentIntent->currency,
+                            'status' => $paymentIntent->status
+                        ],
+                        'transaction' => $transaction
+                    ],
+                    'message' => 'Payment intent created successfully'
+                ]);
 
-            // Update invoice status
-            $invoice->update([
-                'status' => 'paid',
-                'paid_at' => now()
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Payment processed successfully',
-                'data' => [
-                    'transaction' => $transaction,
-                    'invoice' => $invoice->fresh()
-                ]
-            ]);
+            } catch (ApiErrorException $e) {
+                Log::error('Stripe API Error: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment processing error: ' . $e->getMessage()
+                ], 400);
+            }
 
         } catch (\Exception $e) {
+            Log::error('Error processing payment: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error processing payment',
-                'error' => $e->getMessage()
+                'message' => 'Error processing payment'
             ], 500);
         }
     }
@@ -296,7 +310,7 @@ class PaymentController extends Controller
     }
 
     /**
-     * Generate payment intent for Stripe/Conekta
+     * Generate payment intent for Stripe
      */
     public function createPaymentIntent(Request $request)
     {
@@ -304,31 +318,52 @@ class PaymentController extends Controller
             $validated = $request->validate([
                 'amount' => 'required|numeric|min:1',
                 'currency' => 'sometimes|string|size:3',
-                'provider' => 'required|in:stripe,conekta'
+                'service_id' => 'sometimes|integer',
+                'description' => 'sometimes|string|max:500'
             ]);
 
             $user = Auth::user();
+            $amount = $validated['amount'];
+            $currency = $validated['currency'] ?? 'usd';
             
-            // Here you would create actual payment intent with the provider
-            // For now, return mock data
-            $paymentIntent = [
-                'id' => 'pi_' . strtoupper(\Str::random(24)),
-                'client_secret' => 'pi_' . strtoupper(\Str::random(24)) . '_secret_' . strtoupper(\Str::random(16)),
-                'amount' => $validated['amount'] * 100, // Convert to cents
-                'currency' => $validated['currency'] ?? 'mxn',
-                'status' => 'requires_payment_method'
-            ];
+            try {
+                $paymentIntent = PaymentIntent::create([
+                    'amount' => $amount * 100, // Convert to cents
+                    'currency' => $currency,
+                    'metadata' => [
+                        'user_id' => $user->id,
+                        'service_id' => $validated['service_id'] ?? null,
+                    ],
+                    'description' => $validated['description'] ?? 'Service payment',
+                    'automatic_payment_methods' => [
+                        'enabled' => true,
+                    ],
+                ]);
 
-            return response()->json([
-                'success' => true,
-                'data' => $paymentIntent
-            ]);
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'id' => $paymentIntent->id,
+                        'client_secret' => $paymentIntent->client_secret,
+                        'amount' => $paymentIntent->amount,
+                        'currency' => $paymentIntent->currency,
+                        'status' => $paymentIntent->status
+                    ]
+                ]);
+
+            } catch (ApiErrorException $e) {
+                Log::error('Stripe API Error: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error creating payment intent: ' . $e->getMessage()
+                ], 400);
+            }
 
         } catch (\Exception $e) {
+            Log::error('Error creating payment intent: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error creating payment intent',
-                'error' => $e->getMessage()
+                'message' => 'Error creating payment intent'
             ], 500);
         }
     }

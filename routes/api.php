@@ -47,6 +47,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/verify', [App\Http\Controllers\TwoFactorController::class, 'verify']);
     });
 
+    // Services management
+    Route::prefix('services')->group(function () {
+        Route::get('/plans', [App\Http\Controllers\ServiceController::class, 'getServicePlans']);
+        Route::post('/contract', [App\Http\Controllers\ServiceController::class, 'contractService']);
+        Route::get('/user', [App\Http\Controllers\ServiceController::class, 'getUserServices']);
+        Route::get('/{serviceId}', [App\Http\Controllers\ServiceController::class, 'getServiceDetails']);
+        Route::put('/{serviceId}/config', [App\Http\Controllers\ServiceController::class, 'updateServiceConfig']);
+        Route::post('/{serviceId}/cancel', [App\Http\Controllers\ServiceController::class, 'cancelService']);
+        Route::post('/{serviceId}/suspend', [App\Http\Controllers\ServiceController::class, 'suspendService']);
+        Route::post('/{serviceId}/reactivate', [App\Http\Controllers\ServiceController::class, 'reactivateService']);
+        Route::get('/{serviceId}/usage', [App\Http\Controllers\ServiceController::class, 'getServiceUsage']);
+        Route::get('/{serviceId}/backups', [App\Http\Controllers\ServiceController::class, 'getServiceBackups']);
+        Route::post('/{serviceId}/backups', [App\Http\Controllers\ServiceController::class, 'createServiceBackup']);
+        Route::post('/{serviceId}/backups/{backupId}/restore', [App\Http\Controllers\ServiceController::class, 'restoreServiceBackup']);
+    });
+
     // Payment and Billing
     Route::prefix('payments')->group(function () {
         Route::get('/methods', [App\Http\Controllers\PaymentController::class, 'getPaymentMethods']);
