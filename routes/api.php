@@ -25,6 +25,9 @@ Route::post("auth/logout", [App\Http\Controllers\AuthController::class, "logout"
 Route::post('auth/google/callback', [App\Http\Controllers\GoogleLoginController::class, 'handleGoogleCallback']);
 Route::post('auth/2fa/verify', [App\Http\Controllers\TwoFactorController::class, 'verifyLogin']);
 
+// Stripe webhook (no authentication required)
+Route::post('/stripe/webhook', [App\Http\Controllers\StripeWebhookController::class, 'handleWebhook']);
+
 // Protected routes (require authentication)
 Route::middleware(['auth:sanctum'])->group(function () {
     // Profile management
@@ -73,6 +76,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/process', [App\Http\Controllers\PaymentController::class, 'processPayment']);
         Route::get('/stats', [App\Http\Controllers\PaymentController::class, 'getPaymentStats']);
         Route::post('/intent', [App\Http\Controllers\PaymentController::class, 'createPaymentIntent']);
+    });
+
+    // Subscriptions management
+    Route::prefix('subscriptions')->group(function () {
+        Route::get('/', [App\Http\Controllers\SubscriptionController::class, 'getUserSubscriptions']);
+        Route::post('/', [App\Http\Controllers\SubscriptionController::class, 'createSubscription']);
+        Route::get('/{subscriptionId}', [App\Http\Controllers\SubscriptionController::class, 'getSubscriptionDetails']);
+        Route::post('/{subscriptionId}/cancel', [App\Http\Controllers\SubscriptionController::class, 'cancelSubscription']);
+        Route::post('/{subscriptionId}/resume', [App\Http\Controllers\SubscriptionController::class, 'resumeSubscription']);
     });
 
     // Dashboard routes
