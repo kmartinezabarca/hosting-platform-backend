@@ -165,3 +165,44 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     });
 });
 
+
+
+// Public routes for Categories, Billing Cycles, and Service Plans
+Route::prefix("categories")->group(function () {
+    Route::get("/", [App\Http\Controllers\CategoryController::class, "index"]);
+    Route::get("/with-plans", [App\Http\Controllers\CategoryController::class, "indexWithPlans"]);
+    Route::get("/slug/{slug}", [App\Http\Controllers\CategoryController::class, "showBySlug"]);
+});
+
+Route::prefix("billing-cycles")->group(function () {
+    Route::get("/", [App\Http\Controllers\BillingCycleController::class, "index"]);
+});
+
+Route::prefix("service-plans")->group(function () {
+    Route::get("/", [App\Http\Controllers\ServicePlanController::class, "index"]);
+    Route::get("/category/{categorySlug}", [App\Http\Controllers\ServicePlanController::class, "indexByCategorySlug"]);
+    Route::get("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "show"]);
+});
+
+// Admin routes for Categories, Billing Cycles, and Service Plans (protected by admin middleware)
+Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function () {
+    Route::prefix("categories")->group(function () {
+        Route::post("/", [App\Http\Controllers\CategoryController::class, "store"]);
+        Route::put("/{uuid}", [App\Http\Controllers\CategoryController::class, "update"]);
+        Route::delete("/{uuid}", [App\Http\Controllers\CategoryController::class, "destroy"]);
+    });
+
+    Route::prefix("billing-cycles")->group(function () {
+        Route::post("/", [App\Http\Controllers\BillingCycleController::class, "store"]);
+        Route::put("/{uuid}", [App\Http\Controllers\BillingCycleController::class, "update"]);
+        Route::delete("/{uuid}", [App\Http\Controllers\BillingCycleController::class, "destroy"]);
+    });
+
+    Route::prefix("service-plans")->group(function () {
+        Route::post("/", [App\Http\Controllers\ServicePlanController::class, "store"]);
+        Route::put("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "update"]);
+        Route::delete("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "destroy"]);
+    });
+});
+
+
