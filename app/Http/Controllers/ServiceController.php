@@ -28,73 +28,36 @@ class ServiceController extends Controller
     public function getServicePlans(): JsonResponse
     {
         try {
-            // Mock service plans data - replace with actual database query
-            $plans = [
-                [
-                    'id' => 1,
-                    'name' => 'Basic VPS',
-                    'description' => 'Perfect for small projects and development',
-                    'price' => 9.99,
-                    'currency' => 'USD',
-                    'billing_cycle' => 'monthly',
-                    'features' => [
-                        '1 vCPU',
-                        '1GB RAM',
-                        '25GB SSD Storage',
-                        '1TB Bandwidth',
-                        '24/7 Support'
-                    ],
-                    'category' => 'vps'
-                ],
-                [
-                    'id' => 2,
-                    'name' => 'Standard VPS',
-                    'description' => 'Great for growing applications',
-                    'price' => 19.99,
-                    'currency' => 'USD',
-                    'billing_cycle' => 'monthly',
-                    'features' => [
-                        '2 vCPU',
-                        '4GB RAM',
-                        '80GB SSD Storage',
-                        '3TB Bandwidth',
-                        '24/7 Support'
-                    ],
-                    'category' => 'vps'
-                ],
-                [
-                    'id' => 3,
-                    'name' => 'Premium VPS',
-                    'description' => 'High performance for demanding applications',
-                    'price' => 39.99,
-                    'currency' => 'USD',
-                    'billing_cycle' => 'monthly',
-                    'features' => [
-                        '4 vCPU',
-                        '8GB RAM',
-                        '160GB SSD Storage',
-                        '5TB Bandwidth',
-                        'Priority Support'
-                    ],
-                    'category' => 'vps'
-                ],
-                [
-                    'id' => 4,
-                    'name' => 'Basic Web Hosting',
-                    'description' => 'Shared hosting for simple websites',
-                    'price' => 4.99,
-                    'currency' => 'USD',
-                    'billing_cycle' => 'monthly',
-                    'features' => [
-                        '10GB Storage',
-                        'Unlimited Bandwidth',
-                        '5 Email Accounts',
-                        'cPanel Access',
-                        'SSL Certificate'
-                    ],
-                    'category' => 'hosting'
-                ]
-            ];
+            $plans = ServicePlan::with(['category', 'features', 'pricing.billingCycle'])
+                ->active()
+                ->orderBy('sort_order')
+                ->get()
+                ->map(function ($plan) {
+                    $planData = [
+                        'id' => $plan->id,
+                        'uuid' => $plan->uuid,
+                        'slug' => $plan->slug,
+                        'name' => $plan->name,
+                        'description' => $plan->description,
+                        'base_price' => $plan->base_price,
+                        'setup_fee' => $plan->setup_fee,
+                        'is_popular' => $plan->is_popular,
+                        'category' => $plan->category ? $plan->category->name : null,
+                        'category_slug' => $plan->category ? $plan->category->slug : null,
+                        'specifications' => $plan->specifications,
+                        'features' => $plan->features->pluck('name')->toArray(),
+                        'pricing' => $plan->pricing->map(function ($pricing) {
+                            return [
+                                'billing_cycle' => $pricing->billingCycle->name,
+                                'billing_cycle_slug' => $pricing->billingCycle->slug,
+                                'price' => $pricing->price,
+                                'discount_percentage' => $pricing->discount_percentage,
+                            ];
+                        })->toArray()
+                    ];
+                    
+                    return $planData;
+                });
 
             return response()->json([
                 'success' => true,
@@ -199,31 +162,29 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
 
-            // Mock user services - replace with actual database query
-            $services = [
-                [
-                    'id' => 1001,
-                    'plan_name' => 'Standard VPS',
-                    'status' => 'active',
-                    'domain' => 'example.com',
-                    'created_at' => '2024-01-15T10:30:00Z',
-                    'next_billing_date' => '2024-02-15T10:30:00Z',
-                    'price' => 19.99,
-                    'currency' => 'USD',
-                    'billing_cycle' => 'monthly'
-                ],
-                [
-                    'id' => 1002,
-                    'plan_name' => 'Basic Web Hosting',
-                    'status' => 'active',
-                    'domain' => 'mysite.com',
-                    'created_at' => '2024-01-10T14:20:00Z',
-                    'next_billing_date' => '2024-02-10T14:20:00Z',
-                    'price' => 4.99,
-                    'currency' => 'USD',
-                    'billing_cycle' => 'monthly'
-                ]
-            ];
+            $services = Service::with(['plan.category'])
+                ->where('user_id', $user->id)
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($service) {
+                    return [
+                        'id' => $service->id,
+                        'uuid' => $service->uuid,
+                        'plan_name' => $service->plan ? $service->plan->name : 'Plan no disponible',
+                        'plan_slug' => $service->plan ? $service->plan->slug : null,
+                        'category' => $service->plan && $service->plan->category ? $service->plan->category->name : null,
+                        'status' => $service->status,
+                        'name' => $service->name,
+                        'created_at' => $service->created_at->toISOString(),
+                        'next_due_date' => $service->next_due_date,
+                        'price' => $service->price,
+                        'setup_fee' => $service->setup_fee,
+                        'billing_cycle' => $service->billing_cycle,
+                        'connection_details' => $service->connection_details,
+                        'configuration' => $service->configuration,
+                        'notes' => $service->notes
+                    ];
+                });
 
             return response()->json([
                 'success' => true,
@@ -246,35 +207,43 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
 
-            // Mock service details - replace with actual database query
-            $service = [
-                'id' => $serviceId,
-                'plan_name' => 'Standard VPS',
-                'status' => 'active',
-                'domain' => 'example.com',
-                'ip_address' => '192.168.1.100',
-                'created_at' => '2024-01-15T10:30:00Z',
-                'next_billing_date' => '2024-02-15T10:30:00Z',
-                'price' => 19.99,
-                'currency' => 'USD',
-                'billing_cycle' => 'monthly',
-                'specifications' => [
-                    'cpu' => '2 vCPU',
-                    'ram' => '4GB',
-                    'storage' => '80GB SSD',
-                    'bandwidth' => '3TB'
-                ],
-                'configuration' => [
-                    'os' => 'Ubuntu 22.04',
-                    'control_panel' => 'cPanel',
-                    'backup_enabled' => true,
-                    'monitoring_enabled' => true
-                ]
+            $service = Service::with(['plan.category', 'plan.features', 'user'])
+                ->where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            $serviceData = [
+                'id' => $service->id,
+                'uuid' => $service->uuid,
+                'name' => $service->name,
+                'plan_name' => $service->plan ? $service->plan->name : 'Plan no disponible',
+                'plan_slug' => $service->plan ? $service->plan->slug : null,
+                'category' => $service->plan && $service->plan->category ? $service->plan->category->name : null,
+                'status' => $service->status,
+                'created_at' => $service->created_at->toISOString(),
+                'next_due_date' => $service->next_due_date,
+                'price' => $service->price,
+                'setup_fee' => $service->setup_fee,
+                'billing_cycle' => $service->billing_cycle,
+                'connection_details' => $service->connection_details,
+                'configuration' => $service->configuration,
+                'specifications' => $service->plan ? $service->plan->specifications : null,
+                'features' => $service->plan ? $service->plan->features->pluck('name')->toArray() : [],
+                'external_id' => $service->external_id,
+                'notes' => $service->notes,
+                'terminated_at' => $service->terminated_at
             ];
 
             return response()->json([
                 'success' => true,
-                'data' => $service
+                'data' => $serviceData
             ]);
         } catch (\Exception $e) {
             Log::error('Error fetching service details: ' . $e->getMessage());
@@ -297,17 +266,30 @@ class ServiceController extends Controller
 
             $user = Auth::user();
 
-            // Mock configuration update - replace with actual database logic
-            $updatedConfig = $request->configuration;
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // Actualizar la configuración del servicio
+            $service->configuration = $request->configuration;
+            $service->save();
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'service_id' => $serviceId,
-                    'configuration' => $updatedConfig,
-                    'updated_at' => now()
+                    'service_id' => $service->id,
+                    'uuid' => $service->uuid,
+                    'configuration' => $service->configuration,
+                    'updated_at' => $service->updated_at
                 ],
-                'message' => 'Service configuration updated successfully'
+                'message' => 'Configuración del servicio actualizada exitosamente'
             ]);
         } catch (\Exception $e) {
             Log::error('Error updating service config: ' . $e->getMessage());
@@ -330,16 +312,34 @@ class ServiceController extends Controller
 
             $user = Auth::user();
 
-            // Mock service cancellation - replace with actual database logic
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // Actualizar el estado del servicio a terminado
+            $service->status = 'terminated';
+            $service->terminated_at = now();
+            $service->notes = ($service->notes ? $service->notes . "\n" : '') . 
+                             "Cancelado el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
+            $service->save();
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'service_id' => $serviceId,
-                    'status' => 'cancelled',
+                    'service_id' => $service->id,
+                    'uuid' => $service->uuid,
+                    'status' => $service->status,
                     'cancellation_reason' => $request->reason,
-                    'cancelled_at' => now()
+                    'cancelled_at' => $service->terminated_at
                 ],
-                'message' => 'Service cancelled successfully'
+                'message' => 'Servicio cancelado exitosamente'
             ]);
         } catch (\Exception $e) {
             Log::error('Error cancelling service: ' . $e->getMessage());
@@ -362,16 +362,33 @@ class ServiceController extends Controller
 
             $user = Auth::user();
 
-            // Mock service suspension - replace with actual database logic
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // Actualizar el estado del servicio a suspendido
+            $service->status = 'suspended';
+            $service->notes = ($service->notes ? $service->notes . "\n" : '') . 
+                             "Suspendido el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
+            $service->save();
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'service_id' => $serviceId,
-                    'status' => 'suspended',
+                    'service_id' => $service->id,
+                    'uuid' => $service->uuid,
+                    'status' => $service->status,
                     'suspension_reason' => $request->reason,
                     'suspended_at' => now()
                 ],
-                'message' => 'Service suspended successfully'
+                'message' => 'Servicio suspendido exitosamente'
             ]);
         } catch (\Exception $e) {
             Log::error('Error suspending service: ' . $e->getMessage());
@@ -390,15 +407,32 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
 
-            // Mock service reactivation - replace with actual database logic
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // Actualizar el estado del servicio a activo
+            $service->status = 'active';
+            $service->notes = ($service->notes ? $service->notes . "\n" : '') . 
+                             "Reactivado el " . now()->format('Y-m-d H:i:s');
+            $service->save();
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'service_id' => $serviceId,
-                    'status' => 'active',
+                    'service_id' => $service->id,
+                    'uuid' => $service->uuid,
+                    'status' => $service->status,
                     'reactivated_at' => now()
                 ],
-                'message' => 'Service reactivated successfully'
+                'message' => 'Servicio reactivado exitosamente'
             ]);
         } catch (\Exception $e) {
             Log::error('Error reactivating service: ' . $e->getMessage());
@@ -417,9 +451,23 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
 
-            // Mock usage statistics - replace with actual monitoring data
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // TODO: Integrar con sistema de monitoreo real (Prometheus, Grafana, etc.)
+            // Por ahora retornamos datos de ejemplo basados en el servicio real
             $usage = [
-                'service_id' => $serviceId,
+                'service_id' => $service->id,
+                'service_uuid' => $service->uuid,
+                'service_name' => $service->name,
                 'period' => 'last_30_days',
                 'cpu_usage' => [
                     'average' => 45.2,
@@ -443,7 +491,8 @@ class ServiceController extends Controller
                     'total_limit' => 3000.0,
                     'unit' => 'GB'
                 ],
-                'uptime' => 99.95
+                'uptime' => 99.95,
+                'last_updated' => now()
             ];
 
             return response()->json([
@@ -467,30 +516,48 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
 
-            // Mock backup data - replace with actual backup system integration
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // TODO: Integrar con sistema de backup real (Proxmox, cPanel, etc.)
+            // Por ahora retornamos datos de ejemplo basados en el servicio real
             $backups = [
                 [
                     'id' => 1,
-                    'name' => 'Daily Backup - 2024-01-26',
+                    'service_id' => $service->id,
+                    'service_uuid' => $service->uuid,
+                    'name' => 'Daily Backup - ' . now()->subDay()->format('Y-m-d'),
                     'type' => 'automatic',
                     'size' => '2.5 GB',
-                    'created_at' => '2024-01-26T02:00:00Z',
+                    'created_at' => now()->subDay()->setTime(2, 0)->toISOString(),
                     'status' => 'completed'
                 ],
                 [
                     'id' => 2,
+                    'service_id' => $service->id,
+                    'service_uuid' => $service->uuid,
                     'name' => 'Manual Backup - Pre-Update',
                     'type' => 'manual',
                     'size' => '2.4 GB',
-                    'created_at' => '2024-01-25T14:30:00Z',
+                    'created_at' => now()->subDays(2)->setTime(14, 30)->toISOString(),
                     'status' => 'completed'
                 ],
                 [
                     'id' => 3,
-                    'name' => 'Daily Backup - 2024-01-25',
+                    'service_id' => $service->id,
+                    'service_uuid' => $service->uuid,
+                    'name' => 'Daily Backup - ' . now()->subDays(2)->format('Y-m-d'),
                     'type' => 'automatic',
                     'size' => '2.3 GB',
-                    'created_at' => '2024-01-25T02:00:00Z',
+                    'created_at' => now()->subDays(2)->setTime(2, 0)->toISOString(),
                     'status' => 'completed'
                 ]
             ];
@@ -520,10 +587,23 @@ class ServiceController extends Controller
 
             $user = Auth::user();
 
-            // Mock backup creation - replace with actual backup system integration
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // TODO: Integrar con sistema de backup real para crear el backup
+            // Por ahora simulamos la creación del backup
             $backup = [
                 'id' => rand(100, 999),
-                'service_id' => $serviceId,
+                'service_id' => $service->id,
+                'service_uuid' => $service->uuid,
                 'name' => $request->name,
                 'type' => 'manual',
                 'status' => 'in_progress',
@@ -533,7 +613,7 @@ class ServiceController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $backup,
-                'message' => 'Backup creation initiated successfully'
+                'message' => 'Creación de backup iniciada exitosamente'
             ]);
         } catch (\Exception $e) {
             Log::error('Error creating service backup: ' . $e->getMessage());
@@ -552,16 +632,29 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
 
-            // Mock backup restoration - replace with actual backup system integration
+            $service = Service::where('id', $serviceId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$service) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio no encontrado'
+                ], 404);
+            }
+
+            // TODO: Integrar con sistema de backup real para restaurar el backup
+            // Por ahora simulamos la restauración del backup
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'service_id' => $serviceId,
+                    'service_id' => $service->id,
+                    'service_uuid' => $service->uuid,
                     'backup_id' => $backupId,
                     'status' => 'restoration_in_progress',
                     'started_at' => now()
                 ],
-                'message' => 'Backup restoration initiated successfully'
+                'message' => 'Restauración de backup iniciada exitosamente'
             ]);
         } catch (\Exception $e) {
             Log::error('Error restoring service backup: ' . $e->getMessage());
