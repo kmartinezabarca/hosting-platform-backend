@@ -66,17 +66,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/{serviceId}/backups/{backupId}/restore', [App\Http\Controllers\ServiceController::class, 'restoreServiceBackup']);
     });
 
-    // Payment and Billing
+        // Payment routes
     Route::prefix('payments')->group(function () {
         Route::get('/methods', [App\Http\Controllers\PaymentController::class, 'getPaymentMethods']);
         Route::post('/methods', [App\Http\Controllers\PaymentController::class, 'addPaymentMethod']);
         Route::put('/methods/{id}', [App\Http\Controllers\PaymentController::class, 'updatePaymentMethod']);
         Route::delete('/methods/{id}', [App\Http\Controllers\PaymentController::class, 'deletePaymentMethod']);
-        Route::get('/transactions', [App\Http\Controllers\PaymentController::class, 'getTransactions']);
+        Route::post('/setup-intent', [App\Http\Controllers\PaymentController::class, 'createSetupIntent']);
         Route::post('/process', [App\Http\Controllers\PaymentController::class, 'processPayment']);
-        Route::get('/stats', [App\Http\Controllers\PaymentController::class, 'getPaymentStats']);
         Route::post('/intent', [App\Http\Controllers\PaymentController::class, 'createPaymentIntent']);
-    });
+        Route::get('/stats', [App\Http\Controllers\PaymentController::class, 'getPaymentStats']);
+        Route::get('/transactions', [App\Http\Controllers\PaymentController::class, 'getTransactions']);
+    });;
 
     // Subscriptions management
     Route::prefix('subscriptions')->group(function () {
