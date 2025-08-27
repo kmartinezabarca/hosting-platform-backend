@@ -18,7 +18,7 @@ class Service extends Model
     protected $fillable = [
         'uuid',
         'user_id',
-        'product_id',
+        'plan_id',
         'server_node_id',
         'name',
         'status',
@@ -53,7 +53,7 @@ class Service extends Model
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($model) {
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
@@ -80,9 +80,9 @@ class Service extends Model
     /**
      * Get the product that this service is based on.
      */
-    public function product()
+    public function plan()
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(ServicePlan::class);
     }
 
     /**
@@ -99,6 +99,11 @@ class Service extends Model
     public function invoiceItems()
     {
         return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function invoice()
+    {
+        return $this->hasOne(ServiceInvoice::class);
     }
 
     /**
@@ -149,7 +154,7 @@ class Service extends Model
     public function scopeOverdue($query)
     {
         return $query->where('next_due_date', '<', now())
-                    ->whereIn('status', ['active', 'suspended']);
+            ->whereIn('status', ['active', 'suspended']);
     }
 
     /**
@@ -230,8 +235,8 @@ class Service extends Model
     public function getNextBillingDate()
     {
         $currentDate = $this->next_due_date;
-        
-        return match($this->billing_cycle) {
+
+        return match ($this->billing_cycle) {
             'monthly' => $currentDate->addMonth(),
             'quarterly' => $currentDate->addMonths(3),
             'semi_annually' => $currentDate->addMonths(6),
@@ -288,7 +293,7 @@ class Service extends Model
      */
     public function getStatusColor()
     {
-        return match($this->status) {
+        return match ($this->status) {
             'active' => 'green',
             'pending' => 'yellow',
             'suspended' => 'orange',
@@ -303,7 +308,7 @@ class Service extends Model
      */
     public function getStatusLabel()
     {
-        return match($this->status) {
+        return match ($this->status) {
             'active' => 'Active',
             'pending' => 'Pending',
             'suspended' => 'Suspended',

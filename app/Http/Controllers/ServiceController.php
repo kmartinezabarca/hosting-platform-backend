@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use Stripe\Stripe;
+use App\Models\Service;
+use App\Models\ServicePlan;
+use App\Models\ServiceInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Stripe\Stripe;
-use Stripe\PaymentIntent;
-use Stripe\Exception\ApiErrorException;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ServiceController extends Controller
 {
@@ -112,39 +115,78 @@ class ServiceController extends Controller
     public function contractService(Request $request): JsonResponse
     {
         try {
-            $request->validate([
-                'plan_id' => 'required|string',
-                'billing_cycle' => 'required|string|in:monthly,quarterly,annually',
-                'domain' => 'nullable|string',
-                'service_name' => 'required|string',
-                'payment_intent_id' => 'required|string',
-                'additional_options' => 'nullable|array'
+            $validatedData = $request->validate([
+                'plan_id'         => ['required', 'string', Rule::exists('service_plans', 'slug')],
+                'billing_cycle'   => ['required', Rule::in(['monthly', 'quarterly', 'annually'])],
+                'domain'          => ['nullable', 'string', 'max:255'],
+                'service_name'    => ['required', 'string', 'max:255'],
+                'payment_intent_id' => ['required', 'string'],
+                'additional_options' => ['nullable', 'array'],
+                'invoice'         => ['sometimes', 'array'],
+                'invoice.rfc'     => ['required_with:invoice', 'string', 'max:13'],
+                'invoice.name'    => ['required_with:invoice', 'string', 'max:255'],
+                'invoice.zip'     => ['required_with:invoice', 'string', 'size:5'],
+                'invoice.regimen' => ['required_with:invoice', 'string', 'max:4'],
+                'invoice.uso_cfdi' => ['required_with:invoice', 'string', 'max:10'],
+                'invoice.constancia' => ['nullable', 'string'], // cadena base64 o null
             ]);
 
+            $plan = ServicePlan::where('slug', $validatedData['plan_id'])->firstOrFail();
             $user = Auth::user();
 
-            $service = \App\Models\Service::create([
-                'user_id' => $user->id,
-                'plan_id' => 1,
-                'name' => $request->service_name,
-                'status' => 'active', // Assuming payment is successful at this point
-                'billing_cycle' => $request->billing_cycle,
-                'domain' => $request->domain,
-                'payment_intent_id' => $request->payment_intent_id,
-                'additional_options' => $request->additional_options,
-                'next_billing_date' => now()->add(1, $request->billing_cycle === 'monthly' ? 'month' : ($request->billing_cycle === 'quarterly' ? 'quarter' : 'year'))
+            $nextBillingDate = now()->add(match ($validatedData['billing_cycle']) {
+                'monthly'   => 1,
+                'quarterly' => 3,
+                'annually'  => 12,
+            }, 'month');
+
+            DB::beginTransaction();
+
+            $service = Service::create([
+                'plan_id'        => $plan->id,
+                'user_id'           => $user->id,
+                'price'             => $plan->base_price,
+                'name'              => $validatedData['service_name'],
+                'status'            => 'active',
+                'billing_cycle'     => $validatedData['billing_cycle'],
+                'domain'            => $validatedData['domain'] ?? null,
+                'payment_intent_id' => $validatedData['payment_intent_id'],
+                'configuration' => $validatedData['additional_options'] ?? null,
+                'next_due_date'     => $nextBillingDate,
             ]);
+
+            // Si hay datos de factura, crea el registro asociado
+            if (!empty($validatedData['invoice'])) {
+                ServiceInvoice::create([
+                    'service_id'  => $service->id,
+                    'rfc'         => $validatedData['invoice']['rfc'],
+                    'name'        => $validatedData['invoice']['name'],
+                    'zip'         => $validatedData['invoice']['zip'],
+                    'regimen'     => $validatedData['invoice']['regimen'],
+                    'uso_cfdi'    => $validatedData['invoice']['uso_cfdi'],
+                    'constancia'  => $validatedData['invoice']['constancia'] ?? null,
+                ]);
+            }
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
-                'data' => $service,
-                'message' => 'Service contracted successfully.'
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error contracting service: ' . $e->getMessage());
+                'data'    => $service,
+                'message' => 'Servicio contratado exitosamente.',
+            ], 201);
+        } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error contracting service'
+                'message' => 'Datos de entrada inválidos.',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Error al contratar el servicio: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Ocurrió un error inesperado al procesar la solicitud.',
             ], 500);
         }
     }

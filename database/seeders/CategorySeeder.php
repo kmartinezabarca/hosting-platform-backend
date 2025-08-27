@@ -57,7 +57,7 @@ class CategorySeeder extends Seeder
         ];
 
         foreach ($categories as $categoryData) {
-            Category::create($categoryData);
+           Category::updateOrCreate($categoryData);
         }
     }
 }
