@@ -10,6 +10,8 @@ class PaymentMethod extends Model
     use HasFactory;
 
     protected $fillable = [
+        'stripe_payment_method_id',
+        'stripe_customer_id',
         'uuid',
         'user_id',
         'type',
@@ -30,7 +32,8 @@ class PaymentMethod extends Model
     ];
 
     protected $hidden = [
-        'details' // Hide sensitive payment details
+        'details', // Hide sensitive payment details
+        'stripe_customer_id',
     ];
 
     /**
@@ -55,7 +58,7 @@ class PaymentMethod extends Model
     public function getMaskedDetailsAttribute()
     {
         $details = $this->details;
-        
+
         if ($this->type === 'card' && isset($details['last_four'])) {
             return [
                 'type' => 'card',
@@ -65,7 +68,7 @@ class PaymentMethod extends Model
                 'exp_year' => $details['exp_year'] ?? null
             ];
         }
-        
+
         if ($this->type === 'bank_account' && isset($details['last_four'])) {
             return [
                 'type' => 'bank_account',
@@ -74,7 +77,7 @@ class PaymentMethod extends Model
                 'account_type' => $details['account_type'] ?? 'checking'
             ];
         }
-        
+
         if ($this->type === 'paypal' && isset($details['email'])) {
             $email = $details['email'];
             $masked = substr($email, 0, 2) . str_repeat('*', strlen($email) - 6) . substr($email, -4);
@@ -83,7 +86,7 @@ class PaymentMethod extends Model
                 'email' => $masked
             ];
         }
-        
+
         return ['type' => $this->type];
     }
 
@@ -95,7 +98,7 @@ class PaymentMethod extends Model
         if (!$this->expires_at) {
             return false;
         }
-        
+
         return $this->expires_at->isPast();
     }
 

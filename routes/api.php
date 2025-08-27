@@ -126,6 +126,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/', [App\Http\Controllers\InvoiceController::class, 'index']);
         Route::get('/stats', [App\Http\Controllers\InvoiceController::class, 'getStats']);
         Route::get('/{uuid}', [App\Http\Controllers\InvoiceController::class, 'show']);
+        Route::get('/{uuid}/pdf', [App\Http\Controllers\InvoiceController::class, 'downloadPdf']);
+        Route::get('/{uuid}/xml', [App\Http\Controllers\InvoiceController::class, 'downloadXml']);
     });
 
     // Transaction management
@@ -189,6 +191,7 @@ Route::prefix("billing-cycles")->group(function () {
 
 Route::prefix("service-plans")->group(function () {
     Route::get("/", [App\Http\Controllers\ServicePlanController::class, "index"]);
+    Route::get('/{plan:uuid}/add-ons', [App\Http\Controllers\ServicePlanController::class, 'listAddOns']);
     Route::get("/category/{categorySlug}", [App\Http\Controllers\ServicePlanController::class, "indexByCategorySlug"]);
     Route::get("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "show"]);
 });

@@ -229,6 +229,11 @@ class Service extends Model
         return $this->product->isDomain();
     }
 
+    public function selectedAddOns()
+    {
+        return $this->hasMany(ServiceAddOn::class);
+    }
+
     /**
      * Get the next billing date based on the billing cycle.
      */

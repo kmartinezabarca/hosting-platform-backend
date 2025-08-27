@@ -2,10 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use Stripe\Stripe;
-use App\Models\Service;
-use App\Models\ServicePlan;
-use App\Models\ServiceInvoice;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +10,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+
+use Stripe\Stripe;
+use App\Models\Service;
+use App\Models\ServicePlan;
+use App\Models\ServiceInvoice;
+use App\Models\InvoiceItem;
+use App\Models\Transaction;
+use App\Models\Subscription;
+use App\Models\Invoice;
+use App\Models\AddOn;
+use App\Models\ServiceAddOn;
 
 class ServiceController extends Controller
 {
@@ -55,7 +63,7 @@ class ServiceController extends Controller
                             ];
                         })->toArray()
                     ];
-                    
+
                     return $planData;
                 });
 
@@ -78,65 +86,215 @@ class ServiceController extends Controller
     public function contractService(Request $request): JsonResponse
     {
         try {
-            $validatedData = $request->validate([
-                'plan_id'         => ['required', 'string', Rule::exists('service_plans', 'slug')],
-                'billing_cycle'   => ['required', Rule::in(['monthly', 'quarterly', 'annually'])],
-                'domain'          => ['nullable', 'string', 'max:255'],
-                'service_name'    => ['required', 'string', 'max:255'],
-                'payment_intent_id' => ['required', 'string'],
+            $validated = $request->validate([
+                'plan_id'            => ['required', 'string', Rule::exists('service_plans', 'slug')],
+                'billing_cycle'      => ['required', Rule::in(['monthly', 'quarterly', 'annually'])],
+                'domain'             => ['nullable', 'string', 'max:255'],
+                'service_name'       => ['required', 'string', 'max:255'],
+                'payment_intent_id'  => ['required', 'string'],
+                'payment_method_id'  => ['nullable', 'integer'],
                 'additional_options' => ['nullable', 'array'],
-                'invoice'         => ['sometimes', 'array'],
-                'invoice.rfc'     => ['required_with:invoice', 'string', 'max:13'],
-                'invoice.name'    => ['required_with:invoice', 'string', 'max:255'],
-                'invoice.zip'     => ['required_with:invoice', 'string', 'size:5'],
-                'invoice.regimen' => ['required_with:invoice', 'string', 'max:4'],
-                'invoice.uso_cfdi' => ['required_with:invoice', 'string', 'max:10'],
-                'invoice.constancia' => ['nullable', 'string'], // cadena base64 o null
+
+                // Add-ons por UUID
+                'add_ons'            => ['sometimes', 'array'],
+                'add_ons.*'          => ['string', 'distinct'],
+
+                // Datos de facturación (opcionales)
+                'invoice'            => ['sometimes', 'array'],
+                'invoice.rfc'        => ['required_with:invoice', 'string', 'max:13'],
+                'invoice.name'       => ['required_with:invoice', 'string', 'max:255'],
+                'invoice.zip'        => ['required_with:invoice', 'string', 'size:5'],
+                'invoice.regimen'    => ['required_with:invoice', 'string', 'max:4'],
+                'invoice.uso_cfdi'   => ['required_with:invoice', 'string', 'max:10'],
+                'invoice.constancia' => ['nullable', 'string'],
+
+                'create_subscription' => ['sometimes', 'boolean'],
             ]);
 
-            $plan = ServicePlan::where('slug', $validatedData['plan_id'])->firstOrFail();
+            $plan = ServicePlan::where('slug', $validated['plan_id'])->firstOrFail();
             $user = Auth::user();
 
-            $nextBillingDate = now()->add(match ($validatedData['billing_cycle']) {
+            $multiplier = match ($validated['billing_cycle']) {
                 'monthly'   => 1,
                 'quarterly' => 3,
                 'annually'  => 12,
-            }, 'month');
+            };
+
+            // --- Add-ons permitidos por el plan ---
+            $requestedUuids  = collect($validated['add_ons'] ?? []);
+            $allowedAddOns   = $plan->addOns()->where('is_active', true)->get(); // requiere relación en el modelo
+            $selectedAddOns  = $allowedAddOns->whereIn('uuid', $requestedUuids);
+
+            if ($requestedUuids->isNotEmpty() && $selectedAddOns->count() !== $requestedUuids->count()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Algunos add-ons no existen o no están permitidos por este plan.',
+                ], 422);
+            }
+
+            // --- Precios NETOS (sin IVA) ---
+            $planNet    = round((float)$plan->base_price * $multiplier, 2);
+            $addonsNet  = round($selectedAddOns->sum(fn($a) => (float)$a->price) * $multiplier, 2);
+            $subtotal   = round($planNet + $addonsNet, 2);
+
+            $taxRatePct = (float) config('billing.tax_rate_percent', 16.00); // 16.00 = 16%
+            $taxRate    = $taxRatePct / 100;
+            $taxAmount  = round($subtotal * $taxRate, 2);
+            $total      = round($subtotal + $taxAmount, 2);
+            $currency   = $plan->currency ?? 'MXN';
+
+            $nextBillingDate = now()->addMonths($multiplier);
 
             DB::beginTransaction();
 
+            // 1) SERVICE
             $service = Service::create([
                 'plan_id'           => $plan->id,
                 'user_id'           => $user->id,
-                'price'             => $plan->base_price,
-                'name'              => $validatedData['service_name'],
+                'price'             => $plan->base_price, // unitario NETO del plan
+                'name'              => $validated['service_name'],
                 'status'            => 'active',
-                'billing_cycle'     => $validatedData['billing_cycle'],
-                'domain'            => $validatedData['domain'] ?? null,
-                'payment_intent_id' => $validatedData['payment_intent_id'],
-                'configuration'    => $validatedData['additional_options'] ?? null,
+                'billing_cycle'     => $validated['billing_cycle'],
+                'domain'            => $validated['domain'] ?? null,
+                'payment_intent_id' => $validated['payment_intent_id'],
+                'configuration'     => $validated['additional_options'] ?? null,
                 'next_due_date'     => $nextBillingDate,
             ]);
 
-            // Si hay datos de factura, crea el registro asociado
-            if (!empty($validatedData['invoice'])) {
+            // 1.1) Snapshot de add-ons elegidos para el servicio
+            foreach ($selectedAddOns as $addOn) {
+                ServiceAddOn::create([
+                    'service_id'  => $service->id,
+                    'add_on_id'   => $addOn->id,
+                    'add_on_uuid' => $addOn->uuid,
+                    'name'        => $addOn->name,
+                    'unit_price'  => $addOn->price, // NETO por ciclo
+                    'quantity'    => 1,
+                ]);
+            }
+
+            // 2) Datos fiscales del servicio (opcional)
+            if (!empty($validated['invoice'])) {
                 ServiceInvoice::create([
                     'service_id'  => $service->id,
-                    'rfc'         => $validatedData['invoice']['rfc'],
-                    'name'        => $validatedData['invoice']['name'],
-                    'zip'         => $validatedData['invoice']['zip'],
-                    'regimen'     => $validatedData['invoice']['regimen'],
-                    'uso_cfdi'    => $validatedData['invoice']['uso_cfdi'],
-                    'constancia'  => $validatedData['invoice']['constancia'] ?? null,
+                    'rfc'         => $validated['invoice']['rfc'],
+                    'name'        => $validated['invoice']['name'],
+                    'zip'         => $validated['invoice']['zip'],
+                    'regimen'     => $validated['invoice']['regimen'],
+                    'uso_cfdi'    => $validated['invoice']['uso_cfdi'],
+                    'constancia'  => $validated['invoice']['constancia'] ?? null,
                 ]);
+            }
+
+            // 3) INVOICE (pago upfront exitoso => paid)
+            $invoice = Invoice::create([
+                'user_id'             => $user->id,
+                'service_id'          => $service->id,
+                'status'              => 'paid',
+                'due_date'            => now(),
+                'paid_at'             => now(),
+                'invoice_number'      => $this->generateInvoiceNumber(),
+                'provider_invoice_id' => null,
+                'pdf_path'            => null,
+                'xml_path'            => null,
+                'payment_method'      => $validated['payment_method_id'] ? 'card' : 'stripe',
+                'payment_reference'   => $validated['payment_intent_id'],
+                'notes'               => 'Pago por contratación de servicio',
+                'currency'            => $currency,
+                'subtotal'            => $subtotal,   // NETO
+                'tax_rate'            => $taxRatePct, // 16.00
+                'tax_amount'          => $taxAmount,  // IVA
+                'total'               => $total,      // BRUTO
+            ]);
+
+            // 4) INVOICE ITEMS (plan + add-ons) — precios NETOS
+            InvoiceItem::create([
+                'invoice_id'  => $invoice->id,
+                'service_id'  => $service->id,
+                'description' => sprintf('%s (%s)', $plan->name, strtoupper($validated['billing_cycle'])),
+                'quantity'    => 1,
+                'unit_price'  => $planNet,
+                'total'       => $planNet,
+            ]);
+
+            foreach ($selectedAddOns as $addOn) {
+                $rowNet = round((float)$addOn->price * $multiplier, 2);
+                InvoiceItem::create([
+                    'invoice_id'  => $invoice->id,
+                    'service_id'  => $service->id,
+                    'description' => $addOn->name,
+                    'quantity'    => 1,
+                    'unit_price'  => $rowNet,
+                    'total'       => $rowNet,
+                ]);
+            }
+
+            // 5) TRANSACTION (monto BRUTO)
+            Transaction::create([
+                'uuid'                    => (string) Str::uuid(),
+                'user_id'                 => $user->id,
+                'invoice_id'              => $invoice->id,
+                'payment_method_id'       => $validated['payment_method_id'] ?? null,
+                'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
+                'provider_transaction_id' => $validated['payment_intent_id'],
+                'type'                    => 'payment',
+                'status'                  => 'completed',
+                'amount'                  => $total,     // incluye IVA
+                'currency'                => $currency,
+                'fee_amount'              => 0,
+                'provider'                => 'stripe',
+                'provider_data'           => null,
+                'description'             => 'Pago de contratación de servicio',
+                'failure_reason'          => null,
+                'processed_at'            => now(),
+            ]);
+
+            // 6) (Opcional) suscripción en Stripe
+            if (!empty($validated['create_subscription'])) {
+                if (!$plan->stripe_price_id) {
+                    throw new \RuntimeException('El plan no tiene stripe_price_id configurado.');
+                }
+                $customerId = $this->getOrCreateStripeCustomer($user);
+
+                $stripeSub = \Stripe\Subscription::create([
+                    'customer' => $customerId,
+                    'items'    => [['price' => $plan->stripe_price_id]],
+                    'payment_behavior' => 'default_incomplete',
+                    'expand' => ['latest_invoice.payment_intent'],
+                ]);
+
+                Subscription::create([
+                    'uuid'                   => (string) Str::uuid(),
+                    'user_id'                => $user->id,
+                    'service_id'             => $service->id,
+                    'stripe_subscription_id' => $stripeSub->id,
+                    'stripe_customer_id'     => $customerId,
+                    'stripe_price_id'        => $plan->stripe_price_id,
+                    'name'                   => $plan->name,
+                    'status'                 => $stripeSub->status,
+                    'amount'                 => $total, // puedes guardar BRUTO del ciclo
+                    'currency'               => $currency,
+                    'billing_cycle'          => $validated['billing_cycle'] === 'annually' ? 'yearly'
+                        : ($validated['billing_cycle'] === 'monthly' ? 'monthly' : 'monthly'),
+                    'current_period_start'   => isset($stripeSub->current_period_start) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_start) : null,
+                    'current_period_end'     => isset($stripeSub->current_period_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_end) : null,
+                    'trial_start'            => isset($stripeSub->trial_start) ? \Carbon\Carbon::createFromTimestamp($stripeSub->trial_start) : null,
+                    'trial_end'              => isset($stripeSub->trial_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->trial_end) : null,
+                    'metadata'               => null,
+                ]);
+                // Nota: si quieres que los add-ons también formen parte de la suscripción,
+                // necesitas price IDs de Stripe para cada add-on y agregarlos en 'items'.
             }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'data'    => $service,
                 'message' => 'Servicio contratado exitosamente.',
+                'data'    => [
+                    'service' => $service,
+                    'invoice' => $invoice,
+                ],
             ], 201);
         } catch (ValidationException $e) {
             return response()->json([
@@ -152,6 +310,20 @@ class ServiceController extends Controller
                 'message' => 'Ocurrió un error inesperado al procesar la solicitud.',
             ], 500);
         }
+    }
+
+    /** Genera folio tipo INV-202508-0001 */
+    private function generateInvoiceNumber(): string
+    {
+        $prefix = 'INV-' . now()->format('Ym');
+        $last = \App\Models\Invoice::where('invoice_number', 'like', "{$prefix}-%")
+            ->orderByDesc('invoice_number')->value('invoice_number');
+
+        $seq = 1;
+        if ($last && preg_match('/-(\d+)$/', $last, $m)) {
+            $seq = (int)$m[1] + 1;
+        }
+        return sprintf('%s-%04d', $prefix, $seq);
     }
 
     /**
@@ -326,8 +498,8 @@ class ServiceController extends Controller
             // Actualizar el estado del servicio a terminado
             $service->status = 'terminated';
             $service->terminated_at = now();
-            $service->notes = ($service->notes ? $service->notes . "\n" : '') . 
-                             "Cancelado el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
+            $service->notes = ($service->notes ? $service->notes . "\n" : '') .
+                "Cancelado el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
             $service->save();
 
             return response()->json([
@@ -375,8 +547,8 @@ class ServiceController extends Controller
 
             // Actualizar el estado del servicio a suspendido
             $service->status = 'suspended';
-            $service->notes = ($service->notes ? $service->notes . "\n" : '') . 
-                             "Suspendido el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
+            $service->notes = ($service->notes ? $service->notes . "\n" : '') .
+                "Suspendido el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
             $service->save();
 
             return response()->json([
@@ -420,8 +592,8 @@ class ServiceController extends Controller
 
             // Actualizar el estado del servicio a activo
             $service->status = 'active';
-            $service->notes = ($service->notes ? $service->notes . "\n" : '') . 
-                             "Reactivado el " . now()->format('Y-m-d H:i:s');
+            $service->notes = ($service->notes ? $service->notes . "\n" : '') .
+                "Reactivado el " . now()->format('Y-m-d H:i:s');
             $service->save();
 
             return response()->json([
@@ -665,4 +837,3 @@ class ServiceController extends Controller
         }
     }
 }
-

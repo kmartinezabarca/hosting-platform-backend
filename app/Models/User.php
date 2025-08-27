@@ -34,6 +34,7 @@ class User extends Authenticatable
         'postal_code',
         'role',
         'status',
+        'stripe_customer_id',
         'two_factor_enabled',
         'two_factor_secret',
         'last_login_at',

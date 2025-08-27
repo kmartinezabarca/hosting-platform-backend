@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use Stripe\Stripe;
 use Stripe\PaymentIntent;
 use Stripe\Exception\ApiErrorException;
+use App\Http\Resources\PaymentMethodResource;
 
 class PaymentController extends Controller
 {
@@ -26,22 +27,36 @@ class PaymentController extends Controller
     {
         try {
             $user = Auth::user();
-            $paymentMethods = PaymentMethod::where('user_id', $user->id)
+
+            $paymentMethods = \App\Models\PaymentMethod::query()
+                ->where('user_id', $user->id)
                 ->where('is_active', true)
-                ->orderBy('is_default', 'desc')
-                ->orderBy('created_at', 'desc')
-                ->get();
+                ->orderByDesc('is_default')
+                ->orderByDesc('created_at')
+                ->get([
+                    'id',
+                    'user_id',
+                    'name',
+                    'type',
+                    'is_default',
+                    'is_active',
+                    'details',
+                    'stripe_payment_method_id',
+                    'created_at',
+                    'updated_at',
+                ]);
 
             return response()->json([
                 'success' => true,
-                'data' => $paymentMethods
+                'data'    => PaymentMethodResource::collection($paymentMethods),
             ]);
+        } catch (\Throwable $e) {
+            \Log::error('Error fetching payment methods: ' . $e->getMessage());
 
-        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching payment methods',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -53,10 +68,10 @@ class PaymentController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             // Create or get Stripe customer
             $stripeCustomerId = $this->getOrCreateStripeCustomer($user);
-            
+
             $setupIntent = \Stripe\SetupIntent::create([
                 'customer' => $stripeCustomerId,
                 'payment_method_types' => ['card'],
@@ -73,7 +88,6 @@ class PaymentController extends Controller
                     'setup_intent_id' => $setupIntent->id
                 ]
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error creating setup intent: ' . $e->getMessage());
             return response()->json([
@@ -92,57 +106,92 @@ class PaymentController extends Controller
         try {
             $validated = $request->validate([
                 'stripe_payment_method_id' => 'required|string',
-                'name' => 'sometimes|string|max:100',
-                'is_default' => 'boolean'
+                'name'        => 'sometimes|string|max:100',
+                'is_default'  => 'boolean',
             ]);
 
             $user = Auth::user();
             $stripeCustomerId = $this->getOrCreateStripeCustomer($user);
 
-            // Attach payment method to customer
-            $stripePaymentMethod = \Stripe\PaymentMethod::retrieve($validated['stripe_payment_method_id']);
-            $stripePaymentMethod->attach(['customer' => $stripeCustomerId]);
+            if (\App\Models\PaymentMethod::where('user_id', $user->id)
+                ->where('stripe_payment_method_id', $validated['stripe_payment_method_id'])
+                ->exists()
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este método de pago ya está registrado en tu cuenta.',
+                    'error'   => 'payment_method_already_saved',
+                ], 422);
+            }
 
-            // Get payment method details
-            $card = $stripePaymentMethod->card;
-            $name = $validated['name'] ?? "**** **** **** {$card->last4}";
+            $pm = \Stripe\PaymentMethod::retrieve($validated['stripe_payment_method_id']);
 
-            // If this is set as default, unset other defaults
-            if ($validated['is_default'] ?? false) {
-                PaymentMethod::where('user_id', $user->id)
+            if (!empty($pm->customer)) {
+                if ($pm->customer !== $stripeCustomerId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este método de pago ya está vinculado a otra cuenta.',
+                        'error'   => 'attached_to_other_customer',
+                    ], 422);
+                }
+            } else {
+                $pm->attach(['customer' => $stripeCustomerId]);
+                $pm = \Stripe\PaymentMethod::retrieve($pm->id);
+            }
+
+            $card = $pm->card ?? null;
+            $name = $validated['name'] ?? ($card ? "**** **** **** {$card->last4}" : 'Método de pago');
+
+            $details = [
+                'brand'       => $card->brand ?? null,      // 'visa','mastercard','amex',...
+                'last4'       => $card->last4 ?? null,
+                'exp_month'   => $card->exp_month ?? null,
+                'exp_year'    => $card->exp_year ?? null,
+                'funding'     => $card->funding ?? null,    // 'debit','credit','prepaid'
+                'country'     => $card->country ?? null,    // país emisor (ISO2)
+                'network'     => $card->networks->preferred ?? null, // si viene
+                'fingerprint' => $card->fingerprint ?? null, // útil para deduplicar
+            ];
+
+            if (!empty($validated['is_default'])) {
+                \Stripe\Customer::update($stripeCustomerId, [
+                    'invoice_settings' => ['default_payment_method' => $pm->id],
+                ]);
+
+                \App\Models\PaymentMethod::where('user_id', $user->id)
                     ->update(['is_default' => false]);
             }
 
-            $paymentMethod = PaymentMethod::create([
-                'uuid' => \Str::uuid(),
-                'user_id' => $user->id,
-                'stripe_payment_method_id' => $validated['stripe_payment_method_id'],
-                'stripe_customer_id' => $stripeCustomerId,
-                'type' => 'card',
-                'name' => $name,
-                'details' => [
-                    'brand' => $card->brand,
-                    'last4' => $card->last4,
-                    'exp_month' => $card->exp_month,
-                    'exp_year' => $card->exp_year,
-                    'funding' => $card->funding
-                ],
-                'is_default' => $validated['is_default'] ?? false,
-                'is_active' => true
+            $paymentMethod = \App\Models\PaymentMethod::create([
+                'uuid'                    => \Str::uuid(),
+                'user_id'                 => $user->id,
+                'stripe_payment_method_id' => $pm->id,
+                'stripe_customer_id'      => $stripeCustomerId,
+                'type'                    => $pm->type ?? 'card',
+                'name'                    => $name,
+                'details'                 => $details,
+                'is_default'              => (bool) ($validated['is_default'] ?? false),
+                'is_active'               => true,
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Método de pago agregado exitosamente',
-                'data' => $paymentMethod
+                'data'    => $paymentMethod,
             ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error adding payment method: ' . $e->getMessage());
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            \Log::error('Stripe error adding payment method: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de Stripe al agregar método de pago',
+                'error'   => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            \Log::error('Error adding payment method: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error al agregar método de pago',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -167,7 +216,6 @@ class PaymentController extends Controller
 
             $user->update(['stripe_customer_id' => $customer->id]);
             return $customer->id;
-
         } catch (\Exception $e) {
             Log::error('Error creating Stripe customer: ' . $e->getMessage());
             throw $e;
@@ -205,7 +253,6 @@ class PaymentController extends Controller
                 'message' => 'Payment method updated successfully',
                 'data' => $paymentMethod->fresh()
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -242,7 +289,7 @@ class PaymentController extends Controller
                     ->where('id', '!=', $id)
                     ->where('is_active', true)
                     ->first();
-                
+
                 if ($nextDefault) {
                     $nextDefault->update(['is_default' => true]);
                 }
@@ -254,7 +301,6 @@ class PaymentController extends Controller
                 'success' => true,
                 'message' => 'Método de pago eliminado exitosamente'
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error deleting payment method: ' . $e->getMessage());
             return response()->json([
@@ -273,7 +319,7 @@ class PaymentController extends Controller
         try {
             $user = Auth::user();
             $perPage = $request->get('per_page', 15);
-            
+
             $transactions = Transaction::where('user_id', $user->id)
                 ->with(['invoice', 'paymentMethod'])
                 ->orderBy('created_at', 'desc')
@@ -283,7 +329,6 @@ class PaymentController extends Controller
                 'success' => true,
                 'data' => $transactions
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -311,7 +356,7 @@ class PaymentController extends Controller
             $user = Auth::user();
             $amount = $validated['amount'];
             $currency = $validated['currency'] ?? 'usd';
-            
+
             // Create Stripe Payment Intent
             try {
                 $paymentIntent = PaymentIntent::create([
@@ -353,7 +398,6 @@ class PaymentController extends Controller
                     ],
                     'message' => 'Payment intent created successfully'
                 ]);
-
             } catch (ApiErrorException $e) {
                 Log::error('Stripe API Error: ' . $e->getMessage());
                 return response()->json([
@@ -361,7 +405,6 @@ class PaymentController extends Controller
                     'message' => 'Payment processing error: ' . $e->getMessage()
                 ], 400);
             }
-
         } catch (\Exception $e) {
             Log::error('Error processing payment: ' . $e->getMessage());
             return response()->json([
@@ -378,7 +421,7 @@ class PaymentController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             $stats = [
                 'total_spent' => Transaction::where('user_id', $user->id)
                     ->where('type', 'payment')
@@ -404,7 +447,6 @@ class PaymentController extends Controller
                 'success' => true,
                 'data' => $stats
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -430,7 +472,7 @@ class PaymentController extends Controller
             $user = Auth::user();
             $amount = $validated['amount'];
             $currency = $validated['currency'] ?? 'usd';
-            
+
             try {
                 $paymentIntent = PaymentIntent::create([
                     'amount' => $amount * 100, // Convert to cents
@@ -455,7 +497,6 @@ class PaymentController extends Controller
                         'status' => $paymentIntent->status
                     ]
                 ]);
-
             } catch (ApiErrorException $e) {
                 Log::error('Stripe API Error: ' . $e->getMessage());
                 return response()->json([
@@ -463,7 +504,6 @@ class PaymentController extends Controller
                     'message' => 'Error creating payment intent: ' . $e->getMessage()
                 ], 400);
             }
-
         } catch (\Exception $e) {
             Log::error('Error creating payment intent: ' . $e->getMessage());
             return response()->json([
@@ -473,4 +513,3 @@ class PaymentController extends Controller
         }
     }
 }
-

@@ -42,6 +42,16 @@ class ServicePlanController extends Controller
         }
     }
 
+    public function listAddOns(\App\Models\ServicePlan $plan)
+    {
+        $addOns = $plan->addOns()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['add_ons.uuid', 'add_ons.slug', 'add_ons.name', 'add_ons.description', 'add_ons.price', 'add_ons.currency', 'add_on_plan.is_default']);
+
+        return response()->json(['success' => true, 'data' => $addOns]);
+    }
+
     /**
      * Get service plans by category slug
      */
@@ -136,7 +146,7 @@ class ServicePlanController extends Controller
 
             // Create service plan
             $servicePlan = ServicePlan::create($request->only([
-                'category_id', 'slug', 'name', 'description', 'base_price', 
+                'category_id', 'slug', 'name', 'description', 'base_price',
                 'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications'
             ]));
 
@@ -226,7 +236,7 @@ class ServicePlanController extends Controller
 
             // Update service plan
             $servicePlan->update($request->only([
-                'category_id', 'slug', 'name', 'description', 'base_price', 
+                'category_id', 'slug', 'name', 'description', 'base_price',
                 'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications'
             ]));
 

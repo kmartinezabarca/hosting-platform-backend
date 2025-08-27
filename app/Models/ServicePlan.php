@@ -146,5 +146,10 @@ class ServicePlan extends Model
 
         return $formatted;
     }
-}
 
+    public function addOns()
+    {
+        return $this->belongsToMany(AddOn::class, 'add_on_plan')
+            ->withPivot('is_default')->withTimestamps();
+    }
+}
