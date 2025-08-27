@@ -106,7 +106,7 @@ class ServiceController extends Controller
             DB::beginTransaction();
 
             $service = Service::create([
-                'plan_id'        => $plan->id,
+                'plan_id'           => $plan->id,
                 'user_id'           => $user->id,
                 'price'             => $plan->base_price,
                 'name'              => $validatedData['service_name'],
@@ -114,7 +114,7 @@ class ServiceController extends Controller
                 'billing_cycle'     => $validatedData['billing_cycle'],
                 'domain'            => $validatedData['domain'] ?? null,
                 'payment_intent_id' => $validatedData['payment_intent_id'],
-                'configuration' => $validatedData['additional_options'] ?? null,
+                'configuration'    => $validatedData['additional_options'] ?? null,
                 'next_due_date'     => $nextBillingDate,
             ]);
 
