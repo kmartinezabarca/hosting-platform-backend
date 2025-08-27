@@ -127,6 +127,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/{uuid}', [App\Http\Controllers\InvoiceController::class, 'show']);
     });
 
+    // Transaction management
+    Route::prefix('transactions')->group(function () {
+        Route::get('/', [App\Http\Controllers\TransactionController::class, 'index']);
+        Route::get('/stats', [App\Http\Controllers\TransactionController::class, 'getStats']);
+        Route::get('/recent', [App\Http\Controllers\TransactionController::class, 'getRecent']);
+        Route::get('/{uuid}', [App\Http\Controllers\TransactionController::class, 'show']);
+    });
+
     // Ticket management
     Route::prefix('tickets')->group(function () {
         Route::get('/', [App\Http\Controllers\TicketController::class, 'index']);
