@@ -4,41 +4,108 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Service;
+use App\Models\Invoice;
+use App\Models\Ticket;
+use App\Models\Transaction;
+use App\Models\ServicePlan;
+use App\Models\AddOn;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Carbon\Carbon;
 
 class AdminController extends Controller
 {
     /**
-     * Get admin dashboard statistics
+     * Get comprehensive admin dashboard statistics
      */
     public function getDashboardStats()
     {
         try {
-            $stats = [
-                'users' => [
-                    'total' => User::count(),
-                    'active' => User::where('status', 'active')->count(),
-                    'pending' => User::where('status', 'pending_verification')->count(),
-                    'suspended' => User::where('status', 'suspended')->count(),
-                ],
-                'services' => [
-                    'total' => Service::count(),
-                    'active' => Service::where('status', 'active')->count(),
-                    'suspended' => Service::where('status', 'suspended')->count(),
-                    'maintenance' => Service::where('status', 'maintenance')->count(),
-                ],
-                'revenue' => [
-                    'monthly' => 15750.00, // This would come from actual calculations
-                    'yearly' => 189000.00,
-                    'currency' => 'USD'
-                ]
+            // Users statistics
+            $usersStats = [
+                'total' => User::count(),
+                'active' => User::where('status', 'active')->count(),
+                'pending' => User::where('status', 'pending_verification')->count(),
+                'suspended' => User::where('status', 'suspended')->count(),
+                'new_this_month' => User::whereMonth('created_at', now()->month)->count(),
+                'growth_rate' => $this->calculateGrowthRate(User::class, 'created_at')
             ];
+
+            // Services statistics
+            $servicesStats = [
+                'total' => Service::count(),
+                'active' => Service::where('status', 'active')->count(),
+                'suspended' => Service::where('status', 'suspended')->count(),
+                'maintenance' => Service::where('status', 'maintenance')->count(),
+                'cancelled' => Service::where('status', 'cancelled')->count(),
+                'new_this_month' => Service::whereMonth('created_at', now()->month)->count(),
+                'growth_rate' => $this->calculateGrowthRate(Service::class, 'created_at')
+            ];
+
+            // Revenue statistics
+            $monthlyRevenue = Invoice::where('status', 'paid')
+                ->whereMonth('created_at', now()->month)
+                ->sum('total_amount');
+            
+            $yearlyRevenue = Invoice::where('status', 'paid')
+                ->whereYear('created_at', now()->year)
+                ->sum('total_amount');
+
+            $revenueStats = [
+                'monthly' => $monthlyRevenue,
+                'yearly' => $yearlyRevenue,
+                'currency' => 'MXN',
+                'growth_rate' => $this->calculateRevenueGrowthRate()
+            ];
+
+            // Invoices statistics
+            $invoicesStats = [
+                'total' => Invoice::count(),
+                'paid' => Invoice::where('status', 'paid')->count(),
+                'pending' => Invoice::where('status', 'pending')->count(),
+                'overdue' => Invoice::where('status', 'overdue')->count(),
+                'cancelled' => Invoice::where('status', 'cancelled')->count(),
+                'total_amount' => Invoice::sum('total_amount'),
+                'pending_amount' => Invoice::whereIn('status', ['pending', 'overdue'])->sum('total_amount')
+            ];
+
+            // Tickets statistics
+            $ticketsStats = [
+                'total' => Ticket::count(),
+                'open' => Ticket::where('status', 'open')->count(),
+                'in_progress' => Ticket::where('status', 'in_progress')->count(),
+                'resolved' => Ticket::where('status', 'resolved')->count(),
+                'closed' => Ticket::where('status', 'closed')->count(),
+                'high_priority' => Ticket::where('priority', 'high')->count(),
+                'urgent' => Ticket::where('priority', 'urgent')->count(),
+                'avg_response_time' => $this->calculateAvgResponseTime()
+            ];
+
+            // Plans and Add-ons statistics
+            $plansStats = [
+                'total_plans' => ServicePlan::count(),
+                'active_plans' => ServicePlan::where('is_active', true)->count(),
+                'popular_plans' => ServicePlan::where('is_popular', true)->count(),
+                'total_addons' => AddOn::count(),
+                'active_addons' => AddOn::where('is_active', true)->count()
+            ];
+
+            // Recent activity
+            $recentActivity = $this->getRecentActivity();
 
             return response()->json([
                 'success' => true,
-                'data' => $stats
+                'data' => [
+                    'users' => $usersStats,
+                    'services' => $servicesStats,
+                    'revenue' => $revenueStats,
+                    'invoices' => $invoicesStats,
+                    'tickets' => $ticketsStats,
+                    'plans' => $plansStats,
+                    'recent_activity' => $recentActivity
+                ]
             ]);
 
         } catch (\Exception $e) {
@@ -51,25 +118,44 @@ class AdminController extends Controller
     }
 
     /**
-     * Get all users with pagination
+     * Get all users with advanced filtering and pagination
      */
     public function getUsers(Request $request)
     {
         try {
             $perPage = $request->get('per_page', 15);
             $search = $request->get('search');
+            $status = $request->get('status');
+            $role = $request->get('role');
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
 
             $query = User::query();
 
+            // Search filter
             if ($search) {
                 $query->where(function($q) use ($search) {
                     $q->where('first_name', 'like', "%{$search}%")
                       ->orWhere('last_name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%");
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('phone', 'like', "%{$search}%");
                 });
             }
 
-            $users = $query->orderBy('created_at', 'desc')->paginate($perPage);
+            // Status filter
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            // Role filter
+            if ($role) {
+                $query->where('role', $role);
+            }
+
+            // Include related data
+            $query->withCount(['services', 'invoices', 'tickets']);
+
+            $users = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -84,6 +170,266 @@ class AdminController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get all services with advanced filtering
+     */
+    public function getServices(Request $request)
+    {
+        try {
+            $perPage = $request->get('per_page', 15);
+            $search = $request->get('search');
+            $status = $request->get('status');
+            $planId = $request->get('plan_id');
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
+
+            $query = Service::with(['user', 'servicePlan']);
+
+            // Search filter
+            if ($search) {
+                $query->where(function($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('domain', 'like', "%{$search}%")
+                      ->orWhereHas('user', function($userQuery) use ($search) {
+                          $userQuery->where('first_name', 'like', "%{$search}%")
+                                   ->orWhere('last_name', 'like', "%{$search}%")
+                                   ->orWhere('email', 'like', "%{$search}%");
+                      });
+                });
+            }
+
+            // Status filter
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            // Plan filter
+            if ($planId) {
+                $query->where('plan_id', $planId);
+            }
+
+            $services = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $services
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching services',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all invoices with admin privileges
+     */
+    public function getInvoices(Request $request)
+    {
+        try {
+            $perPage = $request->get('per_page', 15);
+            $search = $request->get('search');
+            $status = $request->get('status');
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
+
+            $query = Invoice::with(['user', 'items']);
+
+            // Search filter
+            if ($search) {
+                $query->where(function($q) use ($search) {
+                    $q->where('invoice_number', 'like', "%{$search}%")
+                      ->orWhereHas('user', function($userQuery) use ($search) {
+                          $userQuery->where('first_name', 'like', "%{$search}%")
+                                   ->orWhere('last_name', 'like', "%{$search}%")
+                                   ->orWhere('email', 'like', "%{$search}%");
+                      });
+                });
+            }
+
+            // Status filter
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            $invoices = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $invoices
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching invoices',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all tickets with admin privileges
+     */
+    public function getTickets(Request $request)
+    {
+        try {
+            $perPage = $request->get('per_page', 15);
+            $search = $request->get('search');
+            $status = $request->get('status');
+            $priority = $request->get('priority');
+            $department = $request->get('department');
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
+
+            $query = Ticket::with(['user', 'assignedTo', 'service']);
+
+            // Search filter
+            if ($search) {
+                $query->where(function($q) use ($search) {
+                    $q->where('subject', 'like', "%{$search}%")
+                      ->orWhere('ticket_number', 'like', "%{$search}%")
+                      ->orWhereHas('user', function($userQuery) use ($search) {
+                          $userQuery->where('first_name', 'like', "%{$search}%")
+                                   ->orWhere('last_name', 'like', "%{$search}%")
+                                   ->orWhere('email', 'like', "%{$search}%");
+                      });
+                });
+            }
+
+            // Status filter
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            // Priority filter
+            if ($priority) {
+                $query->where('priority', $priority);
+            }
+
+            // Department filter
+            if ($department) {
+                $query->where('department', $department);
+            }
+
+            $tickets = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $tickets
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching tickets',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update service status (Admin action)
+     */
+    public function updateServiceStatus(Request $request, $serviceId)
+    {
+        try {
+            $service = Service::findOrFail($serviceId);
+            
+            $validated = $request->validate([
+                'status' => 'required|in:active,suspended,maintenance,cancelled',
+                'reason' => 'nullable|string|max:500'
+            ]);
+
+            $service->update([
+                'status' => $validated['status'],
+                'admin_notes' => $validated['reason'] ?? null
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Service status updated successfully',
+                'data' => $service->fresh()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating service status',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update invoice status (Admin action)
+     */
+    public function updateInvoiceStatus(Request $request, $invoiceId)
+    {
+        try {
+            $invoice = Invoice::findOrFail($invoiceId);
+            
+            $validated = $request->validate([
+                'status' => 'required|in:pending,paid,overdue,cancelled',
+                'notes' => 'nullable|string|max:500'
+            ]);
+
+            $invoice->update([
+                'status' => $validated['status'],
+                'admin_notes' => $validated['notes'] ?? null,
+                'paid_at' => $validated['status'] === 'paid' ? now() : null
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Invoice status updated successfully',
+                'data' => $invoice->fresh()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating invoice status',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Assign ticket to admin user
+     */
+    public function assignTicket(Request $request, $ticketId)
+    {
+        try {
+            $ticket = Ticket::findOrFail($ticketId);
+            
+            $validated = $request->validate([
+                'assigned_to' => 'nullable|exists:users,id',
+                'status' => 'sometimes|in:open,in_progress,resolved,closed'
+            ]);
+
+            $ticket->update($validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Ticket assigned successfully',
+                'data' => $ticket->fresh(['assignedTo'])
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error assigning ticket',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ... (rest of the existing methods remain the same)
 
     /**
      * Create a new user
@@ -202,35 +548,78 @@ class AdminController extends Controller
         }
     }
 
-    /**
-     * Get all services with pagination
-     */
-    public function getServices(Request $request)
+    // Helper methods
+
+    private function calculateGrowthRate($model, $dateField)
     {
-        try {
-            $perPage = $request->get('per_page', 15);
-            $search = $request->get('search');
+        $thisMonth = $model::whereMonth($dateField, now()->month)->count();
+        $lastMonth = $model::whereMonth($dateField, now()->subMonth()->month)->count();
+        
+        if ($lastMonth == 0) return $thisMonth > 0 ? 100 : 0;
+        
+        return round((($thisMonth - $lastMonth) / $lastMonth) * 100, 1);
+    }
 
-            $query = Service::with(['user', 'product']);
+    private function calculateRevenueGrowthRate()
+    {
+        $thisMonth = Invoice::where('status', 'paid')
+            ->whereMonth('created_at', now()->month)
+            ->sum('total_amount');
+            
+        $lastMonth = Invoice::where('status', 'paid')
+            ->whereMonth('created_at', now()->subMonth()->month)
+            ->sum('total_amount');
+        
+        if ($lastMonth == 0) return $thisMonth > 0 ? 100 : 0;
+        
+        return round((($thisMonth - $lastMonth) / $lastMonth) * 100, 1);
+    }
 
-            if ($search) {
-                $query->where('name', 'like', "%{$search}%");
-            }
+    private function calculateAvgResponseTime()
+    {
+        // This would calculate based on ticket replies in a real implementation
+        return '2.5 hours'; // Mock value
+    }
 
-            $services = $query->orderBy('created_at', 'desc')->paginate($perPage);
+    private function getRecentActivity()
+    {
+        $activities = [];
 
-            return response()->json([
-                'success' => true,
-                'data' => $services
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching services',
-                'error' => $e->getMessage()
-            ], 500);
+        // Recent users
+        $recentUsers = User::latest()->take(3)->get();
+        foreach ($recentUsers as $user) {
+            $activities[] = [
+                'type' => 'user_registered',
+                'description' => "New user registered: {$user->first_name} {$user->last_name}",
+                'time' => $user->created_at->diffForHumans(),
+                'icon' => 'user-plus'
+            ];
         }
+
+        // Recent services
+        $recentServices = Service::latest()->take(3)->get();
+        foreach ($recentServices as $service) {
+            $activities[] = [
+                'type' => 'service_created',
+                'description' => "New service created: {$service->name}",
+                'time' => $service->created_at->diffForHumans(),
+                'icon' => 'server'
+            ];
+        }
+
+        // Recent tickets
+        $recentTickets = Ticket::latest()->take(2)->get();
+        foreach ($recentTickets as $ticket) {
+            $activities[] = [
+                'type' => 'ticket_created',
+                'description' => "New ticket: {$ticket->subject}",
+                'time' => $ticket->created_at->diffForHumans(),
+                'icon' => 'help-circle'
+            ];
+        }
+
+        // Sort by time and return latest 10
+        return collect($activities)->sortByDesc('time')->take(10)->values();
     }
 }
 
