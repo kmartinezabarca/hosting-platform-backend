@@ -103,6 +103,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/users', [App\Http\Controllers\AdminController::class, 'getUsers']);
     Route::post('/users', [App\Http\Controllers\AdminController::class, 'createUser']);
     Route::put('/users/{id}', [App\Http\Controllers\AdminController::class, 'updateUser']);
+    Route::put('/users/{id}/status', [App\Http\Controllers\AdminController::class, 'updateUserStatus']);
     Route::delete('/users/{id}', [App\Http\Controllers\AdminController::class, 'deleteUser']);
 
     // Service management
@@ -111,11 +112,25 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
 
     // Invoice management
     Route::get('/invoices', [App\Http\Controllers\AdminController::class, 'getInvoices']);
+    Route::post('/invoices', [App\Http\Controllers\AdminController::class, 'createInvoice']);
+    Route::put('/invoices/{id}', [App\Http\Controllers\AdminController::class, 'updateInvoice']);
     Route::put('/invoices/{id}/status', [App\Http\Controllers\AdminController::class, 'updateInvoiceStatus']);
+    Route::post('/invoices/{id}/mark-paid', [App\Http\Controllers\AdminController::class, 'markInvoiceAsPaid']);
+    Route::post('/invoices/{id}/send-reminder', [App\Http\Controllers\AdminController::class, 'sendInvoiceReminder']);
+    Route::post('/invoices/{id}/cancel', [App\Http\Controllers\AdminController::class, 'cancelInvoice']);
+    Route::delete('/invoices/{id}', [App\Http\Controllers\AdminController::class, 'deleteInvoice']);
 
     // Ticket management
     Route::get('/tickets', [App\Http\Controllers\AdminController::class, 'getTickets']);
+    Route::post('/tickets', [App\Http\Controllers\AdminController::class, 'createTicket']);
+    Route::put('/tickets/{id}', [App\Http\Controllers\AdminController::class, 'updateTicket']);
     Route::put('/tickets/{id}/assign', [App\Http\Controllers\AdminController::class, 'assignTicket']);
+    Route::put('/tickets/{id}/status', [App\Http\Controllers\AdminController::class, 'updateTicketStatus']);
+    Route::put('/tickets/{id}/priority', [App\Http\Controllers\AdminController::class, 'updateTicketPriority']);
+    Route::post('/tickets/{id}/reply', [App\Http\Controllers\AdminController::class, 'addTicketReply']);
+    Route::delete('/tickets/{id}', [App\Http\Controllers\AdminController::class, 'deleteTicket']);
+    Route::get('/tickets/categories', [App\Http\Controllers\AdminController::class, 'getTicketCategories']);
+    Route::get('/tickets/agents', [App\Http\Controllers\AdminController::class, 'getSupportAgents']);
 
     // Categories management
     Route::prefix("categories")->group(function () {
@@ -152,12 +167,6 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
         Route::post('/', [App\Http\Controllers\ProductController::class, 'store']);
         Route::put('/{uuid}', [App\Http\Controllers\ProductController::class, 'update']);
         Route::delete('/{uuid}', [App\Http\Controllers\ProductController::class, 'destroy']);
-    });
-
-    // Invoice management (Admin only)
-    Route::prefix('invoices')->group(function () {
-        Route::post('/', [App\Http\Controllers\InvoiceController::class, 'store']);
-        Route::put('/{uuid}/status', [App\Http\Controllers\InvoiceController::class, 'updateStatus']);
     });
 });
 
