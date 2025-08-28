@@ -191,7 +191,7 @@ Route::prefix("billing-cycles")->group(function () {
 
 Route::prefix("service-plans")->group(function () {
     Route::get("/", [App\Http\Controllers\ServicePlanController::class, "index"]);
-    Route::get('/{plan:uuid}/add-ons', [App\Http\Controllers\ServicePlanController::class, 'listAddOns']);
+    Route::get('/add-ons/{AddSlug}', [App\Http\Controllers\ServicePlanController::class, 'listAddOns']);
     Route::get("/category/{categorySlug}", [App\Http\Controllers\ServicePlanController::class, "indexByCategorySlug"]);
     Route::get("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "show"]);
 });
