@@ -196,6 +196,13 @@ Route::prefix("service-plans")->group(function () {
     Route::get("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "show"]);
 });
 
+Route::prefix("add-ons")->group(function () {
+    Route::get("/", [App\Http\Controllers\AddOnController::class, "index"]);
+    Route::get("/active", [App\Http\Controllers\AddOnController::class, "active"]);
+    Route::get("/service-plan/{planUuid}", [App\Http\Controllers\AddOnController::class, "getByServicePlan"]);
+    Route::get("/{uuid}", [App\Http\Controllers\AddOnController::class, "show"]);
+});
+
 // Admin routes for Categories, Billing Cycles, and Service Plans (protected by admin middleware)
 Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function () {
     Route::prefix("categories")->group(function () {
@@ -214,6 +221,14 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
         Route::post("/", [App\Http\Controllers\ServicePlanController::class, "store"]);
         Route::put("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "update"]);
         Route::delete("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "destroy"]);
+    });
+
+    Route::prefix("add-ons")->group(function () {
+        Route::post("/", [App\Http\Controllers\AddOnController::class, "store"]);
+        Route::put("/{uuid}", [App\Http\Controllers\AddOnController::class, "update"]);
+        Route::delete("/{uuid}", [App\Http\Controllers\AddOnController::class, "destroy"]);
+        Route::post("/{uuid}/attach-plan", [App\Http\Controllers\AddOnController::class, "attachToPlan"]);
+        Route::post("/{uuid}/detach-plan", [App\Http\Controllers\AddOnController::class, "detachFromPlan"]);
     });
 });
 
