@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class TicketReply extends Model
 {
@@ -35,6 +36,25 @@ class TicketReply extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+     /**
+     * Atributo computado para añadir las URLs completas a los adjuntos.
+     * Esto modifica la salida JSON para que el frontend no tenga que construir las URLs.
+     */
+    public function getAttachmentsAttribute($value)
+    {
+        $attachments = json_decode($value, true); // Decodificar el JSON de la DB
+
+        if (is_array($attachments)) {
+            return array_map(function ($attachment) {
+                // Añadir la URL completa a cada adjunto
+                $attachment['url'] = Storage::disk('public')->url($attachment['path']);
+                return $attachment;
+            }, $attachments);
+        }
+
+        return []; // Devolver un array vacío si no hay adjuntos o el formato es incorrecto
     }
 
     // Scopes
@@ -131,12 +151,12 @@ class TicketReply extends Model
 
         static::created(function ($reply) {
             $reply->ticket->updateLastReply($reply->user);
-            
+
             // Si es una respuesta del staff, cambiar el estado a "in_progress"
             if ($reply->isFromStaff() && $reply->ticket->status === 'open') {
                 $reply->ticket->update(['status' => 'in_progress']);
             }
-            
+
             // Si es una respuesta del cliente y el ticket estaba esperando al cliente
             if ($reply->isFromCustomer() && $reply->ticket->status === 'waiting_customer') {
                 $reply->ticket->update(['status' => 'in_progress']);

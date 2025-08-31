@@ -7,7 +7,9 @@ use App\Models\TicketReply;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class TicketController extends Controller
 {
@@ -35,9 +37,30 @@ class TicketController extends Controller
                 $query->where('department', $request->department);
             }
 
-            $tickets = $query->with(['assignedTo', 'service'])
+            $tickets = $query
+                           ->with(['assignedTo', 'service', 'lastReply.user'])
+                           ->withCount('replies')
                            ->orderBy('created_at', 'desc')
                            ->paginate($request->get('per_page', 15));
+
+            $tickets->getCollection()->transform(function ($t) {
+                $t->replies_total = (int) ($t->replies_count ?? 0);
+
+                $t->last_message = $t->lastReply ? [
+                    'id'         => $t->lastReply->id,
+                    'message'    => $t->lastReply->message,
+                    'created_at' => optional($t->lastReply->created_at)->toISOString(),
+                    'user'       => $t->lastReply->user ? [
+                        'id'   => $t->lastReply->user->id,
+                        'name' => $t->lastReply->user->name,
+                    ] : null,
+                ] : null;
+
+                // (Opcional) ocultar campos auxiliares
+                unset($t->replies_count, $t->lastReply);
+
+                return $t;
+            });
 
             return response()->json([
                 'success' => true,
@@ -88,129 +111,187 @@ class TicketController extends Controller
      * Create a new ticket
      */
     public function store(Request $request): JsonResponse
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'subject' => 'required|string|max:500',
-                'message' => 'required|string',
-                'priority' => 'required|in:low,medium,high,urgent',
-                'department' => 'required|in:technical,billing,sales,abuse',
-                'service_id' => 'nullable|exists:services,id'
-            ]);
+{
+    // Validaciones con mensajes personalizados
+    $validator = Validator::make(
+        $request->all(),
+        [
+            'subject'     => 'required|string|max:500',
+            'message'     => 'required|string',
+            'priority'    => 'required|in:low,medium,high,urgent',
+            'department'  => 'required|in:technical,billing,sales,abuse',
+            'service_id'  => 'nullable|exists:services,id',
+        ],
+        [
+            'subject.required'    => 'Indica un asunto para tu solicitud.',
+            'subject.max'         => 'El asunto no puede exceder 500 caracteres.',
+            'message.required'    => 'Escribe el detalle de tu solicitud.',
+            'priority.required'   => 'Selecciona una prioridad.',
+            'priority.in'         => 'La prioridad seleccionada no es válida.',
+            'department.required' => 'Selecciona un departamento.',
+            'department.in'       => 'El departamento seleccionado no es válido.',
+            'service_id.exists'   => 'El servicio seleccionado no existe.',
+        ]
+    );
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $user = Auth::user();
-
-            // Generate ticket number
-            $ticketNumber = $this->generateTicketNumber();
-
-            // Create ticket
-            $ticket = Ticket::create([
-                'user_id' => $user->id,
-                'service_id' => $request->service_id,
-                'ticket_number' => $ticketNumber,
-                'subject' => $request->subject,
-                'priority' => $request->priority,
-                'department' => $request->department
-            ]);
-
-            // Create initial reply with the message
-            TicketReply::create([
-                'ticket_id' => $ticket->id,
-                'user_id' => $user->id,
-                'message' => $request->message,
-                'is_staff_reply' => false
-            ]);
-
-            $ticket->load(['assignedTo', 'service', 'replies.user']);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket created successfully',
-                'data' => $ticket
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error creating ticket',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+    if ($validator->fails()) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Revisa los datos del formulario.',
+            'errors'  => $validator->errors(),
+        ], 422);
     }
+
+    $user = Auth::user();
+
+    try {
+        $ticket = DB::transaction(function () use ($request, $user) {
+
+            $ticket = Ticket::create([
+                'user_id'       => $user->id,
+                'service_id'    => $request->input('service_id'),
+                'ticket_number' => $this->generateTicketNumber(),
+                'subject'       => $request->input('subject'),
+                'priority'      => $request->input('priority'),
+                'status'        => 'open',
+                'description'   => $request->input('message'),
+                'department'    => $request->input('department'),
+            ]);
+
+            TicketReply::create([
+                'ticket_id'      => $ticket->id,
+                'user_id'        => $user->id,
+                'message'        => $request->input('message'),
+            ]);
+
+            return $ticket;
+        });
+
+        $ticket->load(['assignedTo', 'service', 'replies.user'])
+               ->loadCount('replies');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ticket creado correctamente.',
+            'data'    => $ticket,
+        ], 201);
+    } catch (\Throwable $e) {
+        report($e);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Ocurrió un error inesperado al crear el ticket.',
+        ], 500);
+    }
+}
 
     /**
      * Add a reply to a ticket
      */
     public function addReply(Request $request, string $uuid): JsonResponse
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'message' => 'required|string'
-            ]);
+{
+    $validator = Validator::make($request->all(), [
+        'message' => 'nullable|string|max:5000|required_without:attachments',
+        'attachments' => 'nullable|array',
+        'attachments.*' => 'file|mimes:jpg,jpeg,png,gif,pdf,zip,txt|max:20480', // 20MB
+    ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation failed',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $user = Auth::user();
-            $ticket = Ticket::where('uuid', $uuid)
-                          ->where('user_id', $user->id)
-                          ->first();
-
-            if (!$ticket) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Ticket not found'
-                ], 404);
-            }
-
-            // Check if ticket is closed
-            if ($ticket->status === 'closed') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot reply to a closed ticket'
-                ], 400);
-            }
-
-            // Create reply
-            $reply = TicketReply::create([
-                'ticket_id' => $ticket->id,
-                'user_id' => $user->id,
-                'message' => $request->message,
-                'is_staff_reply' => false
-            ]);
-
-            // Update ticket status if it was resolved
-            if ($ticket->status === 'resolved') {
-                $ticket->update(['status' => 'open']);
-            }
-
-            $reply->load('user');
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Reply added successfully',
-                'data' => $reply
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error adding reply',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+    if ($validator->fails()) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error de validación.',
+            'errors' => $validator->errors()
+        ], 422);
     }
+
+    DB::beginTransaction();
+    try {
+        $user = Auth::user();
+        $ticket = Ticket::where('uuid', $uuid)
+                      ->where('user_id', $user->id)
+                      ->first();
+
+        if (!$ticket) {
+            return response()->json(['success' => false, 'message' => 'Ticket no encontrado.'], 404);
+        }
+
+        if ($ticket->status === 'closed') {
+            return response()->json(['success' => false, 'message' => 'No se puede responder a un ticket cerrado.'], 400);
+        }
+
+        $attachmentsData = [];
+
+        if ($request->hasFile('attachments')) {
+
+            foreach ($request->file('attachments') as $index => $file) {
+
+                if (!$file->isValid()) {
+                    continue;
+                }
+
+                $originalName = $file->getClientOriginalName();
+                $pathPrefix = 'ticket_attachments/' . $ticket->uuid;
+                $filePath = $file->store($pathPrefix, 'public');
+
+                // Si $filePath es false, el guardado falló
+                if ($filePath === false) {
+                    throw new \Exception('No se pudo guardar el archivo: ' . $originalName);
+                }
+
+                $attachmentsData[] = [
+                    'path'      => $filePath,
+                    'name'      => $originalName,
+                    'size'      => $file->getSize(),
+                    'mime_type' => $file->getMimeType(),
+                ];
+            }
+        } else {
+            \Illuminate\Support\Facades\Log::info('No se encontraron archivos en la petición.');
+        }
+
+        // 2. Crear la respuesta en la base de datos
+        $reply = TicketReply::create([
+            'ticket_id'      => $ticket->id,
+            'user_id'        => $user->id,
+            'message'        => $request->input('message', ''),
+            'is_staff_reply' => false,
+            'attachments'    => !empty($attachmentsData) ? $attachmentsData : null,
+        ]);
+
+        // Actualizar el estado del ticket
+        if ($ticket->status === 'resolved' || $ticket->status === 'waiting_customer') {
+            $ticket->update(['status' => 'in_progress']);
+        }
+
+        DB::commit();
+
+        // 3. Cargar la relación del usuario para la respuesta JSON
+        $reply->load('user');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Respuesta añadida correctamente.',
+            // El modelo se encargará de añadir las URLs completas a los adjuntos
+            'data'    => $reply,
+        ], 201);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        // Aquí podrías añadir lógica para eliminar los archivos subidos si la transacción falla
+        // if (!empty($attachmentsData)) {
+        //     foreach ($attachmentsData as $attachment) {
+        //         Storage::disk('public')->delete($attachment['path']);
+        //     }
+        // }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Ocurrió un error al añadir la respuesta.',
+            'error'   => $e->getMessage()
+        ], 500);
+    }
+}
 
     /**
      * Close a ticket
@@ -256,7 +337,7 @@ class TicketController extends Controller
     {
         try {
             $user = Auth::user();
-            
+
             $stats = [
                 'total_tickets' => Ticket::where('user_id', $user->id)->count(),
                 'open_tickets' => Ticket::where('user_id', $user->id)->where('status', 'open')->count(),
@@ -287,7 +368,7 @@ class TicketController extends Controller
     {
         $prefix = config('app.ticket_prefix', 'TKT-');
         $year = date('Y');
-        
+
         // Get the last ticket number for this year
         $lastTicket = Ticket::where('ticket_number', 'like', $prefix . $year . '%')
                           ->orderBy('ticket_number', 'desc')

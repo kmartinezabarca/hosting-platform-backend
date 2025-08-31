@@ -8,9 +8,11 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class User extends Authenticatable
 {
+    protected $appends = ['avatar_full_url'];
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     /**
@@ -32,6 +34,7 @@ class User extends Authenticatable
         'state',
         'country',
         'postal_code',
+        'avatar_url',
         'role',
         'status',
         'stripe_customer_id',
@@ -75,6 +78,15 @@ class User extends Authenticatable
                 $model->uuid = (string) Str::uuid();
             }
         });
+    }
+
+    public function getAvatarFullUrlAttribute(): string
+    {
+        if ($this->avatar_url) {
+            return asset('storage/' . $this->avatar_url);
+        }
+
+        return '';
     }
 
     /**

@@ -20,6 +20,7 @@ use App\Models\Transaction;
 use App\Models\Subscription;
 use App\Models\Invoice;
 use App\Models\AddOn;
+use App\Models\PaymentMethod;
 use App\Models\ServiceAddOn;
 
 class ServiceController extends Controller
@@ -27,7 +28,7 @@ class ServiceController extends Controller
     public function __construct()
     {
         // Set Stripe API key
-        Stripe::setApiKey(config('services.stripe.secret'));
+        Stripe::setApiKey(env('STRIPE_SECRET'));
     }
 
     /**
@@ -92,7 +93,7 @@ class ServiceController extends Controller
                 'domain'             => ['nullable', 'string', 'max:255'],
                 'service_name'       => ['required', 'string', 'max:255'],
                 'payment_intent_id'  => ['required', 'string'],
-                'payment_method_id'  => ['nullable', 'integer'],
+                'payment_method_id'  => ['nullable'],
                 'additional_options' => ['nullable', 'array'],
 
                 // Add-ons por UUID
@@ -113,6 +114,59 @@ class ServiceController extends Controller
 
             $plan = ServicePlan::where('slug', $validated['plan_id'])->firstOrFail();
             $user = Auth::user();
+
+            $providedPm = $request->input('payment_method_id');
+            $localPaymentMethodId = null;
+
+            if ($providedPm) {
+                if (is_numeric($providedPm)) {
+                    // es ID local
+                    $local = PaymentMethod::where('user_id', $user->id)->where('id', (int)$providedPm)->first();
+                    if ($local) {
+                        $localPaymentMethodId = $local->id;
+                    }
+                } elseif (is_string($providedPm) && str_starts_with($providedPm, 'pm_')) {
+                    // intentaron mandarte el pm_ de Stripe; conviértelo a ID local si existe
+                    $local = PaymentMethod::where('user_id', $user->id)
+                        ->where('stripe_payment_method_id', $providedPm)
+                        ->first();
+                    if ($local) {
+                        $localPaymentMethodId = $local->id;
+                    }
+                }
+            }
+
+            $pi = \Stripe\PaymentIntent::retrieve([
+                'id' => $validated['payment_intent_id'],
+                'expand' => ['payment_method'],
+            ]);
+
+            $usedStripePmId = $pi->payment_method?->id ?? null;
+            $cardMeta = null;
+            if ($pi->payment_method && $pi->payment_method->type === 'card') {
+                $c = $pi->payment_method->card;
+                $cardMeta = [
+                    'brand'      => $c->brand,
+                    'last4'      => $c->last4,
+                    'exp_month'  => $c->exp_month,
+                    'exp_year'   => $c->exp_year,
+                    'funding'    => $c->funding,
+                    'country'    => $c->country ?? null,
+                ];
+            }
+
+            if (!$localPaymentMethodId && $usedStripePmId) {
+                $local = PaymentMethod::where('user_id', $user->id)
+                    ->where('stripe_payment_method_id', $usedStripePmId)
+                    ->first();
+                if ($local) {
+                    $localPaymentMethodId = $local->id;
+                }
+            }
+
+            $usageNote = $localPaymentMethodId
+                ? 'Pago con método guardado del cliente.'
+                : 'Pago con tarjeta no guardada (one-off).';
 
             $multiplier = match ($validated['billing_cycle']) {
                 'monthly'   => 1,
@@ -197,7 +251,7 @@ class ServiceController extends Controller
                 'provider_invoice_id' => null,
                 'pdf_path'            => null,
                 'xml_path'            => null,
-                'payment_method'      => $validated['payment_method_id'] ? 'card' : 'stripe',
+                'payment_method'      => 'stripe',
                 'payment_reference'   => $validated['payment_intent_id'],
                 'notes'               => 'Pago por contratación de servicio',
                 'currency'            => $currency,
@@ -230,11 +284,23 @@ class ServiceController extends Controller
             }
 
             // 5) TRANSACTION (monto BRUTO)
+
+            $providerData = [
+                'stripe' => [
+                    'payment_intent_id' => $pi->id,
+                    'payment_method_id' => $usedStripePmId,
+                    'status'            => $pi->status,
+                    'card'              => $cardMeta,
+                ],
+                'payment_method_usage' => $localPaymentMethodId ? 'customer_saved_method' : 'one_off_card',
+                'note' => $usageNote,
+            ];
+
             Transaction::create([
                 'uuid'                    => (string) Str::uuid(),
                 'user_id'                 => $user->id,
                 'invoice_id'              => $invoice->id,
-                'payment_method_id'       => $validated['payment_method_id'] ?? null,
+                'payment_method_id'       => $localPaymentMethodId,
                 'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
                 'provider_transaction_id' => $validated['payment_intent_id'],
                 'type'                    => 'payment',
@@ -243,7 +309,7 @@ class ServiceController extends Controller
                 'currency'                => $currency,
                 'fee_amount'              => 0,
                 'provider'                => 'stripe',
-                'provider_data'           => null,
+                'provider_data'           => $providerData,
                 'description'             => 'Pago de contratación de servicio',
                 'failure_reason'          => null,
                 'processed_at'            => now(),
@@ -339,12 +405,13 @@ class ServiceController extends Controller
                 ->orderBy('created_at', 'desc')
                 ->get()
                 ->map(function ($service) {
+                    $cat = $service->plan?->category;
                     return [
                         'id' => $service->id,
                         'uuid' => $service->uuid,
                         'plan_name' => $service->plan ? $service->plan->name : 'Plan no disponible',
                         'plan_slug' => $service->plan ? $service->plan->slug : null,
-                        'category' => $service->plan && $service->plan->category ? $service->plan->category->name : null,
+                        'category'   => $cat?->slug ?: ($cat?->name ? Str::slug($cat->name, '-', 'en') : null),
                         'status' => $service->status,
                         'name' => $service->name,
                         'created_at' => $service->created_at->toISOString(),

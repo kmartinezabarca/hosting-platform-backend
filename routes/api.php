@@ -24,6 +24,7 @@ Route::post("auth/login", [App\Http\Controllers\AuthController::class, "login"])
 Route::post("auth/logout", [App\Http\Controllers\AuthController::class, "logout"])->middleware("auth:sanctum");
 Route::post('auth/google/callback', [App\Http\Controllers\GoogleLoginController::class, 'handleGoogleCallback']);
 Route::post('auth/2fa/verify', [App\Http\Controllers\TwoFactorController::class, 'verifyLogin']);
+Route::middleware('auth:sanctum')->get('/auth/me', [App\Http\Controllers\AuthController::class, 'me']);
 
 // Stripe webhook (no authentication required)
 Route::post('/stripe/webhook', [App\Http\Controllers\StripeWebhookController::class, 'handleWebhook']);
@@ -34,11 +35,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('profile')->group(function () {
         Route::get('/', [App\Http\Controllers\ProfileController::class, 'getProfile']);
         Route::put('/', [App\Http\Controllers\ProfileController::class, 'updateProfile']);
+        Route::post('/avatar', [App\Http\Controllers\ProfileController::class, 'updateAvatar']);
         Route::put('/email', [App\Http\Controllers\ProfileController::class, 'updateEmail']);
         Route::put('/password', [App\Http\Controllers\ProfileController::class, 'updatePassword']);
-        Route::get('/sessions', [App\Http\Controllers\ProfileController::class, 'getSessions']);
+        Route::get('/devices', [App\Http\Controllers\ProfileController::class, 'getSessions']);
         Route::get('/security', [App\Http\Controllers\ProfileController::class, 'getSecurityOverview']);
         Route::delete('/account', [App\Http\Controllers\ProfileController::class, 'deleteAccount']);
+        Route::delete('/sessions/{uuid}', [App\Http\Controllers\ProfileController::class, 'revokeSession']);
     });
 
     // Two-Factor Authentication
@@ -77,7 +80,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/intent', [App\Http\Controllers\PaymentController::class, 'createPaymentIntent']);
         Route::get('/stats', [App\Http\Controllers\PaymentController::class, 'getPaymentStats']);
         Route::get('/transactions', [App\Http\Controllers\PaymentController::class, 'getTransactions']);
-    });;
+    });
 
     // Subscriptions management
     Route::prefix('subscriptions')->group(function () {
@@ -88,6 +91,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/{subscriptionId}/resume', [App\Http\Controllers\SubscriptionController::class, 'resumeSubscription']);
     });
 
+    Route::prefix('tickets')->group(function () {
+        Route::get('/', [App\Http\Controllers\TicketController::class, 'index'])->name('tickets.index');
+        Route::get('/stats', [App\Http\Controllers\TicketController::class, 'getStats'])->name('tickets.stats');
+        Route::post('/', [App\Http\Controllers\TicketController::class, 'store'])->name('tickets.store');
+        Route::get('/{uuid}', [App\Http\Controllers\TicketController::class, 'show'])->name('tickets.show');
+        Route::post('/{uuid}/reply', [App\Http\Controllers\TicketController::class, 'addReply'])->name('tickets.reply');
+        Route::post('/{uuid}/close', [App\Http\Controllers\TicketController::class, 'close'])->name('tickets.close');
+    });
+
     // Dashboard routes
     Route::get('/dashboard/stats', [App\Http\Controllers\DashboardController::class, 'getStats']);
     Route::get('/dashboard/services', [App\Http\Controllers\DashboardController::class, 'getServices']);
@@ -96,77 +108,124 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 // Admin routes (protected by admin middleware)
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
-    // Dashboard
     Route::get('/dashboard/stats', [App\Http\Controllers\AdminController::class, 'getDashboardStats']);
 
     // User management
     Route::get('/users', [App\Http\Controllers\AdminController::class, 'getUsers']);
     Route::post('/users', [App\Http\Controllers\AdminController::class, 'createUser']);
     Route::put('/users/{id}', [App\Http\Controllers\AdminController::class, 'updateUser']);
-    Route::put('/users/{id}/status', [App\Http\Controllers\AdminController::class, 'updateUserStatus']);
     Route::delete('/users/{id}', [App\Http\Controllers\AdminController::class, 'deleteUser']);
 
     // Service management
     Route::get('/services', [App\Http\Controllers\AdminController::class, 'getServices']);
-    Route::put('/services/{id}/status', [App\Http\Controllers\AdminController::class, 'updateServiceStatus']);
+});
 
+// Temporary routes for testing (without authentication)
+Route::get('/test/dashboard/stats', [App\Http\Controllers\DashboardController::class, 'getStats']);
+Route::get('/test/dashboard/services', [App\Http\Controllers\DashboardController::class, 'getServices']);
+Route::get('/test/dashboard/activity', [App\Http\Controllers\DashboardController::class, 'getActivity']);
+
+
+// Product routes (public)
+Route::get('/products', [App\Http\Controllers\ProductController::class, 'index']);
+Route::get('/products/{uuid}', [App\Http\Controllers\ProductController::class, 'show']);
+Route::get('/products/service-type/{serviceType}', [App\Http\Controllers\ProductController::class, 'getByServiceType']);
+
+// Protected routes (require authentication)
+Route::middleware(['auth:sanctum'])->group(function () {
     // Invoice management
-    Route::get('/invoices', [App\Http\Controllers\AdminController::class, 'getInvoices']);
-    Route::post('/invoices', [App\Http\Controllers\AdminController::class, 'createInvoice']);
-    Route::put('/invoices/{id}', [App\Http\Controllers\AdminController::class, 'updateInvoice']);
-    Route::put('/invoices/{id}/status', [App\Http\Controllers\AdminController::class, 'updateInvoiceStatus']);
-    Route::post('/invoices/{id}/mark-paid', [App\Http\Controllers\AdminController::class, 'markInvoiceAsPaid']);
-    Route::post('/invoices/{id}/send-reminder', [App\Http\Controllers\AdminController::class, 'sendInvoiceReminder']);
-    Route::post('/invoices/{id}/cancel', [App\Http\Controllers\AdminController::class, 'cancelInvoice']);
-    Route::delete('/invoices/{id}', [App\Http\Controllers\AdminController::class, 'deleteInvoice']);
+    Route::prefix('invoices')->group(function () {
+        Route::get('/', [App\Http\Controllers\InvoiceController::class, 'index']);
+        Route::get('/stats', [App\Http\Controllers\InvoiceController::class, 'getStats']);
+        Route::get('/{uuid}', [App\Http\Controllers\InvoiceController::class, 'show']);
+        Route::get('/{uuid}/pdf', [App\Http\Controllers\InvoiceController::class, 'downloadPdf']);
+        Route::get('/{uuid}/xml', [App\Http\Controllers\InvoiceController::class, 'downloadXml']);
+    });
+
+    // Transaction management
+    Route::prefix('transactions')->group(function () {
+        Route::get('/', [App\Http\Controllers\TransactionController::class, 'index']);
+        Route::get('/stats', [App\Http\Controllers\TransactionController::class, 'getStats']);
+        Route::get('/recent', [App\Http\Controllers\TransactionController::class, 'getRecent']);
+        Route::get('/{uuid}', [App\Http\Controllers\TransactionController::class, 'show']);
+    });
 
     // Ticket management
-    Route::get('/tickets', [App\Http\Controllers\AdminController::class, 'getTickets']);
-    Route::post('/tickets', [App\Http\Controllers\AdminController::class, 'createTicket']);
-    Route::put('/tickets/{id}', [App\Http\Controllers\AdminController::class, 'updateTicket']);
-    Route::put('/tickets/{id}/assign', [App\Http\Controllers\AdminController::class, 'assignTicket']);
-    Route::put('/tickets/{id}/status', [App\Http\Controllers\AdminController::class, 'updateTicketStatus']);
-    Route::put('/tickets/{id}/priority', [App\Http\Controllers\AdminController::class, 'updateTicketPriority']);
-    Route::post('/tickets/{id}/reply', [App\Http\Controllers\AdminController::class, 'addTicketReply']);
-    Route::delete('/tickets/{id}', [App\Http\Controllers\AdminController::class, 'deleteTicket']);
-    Route::get('/tickets/categories', [App\Http\Controllers\AdminController::class, 'getTicketCategories']);
-    Route::get('/tickets/agents', [App\Http\Controllers\AdminController::class, 'getSupportAgents']);
+    Route::prefix('tickets')->group(function () {
+        Route::get('/', [App\Http\Controllers\TicketController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\TicketController::class, 'store']);
+        Route::get('/stats', [App\Http\Controllers\TicketController::class, 'getStats']);
+        Route::get('/{uuid}', [App\Http\Controllers\TicketController::class, 'show']);
+        Route::post('/{uuid}/reply', [App\Http\Controllers\TicketController::class, 'addReply']);
+        Route::put('/{uuid}/close', [App\Http\Controllers\TicketController::class, 'close']);
+    });
 
-    // Categories management
+    // Domain management
+    Route::prefix('domains')->group(function () {
+        Route::get('/', [App\Http\Controllers\DomainController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\DomainController::class, 'store']);
+        Route::get('/stats', [App\Http\Controllers\DomainController::class, 'getStats']);
+        Route::post('/check-availability', [App\Http\Controllers\DomainController::class, 'checkAvailability']);
+        Route::get('/{uuid}', [App\Http\Controllers\DomainController::class, 'show']);
+        Route::put('/{uuid}', [App\Http\Controllers\DomainController::class, 'update']);
+        Route::post('/{uuid}/renew', [App\Http\Controllers\DomainController::class, 'renew']);
+    });
+});
+
+// Admin routes (protected by admin middleware)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    // Product management (Admin only)
+    Route::prefix('products')->group(function () {
+        Route::post('/', [App\Http\Controllers\ProductController::class, 'store']);
+        Route::put('/{uuid}', [App\Http\Controllers\ProductController::class, 'update']);
+        Route::delete('/{uuid}', [App\Http\Controllers\ProductController::class, 'destroy']);
+    });
+
+    // Invoice management (Admin only)
+    Route::prefix('invoices')->group(function () {
+        Route::post('/', [App\Http\Controllers\InvoiceController::class, 'store']);
+        Route::put('/{uuid}/status', [App\Http\Controllers\InvoiceController::class, 'updateStatus']);
+    });
+});
+
+
+
+// Public routes for Categories, Billing Cycles, and Service Plans
+Route::prefix("categories")->group(function () {
+    Route::get("/", [App\Http\Controllers\CategoryController::class, "index"]);
+    Route::get("/with-plans", [App\Http\Controllers\CategoryController::class, "indexWithPlans"]);
+    Route::get("/slug/{slug}", [App\Http\Controllers\CategoryController::class, "showBySlug"]);
+});
+
+Route::prefix("billing-cycles")->group(function () {
+    Route::get("/", [App\Http\Controllers\BillingCycleController::class, "index"]);
+});
+
+Route::prefix("service-plans")->group(function () {
+    Route::get("/", [App\Http\Controllers\ServicePlanController::class, "index"]);
+    Route::get('/add-ons/{AddSlug}', [App\Http\Controllers\ServicePlanController::class, 'listAddOns']);
+    Route::get("/category/{categorySlug}", [App\Http\Controllers\ServicePlanController::class, "indexByCategorySlug"]);
+    Route::get("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "show"]);
+});
+
+// Admin routes for Categories, Billing Cycles, and Service Plans (protected by admin middleware)
+Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function () {
     Route::prefix("categories")->group(function () {
         Route::post("/", [App\Http\Controllers\CategoryController::class, "store"]);
         Route::put("/{uuid}", [App\Http\Controllers\CategoryController::class, "update"]);
         Route::delete("/{uuid}", [App\Http\Controllers\CategoryController::class, "destroy"]);
     });
 
-    // Billing cycles management
     Route::prefix("billing-cycles")->group(function () {
         Route::post("/", [App\Http\Controllers\BillingCycleController::class, "store"]);
         Route::put("/{uuid}", [App\Http\Controllers\BillingCycleController::class, "update"]);
         Route::delete("/{uuid}", [App\Http\Controllers\BillingCycleController::class, "destroy"]);
     });
 
-    // Service plans management
     Route::prefix("service-plans")->group(function () {
         Route::post("/", [App\Http\Controllers\ServicePlanController::class, "store"]);
         Route::put("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "update"]);
         Route::delete("/{uuid}", [App\Http\Controllers\ServicePlanController::class, "destroy"]);
-    });
-
-    // Add-ons management
-    Route::prefix("add-ons")->group(function () {
-        Route::post("/", [App\Http\Controllers\AddOnController::class, "store"]);
-        Route::put("/{uuid}", [App\Http\Controllers\AddOnController::class, "update"]);
-        Route::delete("/{uuid}", [App\Http\Controllers\AddOnController::class, "destroy"]);
-        Route::post("/{uuid}/attach-plan", [App\Http\Controllers\AddOnController::class, "attachToPlan"]);
-        Route::post("/{uuid}/detach-plan", [App\Http\Controllers\AddOnController::class, "detachFromPlan"]);
-    });
-
-    // Product management (Admin only)
-    Route::prefix('products')->group(function () {
-        Route::post('/', [App\Http\Controllers\ProductController::class, 'store']);
-        Route::put('/{uuid}', [App\Http\Controllers\ProductController::class, 'update']);
-        Route::delete('/{uuid}', [App\Http\Controllers\ProductController::class, 'destroy']);
     });
 });
 

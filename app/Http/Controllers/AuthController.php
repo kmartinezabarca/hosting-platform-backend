@@ -82,6 +82,23 @@ class AuthController extends Controller
         ]);
     }
 
+    public function me(Request $request)
+    {
+        $u = $request->user();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'uuid'        => $u->uuid,
+                'first_name'  => $u->first_name,
+                'last_name'   => $u->last_name,
+                'email'       => $u->email,
+                'role'        => $u->role,
+                'avatar_url'  => $u->avatar_full_url, // atributo calculado (ver abajo)
+            ],
+        ]);
+    }
+
     /**
      * Get redirect path based on user role
      */

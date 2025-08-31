@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Models\Invoice;
 use Stripe\Stripe;
 use Stripe\PaymentIntent;
+use Stripe\Customer;
 use Stripe\Exception\ApiErrorException;
 use App\Http\Resources\PaymentMethodResource;
 
@@ -470,6 +471,31 @@ class PaymentController extends Controller
             ]);
 
             $user = Auth::user();
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'Usuario no autenticado.'], 401);
+            }
+
+            $stripeCustomerId = $user->stripe_customer_id;
+
+            if (!$stripeCustomerId) {
+                // Si el usuario no tiene un ID de Stripe, lo creamos
+                try {
+                    $customer = Customer::create([
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'metadata' => ['user_id' => $user->id]
+                    ]);
+                    $stripeCustomerId = $customer->id;
+
+                    $user->stripe_customer_id = $stripeCustomerId;
+                    $user->save();
+                } catch (ApiErrorException $e) {
+                    Log::error('Stripe API Error (Customer Creation): ' . $e->getMessage());
+                    return response()->json(['success' => false, 'message' => 'Error creando cliente en Stripe: ' . $e->getMessage()], 500);
+                }
+            }
+
             $amount = $validated['amount'];
             $currency = $validated['currency'] ?? 'usd';
 
@@ -477,11 +503,12 @@ class PaymentController extends Controller
                 $paymentIntent = PaymentIntent::create([
                     'amount' => $amount * 100, // Convert to cents
                     'currency' => $currency,
+                    'customer' => $stripeCustomerId,
                     'metadata' => [
                         'user_id' => $user->id,
                         'service_id' => $validated['service_id'] ?? null,
                     ],
-                    'description' => $validated['description'] ?? 'Service payment',
+                    'description' => $validated['description'] ?? 'Pago de servicio',
                     'automatic_payment_methods' => [
                         'enabled' => true,
                     ],

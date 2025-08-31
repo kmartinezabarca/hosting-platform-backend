@@ -17,7 +17,7 @@ class GoogleLoginController extends Controller
             'first_name' => 'required|string|max:255',
             'last_name' => 'string|max:255',
             'email' => 'required|email|max:255',
-            'google_id' => 'required|string', // 'sub' es el ID de usuario de Google
+            'google_id' => 'required|string',
         ]);
 
         if ($validator->fails()) {

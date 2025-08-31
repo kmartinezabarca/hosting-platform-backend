@@ -42,12 +42,14 @@ class ServicePlanController extends Controller
         }
     }
 
-    public function listAddOns(\App\Models\ServicePlan $plan)
+    public function listAddOns(string $AddSlug)
     {
+        $plan = ServicePlan::where('slug', $AddSlug)->firstOrFail();
+
         $addOns = $plan->addOns()
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['add_ons.uuid', 'add_ons.slug', 'add_ons.name', 'add_ons.description', 'add_ons.price', 'add_ons.currency', 'add_on_plan.is_default']);
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->get(['add_ons.uuid', 'add_ons.slug', 'add_ons.name', 'add_ons.description', 'add_ons.price', 'add_ons.currency', 'add_on_plan.is_default']);
 
         return response()->json(['success' => true, 'data' => $addOns]);
     }
