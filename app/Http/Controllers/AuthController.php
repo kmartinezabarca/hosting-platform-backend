@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use App\Models\ActivityLog; // Importar el modelo ActivityLog
 
 class AuthController extends Controller
 {
@@ -29,6 +30,15 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        // Registrar actividad de registro de usuario
+        ActivityLog::record(
+            'Registro de usuario',
+            'Nuevo usuario registrado: ' . $user->email,
+            'authentication',
+            ['user_id' => $user->id, 'email' => $user->email],
+            $user->id
+        );
+
         return response()->json([
             'message' => 'User registered successfully',
             'access_token' => $token,
@@ -47,6 +57,14 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
+            // Registrar intento de login fallido
+            ActivityLog::record(
+                'Intento de inicio de sesión fallido',
+                'Email: ' . $request->email,
+                'authentication',
+                ['email' => $request->email, 'status' => 'failed'],
+                $user ? $user->id : null
+            );
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials do not match our records.'],
             ]);
@@ -54,6 +72,14 @@ class AuthController extends Controller
 
         // Check if account is active
         if ($user->status !== 'active') {
+            // Registrar intento de login de cuenta inactiva
+            ActivityLog::record(
+                'Intento de inicio de sesión - Cuenta inactiva',
+                'Email: ' . $user->email,
+                'authentication',
+                ['user_id' => $user->id, 'email' => $user->email, 'status' => 'inactive_account'],
+                $user->id
+            );
             return response()->json([
                 'success' => false,
                 'message' => 'Account is not active. Please contact support.',
@@ -62,6 +88,14 @@ class AuthController extends Controller
         }
 
         if ($user->two_factor_enabled) {
+            // Registrar intento de login con 2FA requerido
+            ActivityLog::record(
+                'Intento de inicio de sesión - 2FA requerido',
+                'Email: ' . $user->email,
+                'authentication',
+                ['user_id' => $user->id, 'email' => $user->email, 'status' => '2fa_required'],
+                $user->id
+            );
             return response()->json([
                 'two_factor_required' => true,
                 'email' => $user->email,
@@ -75,6 +109,15 @@ class AuthController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
 
         $cookie = cookie('auth_token', $token, config('sanctum.expiration'), null, null, config('session.secure'), true, false, config('session.same_site', 'lax'));
+
+        // Registrar inicio de sesión exitoso
+        ActivityLog::record(
+            'Inicio de sesión exitoso',
+            'Usuario ' . $user->email . ' ha iniciado sesión.',
+            'authentication',
+            ['user_id' => $user->id, 'email' => $user->email, 'status' => 'success'],
+            $user->id
+        );
 
         return response()->json([
             'message' => 'Logged in successfully',
@@ -127,11 +170,25 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        $user = Auth::user(); // Obtener el usuario antes de desloguear
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
+        // Registrar actividad de cierre de sesión
+        if ($user) {
+            ActivityLog::record(
+                'Cierre de sesión',
+                'Usuario ' . $user->email . ' ha cerrado sesión.',
+                'authentication',
+                ['user_id' => $user->id, 'email' => $user->email],
+                $user->id
+            );
+        }
+
         return response()->json(['message' => 'Logged out successfully']);
     }
 }
+
+

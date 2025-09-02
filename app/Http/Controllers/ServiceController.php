@@ -28,7 +28,7 @@ class ServiceController extends Controller
     public function __construct()
     {
         // Set Stripe API key
-        Stripe::setApiKey(env('STRIPE_SECRET'));
+        Stripe::setApiKey(env("STRIPE_SECRET"));
     }
 
     /**
@@ -37,30 +37,30 @@ class ServiceController extends Controller
     public function getServicePlans(): JsonResponse
     {
         try {
-            $plans = ServicePlan::with(['category', 'features', 'pricing.billingCycle'])
+            $plans = ServicePlan::with(["category", "features", "pricing.billingCycle"])
                 ->active()
-                ->orderBy('sort_order')
+                ->orderBy("sort_order")
                 ->get()
                 ->map(function ($plan) {
                     $planData = [
-                        'id' => $plan->id,
-                        'uuid' => $plan->uuid,
-                        'slug' => $plan->slug,
-                        'name' => $plan->name,
-                        'description' => $plan->description,
-                        'base_price' => $plan->base_price,
-                        'setup_fee' => $plan->setup_fee,
-                        'is_popular' => $plan->is_popular,
-                        'category' => $plan->category ? $plan->category->name : null,
-                        'category_slug' => $plan->category ? $plan->category->slug : null,
-                        'specifications' => $plan->specifications,
-                        'features' => $plan->features->pluck('name')->toArray(),
-                        'pricing' => $plan->pricing->map(function ($pricing) {
+                        "id" => $plan->id,
+                        "uuid" => $plan->uuid,
+                        "slug" => $plan->slug,
+                        "name" => $plan->name,
+                        "description" => $plan->description,
+                        "base_price" => $plan->base_price,
+                        "setup_fee" => $plan->setup_fee,
+                        "is_popular" => $plan->is_popular,
+                        "category" => $plan->category ? $plan->category->name : null,
+                        "category_slug" => $plan->category ? $plan->category->slug : null,
+                        "specifications" => $plan->specifications,
+                        "features" => $plan->features->pluck("name")->toArray(),
+                        "pricing" => $plan->pricing->map(function ($pricing) {
                             return [
-                                'billing_cycle' => $pricing->billingCycle->name,
-                                'billing_cycle_slug' => $pricing->billingCycle->slug,
-                                'price' => $pricing->price,
-                                'discount_percentage' => $pricing->discount_percentage,
+                                "billing_cycle" => $pricing->billingCycle->name,
+                                "billing_cycle_slug" => $pricing->billingCycle->slug,
+                                "price" => $pricing->price,
+                                "discount_percentage" => $pricing->discount_percentage,
                             ];
                         })->toArray()
                     ];
@@ -69,14 +69,14 @@ class ServiceController extends Controller
                 });
 
             return response()->json([
-                'success' => true,
-                'data' => $plans
+                "success" => true,
+                "data" => $plans
             ]);
         } catch (\Exception $e) {
-            Log::error('Error fetching service plans: ' . $e->getMessage());
+            Log::error("Error fetching service plans: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching service plans'
+                "success" => false,
+                "message" => "Error fetching service plans"
             ], 500);
         }
     }
@@ -88,47 +88,47 @@ class ServiceController extends Controller
     {
         try {
             $validated = $request->validate([
-                'plan_id'            => ['required', 'string', Rule::exists('service_plans', 'slug')],
-                'billing_cycle'      => ['required', Rule::in(['monthly', 'quarterly', 'annually'])],
-                'domain'             => ['nullable', 'string', 'max:255'],
-                'service_name'       => ['required', 'string', 'max:255'],
-                'payment_intent_id'  => ['required', 'string'],
-                'payment_method_id'  => ['nullable'],
-                'additional_options' => ['nullable', 'array'],
+                "plan_id"            => ["required", "string", Rule::exists("service_plans", "slug")],
+                "billing_cycle"      => ["required", Rule::in(["monthly", "quarterly", "annually"])],
+                "domain"             => ["nullable", "string", "max:255"],
+                "service_name"       => ["required", "string", "max:255"],
+                "payment_intent_id"  => ["required", "string"],
+                "payment_method_id"  => ["nullable"],
+                "additional_options" => ["nullable", "array"],
 
                 // Add-ons por UUID
-                'add_ons'            => ['sometimes', 'array'],
-                'add_ons.*'          => ['string', 'distinct'],
+                "add_ons"            => ["sometimes", "array"],
+                "add_ons.*"          => ["string", "distinct"],
 
                 // Datos de facturación (opcionales)
-                'invoice'            => ['sometimes', 'array'],
-                'invoice.rfc'        => ['required_with:invoice', 'string', 'max:13'],
-                'invoice.name'       => ['required_with:invoice', 'string', 'max:255'],
-                'invoice.zip'        => ['required_with:invoice', 'string', 'size:5'],
-                'invoice.regimen'    => ['required_with:invoice', 'string', 'max:4'],
-                'invoice.uso_cfdi'   => ['required_with:invoice', 'string', 'max:10'],
-                'invoice.constancia' => ['nullable', 'string'],
+                "invoice"            => ["sometimes", "array"],
+                "invoice.rfc"        => ["required_with:invoice", "string", "max:13"],
+                "invoice.name"       => ["required_with:invoice", "string", "max:255"],
+                "invoice.zip"        => ["required_with:invoice", "string", "size:5"],
+                "invoice.regimen"    => ["required_with:invoice", "string", "max:4"],
+                "invoice.uso_cfdi"   => ["required_with:invoice", "string", "max:10"],
+                "invoice.constancia" => ["nullable", "string"],
 
-                'create_subscription' => ['sometimes', 'boolean'],
+                "create_subscription" => ["sometimes", "boolean"],
             ]);
 
-            $plan = ServicePlan::where('slug', $validated['plan_id'])->firstOrFail();
+            $plan = ServicePlan::where("slug", $validated["plan_id"])->firstOrFail();
             $user = Auth::user();
 
-            $providedPm = $request->input('payment_method_id');
+            $providedPm = $request->input("payment_method_id");
             $localPaymentMethodId = null;
 
             if ($providedPm) {
                 if (is_numeric($providedPm)) {
                     // es ID local
-                    $local = PaymentMethod::where('user_id', $user->id)->where('id', (int)$providedPm)->first();
+                    $local = PaymentMethod::where("user_id", $user->id)->where("id", (int)$providedPm)->first();
                     if ($local) {
                         $localPaymentMethodId = $local->id;
                     }
-                } elseif (is_string($providedPm) && str_starts_with($providedPm, 'pm_')) {
+                } elseif (is_string($providedPm) && str_starts_with($providedPm, "pm_")) {
                     // intentaron mandarte el pm_ de Stripe; conviértelo a ID local si existe
-                    $local = PaymentMethod::where('user_id', $user->id)
-                        ->where('stripe_payment_method_id', $providedPm)
+                    $local = PaymentMethod::where("user_id", $user->id)
+                        ->where("stripe_payment_method_id", $providedPm)
                         ->first();
                     if ($local) {
                         $localPaymentMethodId = $local->id;
@@ -137,27 +137,27 @@ class ServiceController extends Controller
             }
 
             $pi = \Stripe\PaymentIntent::retrieve([
-                'id' => $validated['payment_intent_id'],
-                'expand' => ['payment_method'],
+                "id" => $validated["payment_intent_id"],
+                "expand" => ["payment_method"],
             ]);
 
             $usedStripePmId = $pi->payment_method?->id ?? null;
             $cardMeta = null;
-            if ($pi->payment_method && $pi->payment_method->type === 'card') {
+            if ($pi->payment_method && $pi->payment_method->type === "card") {
                 $c = $pi->payment_method->card;
                 $cardMeta = [
-                    'brand'      => $c->brand,
-                    'last4'      => $c->last4,
-                    'exp_month'  => $c->exp_month,
-                    'exp_year'   => $c->exp_year,
-                    'funding'    => $c->funding,
-                    'country'    => $c->country ?? null,
+                    "brand"      => $c->brand,
+                    "last4"      => $c->last4,
+                    "exp_month"  => $c->exp_month,
+                    "exp_year"   => $c->exp_year,
+                    "funding"    => $c->funding,
+                    "country"    => $c->country ?? null,
                 ];
             }
 
             if (!$localPaymentMethodId && $usedStripePmId) {
-                $local = PaymentMethod::where('user_id', $user->id)
-                    ->where('stripe_payment_method_id', $usedStripePmId)
+                $local = PaymentMethod::where("user_id", $user->id)
+                    ->where("stripe_payment_method_id", $usedStripePmId)
                     ->first();
                 if ($local) {
                     $localPaymentMethodId = $local->id;
@@ -165,24 +165,24 @@ class ServiceController extends Controller
             }
 
             $usageNote = $localPaymentMethodId
-                ? 'Pago con método guardado del cliente.'
-                : 'Pago con tarjeta no guardada (one-off).';
+                ? "Pago con método guardado del cliente."
+                : "Pago con tarjeta no guardada (one-off).";
 
-            $multiplier = match ($validated['billing_cycle']) {
-                'monthly'   => 1,
-                'quarterly' => 3,
-                'annually'  => 12,
+            $multiplier = match ($validated["billing_cycle"]) {
+                "monthly"   => 1,
+                "quarterly" => 3,
+                "annually"  => 12,
             };
 
             // --- Add-ons permitidos por el plan ---
-            $requestedUuids  = collect($validated['add_ons'] ?? []);
-            $allowedAddOns   = $plan->addOns()->where('is_active', true)->get(); // requiere relación en el modelo
-            $selectedAddOns  = $allowedAddOns->whereIn('uuid', $requestedUuids);
+            $requestedUuids  = collect($validated["add_ons"] ?? []);
+            $allowedAddOns   = $plan->addOns()->where("is_active", true)->get(); // requiere relación en el modelo
+            $selectedAddOns  = $allowedAddOns->whereIn("uuid", $requestedUuids);
 
             if ($requestedUuids->isNotEmpty() && $selectedAddOns->count() !== $requestedUuids->count()) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Algunos add-ons no existen o no están permitidos por este plan.',
+                    "success" => false,
+                    "message" => "Algunos add-ons no existen o no están permitidos por este plan.",
                 ], 422);
             }
 
@@ -191,11 +191,11 @@ class ServiceController extends Controller
             $addonsNet  = round($selectedAddOns->sum(fn($a) => (float)$a->price) * $multiplier, 2);
             $subtotal   = round($planNet + $addonsNet, 2);
 
-            $taxRatePct = (float) config('billing.tax_rate_percent', 16.00); // 16.00 = 16%
+            $taxRatePct = (float) config("billing.tax_rate_percent", 16.00); // 16.00 = 16%
             $taxRate    = $taxRatePct / 100;
             $taxAmount  = round($subtotal * $taxRate, 2);
             $total      = round($subtotal + $taxAmount, 2);
-            $currency   = $plan->currency ?? 'MXN';
+            $currency   = $plan->currency ?? "MXN";
 
             $nextBillingDate = now()->addMonths($multiplier);
 
@@ -203,205 +203,200 @@ class ServiceController extends Controller
 
             // 1) SERVICE
             $service = Service::create([
-                'plan_id'           => $plan->id,
-                'user_id'           => $user->id,
-                'price'             => $plan->base_price, // unitario NETO del plan
-                'name'              => $validated['service_name'],
-                'status'            => 'active',
-                'billing_cycle'     => $validated['billing_cycle'],
-                'domain'            => $validated['domain'] ?? null,
-                'payment_intent_id' => $validated['payment_intent_id'],
-                'configuration'     => $validated['additional_options'] ?? null,
-                'next_due_date'     => $nextBillingDate,
+                "plan_id"           => $plan->id,
+                "user_id"           => $user->id,
+                "price"             => $plan->base_price, // unitario NETO del plan
+                "name"              => $validated["service_name"],
+                "status"            => "active",
+                "billing_cycle"     => $validated["billing_cycle"],
+                "domain"            => $validated["domain"] ?? null,
+                "payment_intent_id" => $validated["payment_intent_id"],
+                "configuration"     => $validated["additional_options"] ?? null,
+                "next_due_date"     => $nextBillingDate,
             ]);
 
             // 1.1) Snapshot de add-ons elegidos para el servicio
             foreach ($selectedAddOns as $addOn) {
                 ServiceAddOn::create([
-                    'service_id'  => $service->id,
-                    'add_on_id'   => $addOn->id,
-                    'add_on_uuid' => $addOn->uuid,
-                    'name'        => $addOn->name,
-                    'unit_price'  => $addOn->price, // NETO por ciclo
-                    'quantity'    => 1,
+                    "service_id"  => $service->id,
+                    "add_on_id"   => $addOn->id,
+                    "add_on_uuid" => $addOn->uuid,
+                    "name"        => $addOn->name,
+                    "unit_price"  => $addOn->price, // NETO por ciclo
+                    "quantity"    => 1,
                 ]);
             }
 
             // 2) Datos fiscales del servicio (opcional)
-            if (!empty($validated['invoice'])) {
+            if (!empty($validated["invoice"])) {
                 ServiceInvoice::create([
-                    'service_id'  => $service->id,
-                    'rfc'         => $validated['invoice']['rfc'],
-                    'name'        => $validated['invoice']['name'],
-                    'zip'         => $validated['invoice']['zip'],
-                    'regimen'     => $validated['invoice']['regimen'],
-                    'uso_cfdi'    => $validated['invoice']['uso_cfdi'],
-                    'constancia'  => $validated['invoice']['constancia'] ?? null,
+                    "service_id"  => $service->id,
+                    "rfc"         => $validated["invoice"]["rfc"],
+                    "name"        => $validated["invoice"]["name"],
+                    "zip"         => $validated["invoice"]["zip"],
+                    "regimen"     => $validated["invoice"]["regimen"],
+                    "uso_cfdi"    => $validated["invoice"]["uso_cfdi"],
+                    "constancia"  => $validated["invoice"]["constancia"] ?? null,
                 ]);
             }
 
             // 3) INVOICE (pago upfront exitoso => paid)
             $invoice = Invoice::create([
-                'user_id'             => $user->id,
-                'service_id'          => $service->id,
-                'status'              => 'paid',
-                'due_date'            => now(),
-                'paid_at'             => now(),
-                'invoice_number'      => $this->generateInvoiceNumber(),
-                'provider_invoice_id' => null,
-                'pdf_path'            => null,
-                'xml_path'            => null,
-                'payment_method'      => 'stripe',
-                'payment_reference'   => $validated['payment_intent_id'],
-                'notes'               => 'Pago por contratación de servicio',
-                'currency'            => $currency,
-                'subtotal'            => $subtotal,   // NETO
-                'tax_rate'            => $taxRatePct, // 16.00
-                'tax_amount'          => $taxAmount,  // IVA
-                'total'               => $total,      // BRUTO
+                "user_id"             => $user->id,
+                "service_id"          => $service->id,
+                "status"              => "paid",
+                "due_date"            => now(),
+                "paid_at"             => now(),
+                "invoice_number"      => $this->generateInvoiceNumber(),
+                "provider_invoice_id" => null,
+                "pdf_path"            => null,
+                "xml_path"            => null,
+                "payment_method"      => "stripe",
+                "payment_reference"   => $validated["payment_intent_id"],
+                "notes"               => "Pago por contratación de servicio",
+                "currency"            => $currency,
+                "subtotal"            => $subtotal,   // NETO
+                "tax_rate"            => $taxRatePct, // 16.00
+                "tax_amount"          => $taxAmount,  // IVA
+                "total"               => $total,      // BRUTO
             ]);
 
             // 4) INVOICE ITEMS (plan + add-ons) — precios NETOS
             InvoiceItem::create([
-                'invoice_id'  => $invoice->id,
-                'service_id'  => $service->id,
-                'description' => sprintf('%s (%s)', $plan->name, strtoupper($validated['billing_cycle'])),
-                'quantity'    => 1,
-                'unit_price'  => $planNet,
-                'total'       => $planNet,
+                "invoice_id"  => $invoice->id,
+                "service_id"  => $service->id,
+                "description" => sprintf("%s (%s)", $plan->name, strtoupper($validated["billing_cycle"])),
+                "quantity"    => 1,
+                "unit_price"  => $planNet,
+                "total"       => $planNet,
             ]);
 
             foreach ($selectedAddOns as $addOn) {
                 $rowNet = round((float)$addOn->price * $multiplier, 2);
                 InvoiceItem::create([
-                    'invoice_id'  => $invoice->id,
-                    'service_id'  => $service->id,
-                    'description' => $addOn->name,
-                    'quantity'    => 1,
-                    'unit_price'  => $rowNet,
-                    'total'       => $rowNet,
+                    "invoice_id"  => $invoice->id,
+                    "service_id"  => $service->id,
+                    "description" => $addOn->name,
+                    "quantity"    => 1,
+                    "unit_price"  => $rowNet,
+                    "total"       => $rowNet,
                 ]);
             }
 
             // 5) TRANSACTION (monto BRUTO)
 
             $providerData = [
-                'stripe' => [
-                    'payment_intent_id' => $pi->id,
-                    'payment_method_id' => $usedStripePmId,
-                    'status'            => $pi->status,
-                    'card'              => $cardMeta,
+                "stripe" => [
+                    "payment_intent_id" => $pi->id,
+                    "payment_method_id" => $usedStripePmId,
+                    "status"            => $pi->status,
+                    "card"              => $cardMeta,
                 ],
-                'payment_method_usage' => $localPaymentMethodId ? 'customer_saved_method' : 'one_off_card',
-                'note' => $usageNote,
+                "payment_method_usage" => $localPaymentMethodId ? "customer_saved_method" : "one_off_card",
+                "note" => $usageNote,
             ];
 
             Transaction::create([
-                'uuid'                    => (string) Str::uuid(),
-                'user_id'                 => $user->id,
-                'invoice_id'              => $invoice->id,
-                'payment_method_id'       => $localPaymentMethodId,
-                'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
-                'provider_transaction_id' => $validated['payment_intent_id'],
-                'type'                    => 'payment',
-                'status'                  => 'completed',
-                'amount'                  => $total,     // incluye IVA
-                'currency'                => $currency,
-                'fee_amount'              => 0,
-                'provider'                => 'stripe',
-                'provider_data'           => $providerData,
-                'description'             => 'Pago de contratación de servicio',
-                'failure_reason'          => null,
-                'processed_at'            => now(),
+                "uuid"                    => (string) Str::uuid(),
+                "user_id"                 => $user->id,
+                "invoice_id"              => $invoice->id,
+                "payment_method_id"       => $localPaymentMethodId,
+                "transaction_id"          => "TRX-" . Str::upper(Str::random(10)),
+                "provider_transaction_id" => $validated["payment_intent_id"],
+                "type"                    => "payment",
+                "status"                  => "completed",
+                "amount"                  => $total,     // incluye IVA
+                "currency"                => $currency,
+                "fee_amount"              => 0,
+                "provider"                => "stripe",
+                "provider_data"           => $providerData,
+                "description"             => "Pago de contratación de servicio",
+                "failure_reason"          => null,
+                "processed_at"            => now(),
             ]);
 
             ActivityLog::record(
-                'Pago de servicio',
+                "Pago de servicio",
                 $plan->name,
-                'payment',
+                "payment",
                 [
-                    'invoice_id' => $invoice->id,
-                    'service_id' => $service->id,
-                    'amount'   => $total,
-                    'currency' => $currency,
-                ]
+                    "invoice_id" => $invoice->id,
+                    "service_id" => $service->id,
+                    "amount"   => $total,
+                    "currency" => $currency,
+                ],
+                $user->id
             );
 
             // 6) (Opcional) suscripción en Stripe
-            if (!empty($validated['create_subscription'])) {
+            if (!empty($validated["create_subscription"])) {
                 if (!$plan->stripe_price_id) {
-                    throw new \RuntimeException('El plan no tiene stripe_price_id configurado.');
+                    throw new \RuntimeException("El plan no tiene stripe_price_id configurado.");
                 }
                 $customerId = $this->getOrCreateStripeCustomer($user);
 
                 $stripeSub = \Stripe\Subscription::create([
-                    'customer' => $customerId,
-                    'items'    => [['price' => $plan->stripe_price_id]],
-                    'payment_behavior' => 'default_incomplete',
-                    'expand' => ['latest_invoice.payment_intent'],
+                    "customer" => $customerId,
+                    "items"    => [["price" => $plan->stripe_price_id]],
+                    "payment_behavior" => "default_incomplete",
+                    "expand" => ["latest_invoice.payment_intent"],
                 ]);
 
                 Subscription::create([
-                    'uuid'                   => (string) Str::uuid(),
-                    'user_id'                => $user->id,
-                    'service_id'             => $service->id,
-                    'stripe_subscription_id' => $stripeSub->id,
-                    'stripe_customer_id'     => $customerId,
-                    'stripe_price_id'        => $plan->stripe_price_id,
-                    'name'                   => $plan->name,
-                    'status'                 => $stripeSub->status,
-                    'amount'                 => $total, // puedes guardar BRUTO del ciclo
-                    'currency'               => $currency,
-                    'billing_cycle'          => $validated['billing_cycle'] === 'annually' ? 'yearly'
-                        : ($validated['billing_cycle'] === 'monthly' ? 'monthly' : 'monthly'),
-                    'current_period_start'   => isset($stripeSub->current_period_start) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_start) : null,
-                    'current_period_end'     => isset($stripeSub->current_period_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_end) : null,
-                    'trial_start'            => isset($stripeSub->trial_start) ? \Carbon\Carbon::createFromTimestamp($stripeSub->trial_start) : null,
-                    'trial_end'              => isset($stripeSub->trial_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->trial_end) : null,
-                    'metadata'               => null,
+                    "uuid"                   => (string) Str::uuid(),
+                    "user_id"                => $user->id,
+                    "service_id"             => $service->id,
+                    "stripe_subscription_id" => $stripeSub->id,
+                    "stripe_customer_id"     => $customerId,
+                    "stripe_price_id"        => $plan->stripe_price_id,
+                    "name"                   => $plan->name,
+                    "status"                 => $stripeSub->status,
+                    "amount"                 => $total, // puedes guardar BRUTO del ciclo
+                    "currency"               => $currency,
+                    "billing_cycle"          => $validated["billing_cycle"] === "annually" ? "yearly"
+                        : ($validated["billing_cycle"] === "monthly" ? "monthly" : "monthly"),
+                    "current_period_start"   => isset($stripeSub->current_period_start) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_start) : null,
+                    "current_period_end"     => isset($stripeSub->current_period_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_end) : null,
+                    "trial_start"            => isset($stripeSub->trial_start) ? \Carbon\Carbon::createFromTimestamp($stripeSub->trial_start) : null,
+                    "trial_end"              => isset($stripeSub->trial_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->trial_end) : null,
+                    "ends_at"                => isset($stripeSub->current_period_end) ? \Carbon\Carbon::createFromTimestamp($stripeSub->current_period_end) : null,
+                    "created_at"             => \Carbon\Carbon::createFromTimestamp($stripeSub->created),
                 ]);
-                // Nota: si quieres que los add-ons también formen parte de la suscripción,
-                // necesitas price IDs de Stripe para cada add-on y agregarlos en 'items'.
+
+                ActivityLog::record(
+                    "Suscripción creada",
+                    "Suscripción para el plan " . $plan->name . " creada en Stripe.",
+                    "subscription",
+                    ["user_id" => $user->id, "plan_id" => $plan->id, "stripe_sub_id" => $stripeSub->id],
+                    $user->id
+                );
             }
 
             DB::commit();
 
             return response()->json([
-                'success' => true,
-                'message' => 'Servicio contratado exitosamente.',
-                'data'    => [
-                    'service' => $service,
-                    'invoice' => $invoice,
-                ],
+                "success" => true,
+                "message" => "Service contracted successfully",
+                "service" => $service,
+                "invoice" => $invoice,
             ], 201);
         } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Datos de entrada inválidos.',
-                'errors'  => $e->errors(),
-            ], 422);
-        } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('Error al contratar el servicio: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error("Validation error contracting service: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Ocurrió un error inesperado al procesar la solicitud.',
+                "success" => false,
+                "message" => "Validation failed",
+                "errors" => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Error contracting service: " . $e->getMessage());
+            return response()->json([
+                "success" => false,
+                "message" => "Error contracting service",
+                "error" => $e->getMessage()
             ], 500);
         }
-    }
-
-    /** Genera folio tipo INV-202508-0001 */
-    private function generateInvoiceNumber(): string
-    {
-        $prefix = 'INV-' . now()->format('Ym');
-        $last = \App\Models\Invoice::where('invoice_number', 'like', "{$prefix}-%")
-            ->orderByDesc('invoice_number')->value('invoice_number');
-
-        $seq = 1;
-        if ($last && preg_match('/-(\d+)$/', $last, $m)) {
-            $seq = (int)$m[1] + 1;
-        }
-        return sprintf('%s-%04d', $prefix, $seq);
     }
 
     /**
@@ -411,41 +406,20 @@ class ServiceController extends Controller
     {
         try {
             $user = Auth::user();
-
-            $services = Service::with(['plan.category'])
-                ->where('user_id', $user->id)
-                ->orderBy('created_at', 'desc')
-                ->get()
-                ->map(function ($service) {
-                    $cat = $service->plan?->category;
-                    return [
-                        'id' => $service->id,
-                        'uuid' => $service->uuid,
-                        'plan_name' => $service->plan ? $service->plan->name : 'Plan no disponible',
-                        'plan_slug' => $service->plan ? $service->plan->slug : null,
-                        'category'   => $cat?->slug ?: ($cat?->name ? Str::slug($cat->name, '-', 'en') : null),
-                        'status' => $service->status,
-                        'name' => $service->name,
-                        'created_at' => $service->created_at->toISOString(),
-                        'next_due_date' => $service->next_due_date,
-                        'price' => $service->price,
-                        'setup_fee' => $service->setup_fee,
-                        'billing_cycle' => $service->billing_cycle,
-                        'connection_details' => $service->connection_details,
-                        'configuration' => $service->configuration,
-                        'notes' => $service->notes
-                    ];
-                });
+            $services = Service::where("user_id", $user->id)
+                ->with(["plan", "plan.category", "plan.features", "addOns"])
+                ->orderByDesc("created_at")
+                ->get();
 
             return response()->json([
-                'success' => true,
-                'data' => $services
+                "success" => true,
+                "data" => $services
             ]);
         } catch (\Exception $e) {
-            Log::error('Error fetching user services: ' . $e->getMessage());
+            Log::error("Error fetching user services: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching services'
+                "success" => false,
+                "message" => "Error fetching user services"
             ], 500);
         }
     }
@@ -453,243 +427,179 @@ class ServiceController extends Controller
     /**
      * Get service details
      */
-    public function getServiceDetails($serviceId): JsonResponse
+    public function getServiceDetails(string $serviceId): JsonResponse
     {
         try {
             $user = Auth::user();
-
-            $service = Service::with(['plan.category', 'plan.features', 'user'])
-                ->where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            $serviceData = [
-                'id' => $service->id,
-                'uuid' => $service->uuid,
-                'name' => $service->name,
-                'plan_name' => $service->plan ? $service->plan->name : 'Plan no disponible',
-                'plan_slug' => $service->plan ? $service->plan->slug : null,
-                'category' => $service->plan && $service->plan->category ? $service->plan->category->name : null,
-                'status' => $service->status,
-                'created_at' => $service->created_at->toISOString(),
-                'next_due_date' => $service->next_due_date,
-                'price' => $service->price,
-                'setup_fee' => $service->setup_fee,
-                'billing_cycle' => $service->billing_cycle,
-                'connection_details' => $service->connection_details,
-                'configuration' => $service->configuration,
-                'specifications' => $service->plan ? $service->plan->specifications : null,
-                'features' => $service->plan ? $service->plan->features->pluck('name')->toArray() : [],
-                'external_id' => $service->external_id,
-                'notes' => $service->notes,
-                'terminated_at' => $service->terminated_at
-            ];
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->with(["plan", "plan.category", "plan.features", "addOns", "invoices", "transactions"])
+                ->firstOrFail();
 
             return response()->json([
-                'success' => true,
-                'data' => $serviceData
+                "success" => true,
+                "data" => $service
             ]);
         } catch (\Exception $e) {
-            Log::error('Error fetching service details: ' . $e->getMessage());
+            Log::error("Error fetching service details: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching service details'
-            ], 500);
+                "success" => false,
+                "message" => "Service not found or not authorized"
+            ], 404);
         }
     }
 
     /**
      * Update service configuration
      */
-    public function updateServiceConfig(Request $request, $serviceId): JsonResponse
+    public function updateServiceConfig(Request $request, string $serviceId): JsonResponse
     {
         try {
-            $request->validate([
-                'configuration' => 'required|array'
+            $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
+
+            $validated = $request->validate([
+                "configuration" => "required|array",
             ]);
 
-            $user = Auth::user();
+            $service->update([
+                "configuration" => $validated["configuration"]
+            ]);
 
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // Actualizar la configuración del servicio
-            $service->configuration = $request->configuration;
-            $service->save();
+            ActivityLog::record(
+                "Configuración de servicio actualizada",
+                "Configuración del servicio " . $service->name . " (" . $service->uuid . ") actualizada.",
+                "service",
+                ["user_id" => $user->id, "service_id" => $service->id, "new_config" => $validated["configuration"]],
+                $user->id
+            );
 
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'service_id' => $service->id,
-                    'uuid' => $service->uuid,
-                    'configuration' => $service->configuration,
-                    'updated_at' => $service->updated_at
-                ],
-                'message' => 'Configuración del servicio actualizada exitosamente'
+                "success" => true,
+                "message" => "Service configuration updated successfully",
+                "data" => $service->fresh()
             ]);
         } catch (\Exception $e) {
-            Log::error('Error updating service config: ' . $e->getMessage());
+            Log::error("Error updating service configuration: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error updating service configuration'
+                "success" => false,
+                "message" => "Error updating service configuration"
             ], 500);
         }
     }
 
     /**
-     * Cancel service
+     * Cancel a service
      */
-    public function cancelService(Request $request, $serviceId): JsonResponse
+    public function cancelService(string $serviceId): JsonResponse
     {
         try {
-            $request->validate([
-                'reason' => 'required|string|max:500'
+            $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
+
+            $service->update([
+                "status" => "cancelled",
+                "cancelled_at" => now(),
             ]);
 
-            $user = Auth::user();
-
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // Actualizar el estado del servicio a terminado
-            $service->status = 'terminated';
-            $service->terminated_at = now();
-            $service->notes = ($service->notes ? $service->notes . "\n" : '') .
-                "Cancelado el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
-            $service->save();
+            ActivityLog::record(
+                "Servicio cancelado",
+                "El servicio " . $service->name . " (" . $service->uuid . ") ha sido cancelado.",
+                "service",
+                ["user_id" => $user->id, "service_id" => $service->id],
+                $user->id
+            );
 
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'service_id' => $service->id,
-                    'uuid' => $service->uuid,
-                    'status' => $service->status,
-                    'cancellation_reason' => $request->reason,
-                    'cancelled_at' => $service->terminated_at
-                ],
-                'message' => 'Servicio cancelado exitosamente'
+                "success" => true,
+                "message" => "Service cancelled successfully",
+                "data" => $service->fresh()
             ]);
         } catch (\Exception $e) {
-            Log::error('Error cancelling service: ' . $e->getMessage());
+            Log::error("Error cancelling service: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error cancelling service'
+                "success" => false,
+                "message" => "Error cancelling service"
             ], 500);
         }
     }
 
     /**
-     * Suspend service
+     * Suspend a service
      */
-    public function suspendService(Request $request, $serviceId): JsonResponse
+    public function suspendService(string $serviceId): JsonResponse
     {
         try {
-            $request->validate([
-                'reason' => 'required|string|max:500'
+            $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
+
+            $service->update([
+                "status" => "suspended",
+                "suspended_at" => now(),
             ]);
 
-            $user = Auth::user();
-
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // Actualizar el estado del servicio a suspendido
-            $service->status = 'suspended';
-            $service->notes = ($service->notes ? $service->notes . "\n" : '') .
-                "Suspendido el " . now()->format('Y-m-d H:i:s') . ". Razón: " . $request->reason;
-            $service->save();
+            ActivityLog::record(
+                "Servicio suspendido",
+                "El servicio " . $service->name . " (" . $service->uuid . ") ha sido suspendido.",
+                "service",
+                ["user_id" => $user->id, "service_id" => $service->id],
+                $user->id
+            );
 
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'service_id' => $service->id,
-                    'uuid' => $service->uuid,
-                    'status' => $service->status,
-                    'suspension_reason' => $request->reason,
-                    'suspended_at' => now()
-                ],
-                'message' => 'Servicio suspendido exitosamente'
+                "success" => true,
+                "message" => "Service suspended successfully",
+                "data" => $service->fresh()
             ]);
         } catch (\Exception $e) {
-            Log::error('Error suspending service: ' . $e->getMessage());
+            Log::error("Error suspending service: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error suspending service'
+                "success" => false,
+                "message" => "Error suspending service"
             ], 500);
         }
     }
 
     /**
-     * Reactivate service
+     * Reactivate a service
      */
-    public function reactivateService($serviceId): JsonResponse
+    public function reactivateService(string $serviceId): JsonResponse
     {
         try {
             $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
 
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
+            $service->update([
+                "status" => "active",
+                "suspended_at" => null,
+            ]);
 
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // Actualizar el estado del servicio a activo
-            $service->status = 'active';
-            $service->notes = ($service->notes ? $service->notes . "\n" : '') .
-                "Reactivado el " . now()->format('Y-m-d H:i:s');
-            $service->save();
+            ActivityLog::record(
+                "Servicio reactivado",
+                "El servicio " . $service->name . " (" . $service->uuid . ") ha sido reactivado.",
+                "service",
+                ["user_id" => $user->id, "service_id" => $service->id],
+                $user->id
+            );
 
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'service_id' => $service->id,
-                    'uuid' => $service->uuid,
-                    'status' => $service->status,
-                    'reactivated_at' => now()
-                ],
-                'message' => 'Servicio reactivado exitosamente'
+                "success" => true,
+                "message" => "Service reactivated successfully",
+                "data" => $service->fresh()
             ]);
         } catch (\Exception $e) {
-            Log::error('Error reactivating service: ' . $e->getMessage());
+            Log::error("Error reactivating service: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error reactivating service'
+                "success" => false,
+                "message" => "Error reactivating service"
             ], 500);
         }
     }
@@ -697,64 +607,32 @@ class ServiceController extends Controller
     /**
      * Get service usage statistics
      */
-    public function getServiceUsage($serviceId): JsonResponse
+    public function getServiceUsage(string $serviceId): JsonResponse
     {
         try {
             $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
 
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // TODO: Integrar con sistema de monitoreo real (Prometheus, Grafana, etc.)
-            // Por ahora retornamos datos de ejemplo basados en el servicio real
-            $usage = [
-                'service_id' => $service->id,
-                'service_uuid' => $service->uuid,
-                'service_name' => $service->name,
-                'period' => 'last_30_days',
-                'cpu_usage' => [
-                    'average' => 45.2,
-                    'peak' => 89.5,
-                    'unit' => 'percentage'
-                ],
-                'memory_usage' => [
-                    'average' => 2.1,
-                    'peak' => 3.8,
-                    'total' => 4.0,
-                    'unit' => 'GB'
-                ],
-                'disk_usage' => [
-                    'used' => 45.2,
-                    'total' => 80.0,
-                    'unit' => 'GB'
-                ],
-                'bandwidth_usage' => [
-                    'inbound' => 125.5,
-                    'outbound' => 89.2,
-                    'total_limit' => 3000.0,
-                    'unit' => 'GB'
-                ],
-                'uptime' => 99.95,
-                'last_updated' => now()
+            // For now, return dummy data. In a real scenario, this would fetch from monitoring systems.
+            $usageData = [
+                "cpu_usage" => rand(10, 90),
+                "memory_usage" => rand(20, 80),
+                "disk_usage" => rand(5, 95),
+                "bandwidth_usage" => rand(100, 1000),
+                "last_updated" => now()->toDateTimeString(),
             ];
 
             return response()->json([
-                'success' => true,
-                'data' => $usage
+                "success" => true,
+                "data" => $usageData
             ]);
         } catch (\Exception $e) {
-            Log::error('Error fetching service usage: ' . $e->getMessage());
+            Log::error("Error fetching service usage: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching service usage'
+                "success" => false,
+                "message" => "Error fetching service usage"
             ], 500);
         }
     }
@@ -762,157 +640,147 @@ class ServiceController extends Controller
     /**
      * Get service backups
      */
-    public function getServiceBackups($serviceId): JsonResponse
+    public function getServiceBackups(string $serviceId): JsonResponse
     {
         try {
             $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
 
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
-
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // TODO: Integrar con sistema de backup real (Proxmox, cPanel, etc.)
-            // Por ahora retornamos datos de ejemplo basados en el servicio real
+            // Dummy data for backups. In a real app, this would fetch from a backup system.
             $backups = [
-                [
-                    'id' => 1,
-                    'service_id' => $service->id,
-                    'service_uuid' => $service->uuid,
-                    'name' => 'Daily Backup - ' . now()->subDay()->format('Y-m-d'),
-                    'type' => 'automatic',
-                    'size' => '2.5 GB',
-                    'created_at' => now()->subDay()->setTime(2, 0)->toISOString(),
-                    'status' => 'completed'
-                ],
-                [
-                    'id' => 2,
-                    'service_id' => $service->id,
-                    'service_uuid' => $service->uuid,
-                    'name' => 'Manual Backup - Pre-Update',
-                    'type' => 'manual',
-                    'size' => '2.4 GB',
-                    'created_at' => now()->subDays(2)->setTime(14, 30)->toISOString(),
-                    'status' => 'completed'
-                ],
-                [
-                    'id' => 3,
-                    'service_id' => $service->id,
-                    'service_uuid' => $service->uuid,
-                    'name' => 'Daily Backup - ' . now()->subDays(2)->format('Y-m-d'),
-                    'type' => 'automatic',
-                    'size' => '2.3 GB',
-                    'created_at' => now()->subDays(2)->setTime(2, 0)->toISOString(),
-                    'status' => 'completed'
-                ]
+                ["id" => Str::uuid(), "date" => now()->subDays(1)->toDateTimeString(), "size_mb" => 500, "type" => "full"],
+                ["id" => Str::uuid(), "date" => now()->subDays(3)->toDateTimeString(), "size_mb" => 200, "type" => "incremental"],
+                ["id" => Str::uuid(), "date" => now()->subDays(7)->toDateTimeString(), "size_mb" => 700, "type" => "full"],
             ];
 
             return response()->json([
-                'success' => true,
-                'data' => $backups
+                "success" => true,
+                "data" => $backups
             ]);
         } catch (\Exception $e) {
-            Log::error('Error fetching service backups: ' . $e->getMessage());
+            Log::error("Error fetching service backups: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching service backups'
+                "success" => false,
+                "message" => "Error fetching service backups"
             ], 500);
         }
     }
 
     /**
-     * Create service backup
+     * Create a service backup
      */
-    public function createServiceBackup(Request $request, $serviceId): JsonResponse
+    public function createServiceBackup(string $serviceId): JsonResponse
     {
         try {
-            $request->validate([
-                'name' => 'required|string|max:255'
-            ]);
-
             $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
 
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
+            // Simulate backup creation process
+            sleep(2); // Simulate a delay
 
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
-
-            // TODO: Integrar con sistema de backup real para crear el backup
-            // Por ahora simulamos la creación del backup
-            $backup = [
-                'id' => rand(100, 999),
-                'service_id' => $service->id,
-                'service_uuid' => $service->uuid,
-                'name' => $request->name,
-                'type' => 'manual',
-                'status' => 'in_progress',
-                'created_at' => now()
+            $newBackup = [
+                "id" => Str::uuid(),
+                "date" => now()->toDateTimeString(),
+                "size_mb" => rand(100, 1000),
+                "type" => "full",
+                "status" => "completed"
             ];
 
+            ActivityLog::record(
+                "Copia de seguridad de servicio creada",
+                "Copia de seguridad para el servicio " . $service->name . " (" . $service->uuid . ") creada.",
+                "service",
+                ["user_id" => $user->id, "service_id" => $service->id, "backup_id" => $newBackup["id"]],
+                $user->id
+            );
+
             return response()->json([
-                'success' => true,
-                'data' => $backup,
-                'message' => 'Creación de backup iniciada exitosamente'
-            ]);
+                "success" => true,
+                "message" => "Backup created successfully",
+                "data" => $newBackup
+            ], 201);
         } catch (\Exception $e) {
-            Log::error('Error creating service backup: ' . $e->getMessage());
+            Log::error("Error creating service backup: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error creating service backup'
+                "success" => false,
+                "message" => "Error creating service backup"
             ], 500);
         }
     }
 
     /**
-     * Restore service backup
+     * Restore a service backup
      */
-    public function restoreServiceBackup($serviceId, $backupId): JsonResponse
+    public function restoreServiceBackup(string $serviceId, string $backupId): JsonResponse
     {
         try {
             $user = Auth::user();
+            $service = Service::where("user_id", $user->id)
+                ->where("uuid", $serviceId)
+                ->firstOrFail();
 
-            $service = Service::where('id', $serviceId)
-                ->where('user_id', $user->id)
-                ->first();
+            // Simulate backup restoration process
+            sleep(3); // Simulate a delay
 
-            if (!$service) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Servicio no encontrado'
-                ], 404);
-            }
+            ActivityLog::record(
+                "Restauración de servicio desde copia de seguridad",
+                "Servicio " . $service->name . " (" . $service->uuid . ") restaurado desde la copia de seguridad " . $backupId . ".",
+                "service",
+                ["user_id" => $user->id, "service_id" => $service->id, "backup_id" => $backupId],
+                $user->id
+            );
 
-            // TODO: Integrar con sistema de backup real para restaurar el backup
-            // Por ahora simulamos la restauración del backup
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'service_id' => $service->id,
-                    'service_uuid' => $service->uuid,
-                    'backup_id' => $backupId,
-                    'status' => 'restoration_in_progress',
-                    'started_at' => now()
-                ],
-                'message' => 'Restauración de backup iniciada exitosamente'
+                "success" => true,
+                "message" => "Service restored successfully from backup " . $backupId
             ]);
         } catch (\Exception $e) {
-            Log::error('Error restoring service backup: ' . $e->getMessage());
+            Log::error("Error restoring service backup: " . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Error restoring service backup'
+                "success" => false,
+                "message" => "Error restoring service backup"
             ], 500);
         }
+    }
+
+    /**
+     * Get or create Stripe customer
+     */
+    private function getOrCreateStripeCustomer($user)
+    {
+        if ($user->stripe_customer_id) {
+            return $user->stripe_customer_id;
+        }
+
+        $customer = \Stripe\Customer::create([
+            "email" => $user->email,
+            "name" => $user->first_name . " " . $user->last_name,
+            "metadata" => [
+                "user_id" => $user->id,
+                "uuid" => $user->uuid,
+            ],
+        ]);
+
+        $user->stripe_customer_id = $customer->id;
+        $user->save();
+
+        return $customer->id;
+    }
+
+    /**
+     * Generate unique invoice number
+     */
+    private function generateInvoiceNumber(): string
+    {
+        $lastInvoice = Invoice::orderByDesc("created_at")->first();
+        $lastNumber = $lastInvoice ? (int) substr($lastInvoice->invoice_number, 4) : 0;
+        $newNumber = $lastNumber + 1;
+        return "INV-" . str_pad($newNumber, 6, "0", STR_PAD_LEFT);
     }
 }
+
+

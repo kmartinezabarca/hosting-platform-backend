@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Session as SessionFacade;
 use Carbon\Carbon;
 use App\Models\Service;
 use App\Models\UserSession;
+use App\Models\ActivityLog; // Importar el modelo ActivityLog
 
 class ProfileController extends Controller
 {
@@ -24,41 +25,41 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $yearsWithUs = Carbon::now()->diffInYears($user->created_at);
-            $activeServices = Service::where('user_id', $user->id)->active()->count();
+            $activeServices = Service::where("user_id", $user->id)->active()->count();
 
             $avatarFull = $user->avatar_url
-                ? asset('storage/' . $user->avatar_url)
+                ? asset("storage/" . $user->avatar_url)
                 : null;
 
             return response()->json([
-                'success' => true,
-                'data' => [
-                    'uuid' => $user->uuid,
-                    'email' => $user->email,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'phone' => $user->phone,
-                    'address' => $user->address,
-                    'city' => $user->city,
-                    'state' => $user->state,
-                    'country' => $user->country,
-                    'postal_code' => $user->postal_code,
-                    'role' => $user->role,
-                    'status' => $user->status,
-                    'two_factor_enabled' => $user->two_factor_enabled,
-                    'email_verified_at' => $user->email_verified_at,
-                    'last_login_at' => $user->last_login_at,
-                    'created_at' => $user->created_at,
-                    'avatar_url'     => $avatarFull,
-                    'years_with_us'  => $yearsWithUs,
-                    'active_services' => $activeServices
+                "success" => true,
+                "data" => [
+                    "uuid" => $user->uuid,
+                    "email" => $user->email,
+                    "first_name" => $user->first_name,
+                    "last_name" => $user->last_name,
+                    "phone" => $user->phone,
+                    "address" => $user->address,
+                    "city" => $user->city,
+                    "state" => $user->state,
+                    "country" => $user->country,
+                    "postal_code" => $user->postal_code,
+                    "role" => $user->role,
+                    "status" => $user->status,
+                    "two_factor_enabled" => $user->two_factor_enabled,
+                    "email_verified_at" => $user->email_verified_at,
+                    "last_login_at" => $user->last_login_at,
+                    "created_at" => $user->created_at,
+                    "avatar_url"     => $avatarFull,
+                    "years_with_us"  => $yearsWithUs,
+                    "active_services" => $activeServices
                 ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching profile',
-                'error' => $e->getMessage()
+                "success" => false,
+                "message" => "Error fetching profile",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -72,28 +73,37 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $validated = $request->validate([
-                'first_name' => 'sometimes|string|max:100',
-                'last_name' => 'sometimes|string|max:100',
-                'phone' => 'nullable|string|max:20',
-                'address' => 'nullable|string|max:500',
-                'city' => 'nullable|string|max:100',
-                'state' => 'nullable|string|max:100',
-                'country' => 'nullable|string|size:2',
-                'postal_code' => 'nullable|string|max:20',
+                "first_name" => "sometimes|string|max:100",
+                "last_name" => "sometimes|string|max:100",
+                "phone" => "nullable|string|max:20",
+                "address" => "nullable|string|max:500",
+                "city" => "nullable|string|max:100",
+                "state" => "nullable|string|max:100",
+                "country" => "nullable|string|size:2",
+                "postal_code" => "nullable|string|max:20",
             ]);
 
             $user->update($validated);
 
+            // Registrar actividad de actualización de perfil
+            ActivityLog::record(
+                "Actualización de perfil",
+                "El usuario " . $user->email . " ha actualizado su perfil.",
+                "profile",
+                ["user_id" => $user->id, "changes" => $validated],
+                $user->id
+            );
+
             return response()->json([
-                'success' => true,
-                'message' => 'Profile updated successfully',
-                'data' => $user->fresh()
+                "success" => true,
+                "message" => "Profile updated successfully",
+                "data" => $user->fresh()
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error updating profile',
-                'error' => $e->getMessage()
+                "success" => false,
+                "message" => "Error updating profile",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -107,33 +117,43 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $validated = $request->validate([
-                'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
-                'password' => 'required|string'
+                "email" => ["required", "email", Rule::unique("users")->ignore($user->id)],
+                "password" => "required|string"
             ]);
 
             // Verify current password
             if (!Hash::check($request->password, $user->password)) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Current password is incorrect'
+                    "success" => false,
+                    "message" => "Current password is incorrect"
                 ], 400);
             }
 
+            $oldEmail = $user->email;
             $user->update([
-                'email' => $validated['email'],
-                'email_verified_at' => null // Reset email verification
+                "email" => $validated["email"],
+                "email_verified_at" => null // Reset email verification
             ]);
 
+            // Registrar actividad de cambio de email
+            ActivityLog::record(
+                "Cambio de correo electrónico",
+                "El usuario " . $oldEmail . " ha cambiado su correo a " . $user->email . ".",
+                "profile",
+                ["user_id" => $user->id, "old_email" => $oldEmail, "new_email" => $user->email],
+                $user->id
+            );
+
             return response()->json([
-                'success' => true,
-                'message' => 'Email updated successfully. Please verify your new email address.',
-                'data' => $user->fresh()
+                "success" => true,
+                "message" => "Email updated successfully. Please verify your new email address.",
+                "data" => $user->fresh()
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error updating email',
-                'error' => $e->getMessage()
+                "success" => false,
+                "message" => "Error updating email",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -147,32 +167,41 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $validated = $request->validate([
-                'current_password' => 'required|string',
-                'new_password' => 'required|string|min:8|confirmed',
+                "current_password" => "required|string",
+                "new_password" => "required|string|min:8|confirmed",
             ]);
 
             // Verify current password
             if (!Hash::check($request->current_password, $user->password)) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Current password is incorrect'
+                    "success" => false,
+                    "message" => "Current password is incorrect"
                 ], 400);
             }
 
             // Update password
             $user->update([
-                'password' => Hash::make($validated['new_password'])
+                "password" => Hash::make($validated["new_password"])
             ]);
 
+            // Registrar actividad de cambio de contraseña
+            ActivityLog::record(
+                "Cambio de contraseña",
+                "El usuario " . $user->email . " ha cambiado su contraseña.",
+                "profile",
+                ["user_id" => $user->id],
+                $user->id
+            );
+
             return response()->json([
-                'success' => true,
-                'message' => 'Password updated successfully'
+                "success" => true,
+                "message" => "Password updated successfully"
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error updating password',
-                'error' => $e->getMessage()
+                "success" => false,
+                "message" => "Error updating password",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -186,32 +215,41 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $request->validate([
-                'avatar' => ['required', 'image', 'mimes:jpg,jpeg,png,gif,svg', 'max:2048'],
+                "avatar" => ["required", "image", "mimes:jpg,jpeg,png,gif,svg", "max:2048"],
             ]);
 
-            $path = $request->file('avatar')->store('avatars', 'public');
+            $path = $request->file("avatar")->store("avatars", "public");
 
             if ($user->avatar_url) {
-                Storage::disk('public')->delete($user->avatar_url);
+                Storage::disk("public")->delete($user->avatar_url);
             }
 
             $user->avatar_url = $path;
             $user->save();
 
-            $publicUrl = asset('storage/' . $path);
+            $publicUrl = asset("storage/" . $path);
+
+            // Registrar actividad de actualización de avatar
+            ActivityLog::record(
+                "Actualización de avatar",
+                "El usuario " . $user->email . " ha actualizado su avatar.",
+                "profile",
+                ["user_id" => $user->id, "avatar_url" => $publicUrl],
+                $user->id
+            );
 
             return response()->json([
-                'success' => true,
-                'message' => 'Avatar actualizado correctamente',
-                'data' => [
-                    'avatar_url' => $publicUrl,
+                "success" => true,
+                "message" => "Avatar actualizado correctamente",
+                "data" => [
+                    "avatar_url" => $publicUrl,
                 ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error al actualizar el avatar',
-                'error' => $e->getMessage(),
+                "success" => false,
+                "message" => "Error al actualizar el avatar",
+                "error" => $e->getMessage(),
             ], 500);
         }
     }
@@ -237,12 +275,12 @@ class ProfileController extends Controller
                 }
             }
 
-            if (method_exists(request(), 'hasSession') && request()->hasSession()) {
+            if (method_exists(request(), "hasSession") && request()->hasSession()) {
                 $currentSessionId = request()->session()->getId();
             }
 
-            $sessions = UserSession::where('user_id', $user->id)
-                ->orderByDesc('last_activity')
+            $sessions = UserSession::where("user_id", $user->id)
+                ->orderByDesc("last_activity")
                 ->limit(50)
                 ->get()
                 ->map(function (UserSession $s) use ($currentTokenId, $currentSessionId) {
@@ -256,31 +294,31 @@ class ProfileController extends Controller
                     }
 
                     return [
-                        'uuid'          => $s->uuid,
-                        'ip_address'    => $s->ip_address,
-                        'user_agent'    => $s->user_agent,
-                        'location'      => $this->composeLocation($s), // si tienes city/region/country
-                        'login_at'      => $s->login_at,
-                        'last_activity' => $s->last_activity,
-                        'logout_at'     => $s->logout_at,
-                        'is_current'    => $isCurrent,
-                        'device'        => $s->device,
-                        'platform'      => $s->platform,
-                        'browser'       => $s->browser,
-                        'created_at'    => $s->created_at,
+                        "uuid"          => $s->uuid,
+                        "ip_address"    => $s->ip_address,
+                        "user_agent"    => $s->user_agent,
+                        "location"      => $this->composeLocation($s), // si tienes city/region/country
+                        "login_at"      => $s->login_at,
+                        "last_activity" => $s->last_activity,
+                        "logout_at"     => $s->logout_at,
+                        "is_current"    => $isCurrent,
+                        "device"        => $s->device,
+                        "platform"      => $s->platform,
+                        "browser"       => $s->browser,
+                        "created_at"    => $s->created_at,
                     ];
                 })
                 ->values();
 
             return response()->json([
-                'success' => true,
-                'data'    => $sessions,
+                "success" => true,
+                "data"    => $sessions,
             ]);
         } catch (\Throwable $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching sessions',
-                'error'   => $e->getMessage(),
+                "success" => false,
+                "message" => "Error fetching sessions",
+                "error"   => $e->getMessage(),
             ], 500);
         }
     }
@@ -289,7 +327,7 @@ class ProfileController extends Controller
     {
         if ($s->city || $s->region || $s->country) {
             $parts = array_filter([$s->city, $s->region, $s->country]);
-            return implode(', ', $parts);
+            return implode(", ", $parts);
         }
         return null;
     }
@@ -301,13 +339,13 @@ class ProfileController extends Controller
     {
         try {
             $user = Auth::user();
-            $session = UserSession::where('user_id', $user->id)
-                ->where('uuid', $uuid)
+            $session = UserSession::where("user_id", $user->id)
+                ->where("uuid", $uuid)
                 ->firstOrFail();
 
             // Si fue token personal de Sanctum, puedes borrar el token:
             if ($session->sanctum_token_id) {
-                $patModel = config('sanctum.personal_access_token_model', \Laravel\Sanctum\PersonalAccessToken::class);
+                $patModel = config("sanctum.personal_access_token_model", \Laravel\Sanctum\PersonalAccessToken::class);
                 $token = $patModel::find($session->sanctum_token_id);
                 if ($token) {
                     $token->delete();
@@ -324,15 +362,24 @@ class ProfileController extends Controller
             $session->logout_at = now();
             $session->save();
 
+            // Registrar actividad de revocación de sesión
+            ActivityLog::record(
+                "Sesión revocada",
+                "El usuario " . $user->email . " ha revocado una sesión.",
+                "security",
+                ["user_id" => $user->id, "session_uuid" => $uuid, "ip_address" => $session->ip_address],
+                $user->id
+            );
+
             return response()->json([
-                'success' => true,
-                'message' => 'Sesión revocada',
+                "success" => true,
+                "message" => "Sesión revocada",
             ]);
         } catch (\Throwable $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'No fue posible revocar la sesión',
-                'error'   => $e->getMessage(),
+                "success" => false,
+                "message" => "No fue posible revocar la sesión",
+                "error"   => $e->getMessage(),
             ], 500);
         }
     }
@@ -346,38 +393,47 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $validated = $request->validate([
-                'password' => 'required|string',
-                'confirmation' => 'required|string|in:DELETE'
+                "password" => "required|string",
+                "confirmation" => "required|string|in:DELETE"
             ]);
 
             // Verify password
             if (!Hash::check($request->password, $user->password)) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Password is incorrect'
+                    "success" => false,
+                    "message" => "Password is incorrect"
                 ], 400);
             }
 
             // Prevent deletion of admin users
-            if (in_array($user->role, ['super_admin', 'admin'])) {
+            if (in_array($user->role, ["super_admin", "admin"])) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Administrator accounts cannot be deleted'
+                    "success" => false,
+                    "message" => "Administrator accounts cannot be deleted"
                 ], 403);
             }
 
             // Soft delete the user
             $user->delete();
 
+            // Registrar actividad de eliminación de cuenta
+            ActivityLog::record(
+                "Eliminación de cuenta",
+                "El usuario " . $user->email . " ha eliminado su cuenta.",
+                "security",
+                ["user_id" => $user->id],
+                $user->id
+            );
+
             return response()->json([
-                'success' => true,
-                'message' => 'Account deleted successfully'
+                "success" => true,
+                "message" => "Account deleted successfully"
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error deleting account',
-                'error' => $e->getMessage()
+                "success" => false,
+                "message" => "Error deleting account",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -391,24 +447,24 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $overview = [
-                'password_last_changed' => $user->updated_at, // Approximate
-                'two_factor_enabled' => $user->two_factor_enabled,
-                'email_verified' => !is_null($user->email_verified_at),
-                'last_login' => $user->last_login_at,
-                'account_status' => $user->status,
-                'login_attempts_today' => 0, // Would track in production
-                'security_score' => $this->calculateSecurityScore($user)
+                "password_last_changed" => $user->updated_at, // Approximate
+                "two_factor_enabled" => $user->two_factor_enabled,
+                "email_verified" => !is_null($user->email_verified_at),
+                "last_login" => $user->last_login_at,
+                "account_status" => $user->status,
+                "login_attempts_today" => 0, // Would track in production
+                "security_score" => $this->calculateSecurityScore($user)
             ];
 
             return response()->json([
-                'success' => true,
-                'data' => $overview
+                "success" => true,
+                "data" => $overview
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
-                'message' => 'Error fetching security overview',
-                'error' => $e->getMessage()
+                "success" => false,
+                "message" => "Error fetching security overview",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -446,3 +502,5 @@ class ProfileController extends Controller
         return min($score, 100);
     }
 }
+
+
