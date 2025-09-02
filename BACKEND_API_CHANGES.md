@@ -64,19 +64,8 @@ Convertir el backend Laravel a modo API puro sin frontend, implementando respues
 ### Ruta Raíz (/)
 ```json
 {
-  "message": "Hosting Platform API Backend",
-  "status": "active",
-  "version": "1.0.0",
-  "authentication": "cookie-based (stateful)",
-  "csrf_protection": "enabled",
-  "endpoints": {
-    "csrf_token": "/sanctum/csrf-cookie",
-    "authentication": "/api/auth/*",
-    "user_profile": "/api/profile/*",
-    "services": "/api/services/*",
-    "payments": "/api/payments/*",
-    "admin": "/api/admin/*"
-  }
+  "message": "ROKE Industries Backend API. Access via authorized clients only.",
+  "status": "active"
 }
 ```
 
