@@ -312,21 +312,11 @@ Route::prefix("api")->group(function () {
 // Capturar cualquier otra ruta y devolver respuesta JSON profesional
 Route::fallback(function () {
     return response()->json([
-        "error" => "Endpoint not found",
-        "message" => "The requested endpoint does not exist. Please check the API documentation.",
-        "status_code" => 404,
-        "type" => "endpoint_not_found",
-        "available_endpoints" => [
-            "api_base" => "/api/",
-            "csrf_token" => "/sanctum/csrf-cookie",
-            "authentication" => "/api/auth/*",
-            "user_profile" => "/api/profile/*",
-            "services" => "/api/services/*",
-            "payments" => "/api/payments/*",
-            "admin" => "/api/admin/*",
-        ],
+        "error" => "Recurso no encontrado",
+        "message" => "El recurso solicitado no existe o no está disponible para este tipo de acceso.",
+        "status_code" => 404
     ], 404, [
-        "Content-Type" => "application/json",
+        "Content-Type" => "application/json"
     ]);
 });
 

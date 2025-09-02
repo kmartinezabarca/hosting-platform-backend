@@ -56,11 +56,11 @@ class Handler extends ExceptionHandler
         // Autenticación requerida
         if ($e instanceof AuthenticationException) {
             return response()->json([
-                'error' => 'Authentication required',
-                'message' => 'You must be authenticated to access this resource.',
-                'status_code' => 401,
-                'type' => 'authentication_error'
-            ], 401);
+                'error' => 'Acceso no autorizado',
+                'message' => 'Este servicio API es de uso exclusivo para clientes autorizados de ROKE Industries. Acceso denegado.',
+                'status_code' => 403,
+                'type' => 'unauthorized_access'
+            ], 403);
         }
 
         // Errores de validación
@@ -87,17 +87,10 @@ class Handler extends ExceptionHandler
         // Ruta no encontrada
         if ($e instanceof NotFoundHttpException) {
             return response()->json([
-                'error' => 'Endpoint not found',
-                'message' => 'The requested API endpoint does not exist.',
+                'error' => 'Recurso no encontrado',
+                'message' => 'El recurso solicitado no existe o no está disponible para este tipo de acceso.',
                 'status_code' => 404,
-                'type' => 'endpoint_not_found',
-                'available_endpoints' => [
-                    'authentication' => '/api/auth/*',
-                    'user_profile' => '/api/profile/*',
-                    'services' => '/api/services/*',
-                    'payments' => '/api/payments/*',
-                    'admin' => '/api/admin/*'
-                ]
+                'type' => 'not_found'
             ], 404);
         }
 
