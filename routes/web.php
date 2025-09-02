@@ -1,18 +1,204 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
+
+// --- Importa todos los controladores que usarás aquí ---
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TwoFactorController;
+use App\Http\Controllers\ServiceController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\SubscriptionController;
+use App\Http\Controllers\TicketController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\TransactionController;
+use App\Http\Controllers\DomainController;
+use App\Http\Controllers\GoogleLoginController;
+use App\Http\Controllers\ProductController as AdminProductController;
+use App\Http\Controllers\CategoryController as AdminCategoryController;
+use App\Http\Controllers\BillingCycleController as AdminBillingCycleController;
+use App\Http\Controllers\ServicePlanController as AdminServicePlanController;
+
 
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "web" middleware group. Make something great!
+| Aquí van las rutas que requieren una sesión de usuario activa (STATEFUL).
+| Ideal para SPAs que se autentican con cookies.
 |
 */
 
 Route::get('/', function () {
-    return view('welcome');
+    return ['Laravel' => app()->version()]; // Página de bienvenida por defecto
+});
+
+Route::get('/sanctum/csrf-cookie', function (Request $request) {
+    return response()->noContent();
+});
+
+// --- GRUPO DE RUTAS /api ---
+Route::prefix('api')->group(function () {
+
+    // --- RUTAS DE AUTENTICACIÓN (Públicas, pero necesitan sesión) ---
+    Route::post("auth/register", [AuthController::class, "register"]);
+    Route::post("auth/login", [AuthController::class, "login"]);
+    Route::post('auth/google/callback', [GoogleLoginController::class, 'handleGoogleCallback']);
+    Route::post('auth/2fa/verify', [TwoFactorController::class, 'verifyLogin']);
+
+    // --- RUTAS PROTEGIDAS (Requieren que la sesión ya esté iniciada) ---
+    Route::middleware('auth')->group(function () {
+        // Rutas de autenticación que requieren sesión
+        Route::post("auth/logout", [AuthController::class, "logout"]);
+        Route::get('/auth/me', [AuthController::class, 'me']);
+        Route::get('/user', function (Request $request) { // Esta es la misma que /auth/me
+            return $request->user();
+        });
+
+        // Dashboard routes
+        Route::get('/dashboard/stats', [DashboardController::class, 'getStats']);
+        Route::get('/dashboard/services', [DashboardController::class, 'getServices']);
+        Route::get('/dashboard/activity', [DashboardController::class, 'getActivity']);
+
+        // Profile management
+        Route::prefix('profile')->group(function () {
+            Route::get('/', [ProfileController::class, 'getProfile']);
+            Route::put('/', [ProfileController::class, 'updateProfile']);
+            Route::post('/avatar', [ProfileController::class, 'updateAvatar']);
+            Route::put('/email', [ProfileController::class, 'updateEmail']);
+            Route::put('/password', [ProfileController::class, 'updatePassword']);
+            Route::get('/devices', [ProfileController::class, 'getSessions']);
+            Route::get('/security', [ProfileController::class, 'getSecurityOverview']);
+            Route::delete('/account', [ProfileController::class, 'deleteAccount']);
+            Route::delete('/sessions/{uuid}', [ProfileController::class, 'revokeSession']);
+        });
+
+        // Two-Factor Authentication (gestión)
+        Route::prefix('2fa')->group(function () {
+            Route::get('/status', [TwoFactorController::class, 'getStatus']);
+            Route::post('/generate', [TwoFactorController::class, 'generateSecret']);
+            Route::post('/enable', [TwoFactorController::class, 'enable']);
+            Route::post('/disable', [TwoFactorController::class, 'disable']);
+            Route::post('/verify', [TwoFactorController::class, 'verify']);
+        });
+
+        // Services management
+        Route::prefix('services')->group(function () {
+            Route::get('/plans', [ServiceController::class, 'getServicePlans']);
+            Route::post('/contract', [ServiceController::class, 'contractService']);
+            Route::get('/user', [ServiceController::class, 'getUserServices']);
+            Route::get('/{serviceId}', [ServiceController::class, 'getServiceDetails']);
+            Route::put('/{serviceId}/config', [ServiceController::class, 'updateServiceConfig']);
+            Route::post('/{serviceId}/cancel', [ServiceController::class, 'cancelService']);
+            Route::post('/{serviceId}/suspend', [ServiceController::class, 'suspendService']);
+            Route::post('/{serviceId}/reactivate', [ServiceController::class, 'reactivateService']);
+            Route::get('/{serviceId}/usage', [ServiceController::class, 'getServiceUsage']);
+            Route::get('/{serviceId}/backups', [ServiceController::class, 'getServiceBackups']);
+            Route::post('/{serviceId}/backups', [ServiceController::class, 'createServiceBackup']);
+            Route::post('/{serviceId}/backups/{backupId}/restore', [ServiceController::class, 'restoreServiceBackup']);
+        });
+
+        // Payment routes
+        Route::prefix('payments')->group(function () {
+            Route::get('/methods', [PaymentController::class, 'getPaymentMethods']);
+            Route::post('/methods', [PaymentController::class, 'addPaymentMethod']);
+            Route::put('/methods/{id}', [PaymentController::class, 'updatePaymentMethod']);
+            Route::delete('/methods/{id}', [PaymentController::class, 'deletePaymentMethod']);
+            Route::post('/setup-intent', [PaymentController::class, 'createSetupIntent']);
+            Route::post('/process', [PaymentController::class, 'processPayment']);
+            Route::post('/intent', [PaymentController::class, 'createPaymentIntent']);
+            Route::get('/stats', [PaymentController::class, 'getPaymentStats']);
+            Route::get('/transactions', [PaymentController::class, 'getTransactions']);
+        });
+
+        // Subscriptions management
+        Route::prefix('subscriptions')->group(function () {
+            Route::get('/', [SubscriptionController::class, 'getUserSubscriptions']);
+            Route::post('/', [SubscriptionController::class, 'createSubscription']);
+            Route::get('/{subscriptionId}', [SubscriptionController::class, 'getSubscriptionDetails']);
+            Route::post('/{subscriptionId}/cancel', [SubscriptionController::class, 'cancelSubscription']);
+            Route::post('/{subscriptionId}/resume', [SubscriptionController::class, 'resumeSubscription']);
+        });
+
+        // Ticket management
+        Route::prefix('tickets')->group(function () {
+            Route::get('/', [TicketController::class, 'index']);
+            Route::post('/', [TicketController::class, 'store']);
+            Route::get('/stats', [TicketController::class, 'getStats']);
+            Route::get('/{uuid}', [TicketController::class, 'show']);
+            Route::post('/{uuid}/reply', [TicketController::class, 'addReply']);
+            Route::put('/{uuid}/close', [TicketController::class, 'close']);
+        });
+
+        // Invoice management
+        Route::prefix('invoices')->group(function () {
+            Route::get('/', [InvoiceController::class, 'index']);
+            Route::get('/stats', [InvoiceController::class, 'getStats']);
+            Route::get('/{uuid}', [InvoiceController::class, 'show']);
+            Route::get('/{uuid}/pdf', [InvoiceController::class, 'downloadPdf']);
+            Route::get('/{uuid}/xml', [InvoiceController::class, 'downloadXml']);
+        });
+
+        // Transaction management
+        Route::prefix('transactions')->group(function () {
+            Route::get('/', [TransactionController::class, 'index']);
+            Route::get('/stats', [TransactionController::class, 'getStats']);
+            Route::get('/recent', [TransactionController::class, 'getRecent']);
+            Route::get('/{uuid}', [TransactionController::class, 'show']);
+        });
+
+        // Domain management
+        Route::prefix('domains')->group(function () {
+            Route::get('/', [DomainController::class, 'index']);
+            Route::post('/', [DomainController::class, 'store']);
+            Route::get('/stats', [DomainController::class, 'getStats']);
+            Route::post('/check-availability', [DomainController::class, 'checkAvailability']);
+            Route::get('/{uuid}', [DomainController::class, 'show']);
+            Route::put('/{uuid}', [DomainController::class, 'update']);
+            Route::post('/{uuid}/renew', [DomainController::class, 'renew']);
+        });
+
+        // --- RUTAS DE ADMINISTRADOR (Protegidas por middleware 'admin') ---
+        Route::middleware('admin')->prefix('admin')->group(function () {
+            Route::get('/dashboard/stats', [AdminController::class, 'getDashboardStats']);
+            Route::get('/users', [AdminController::class, 'getUsers']);
+            Route::post('/users', [AdminController::class, 'createUser']);
+            Route::put('/users/{id}', [AdminController::class, 'updateUser']);
+            Route::delete('/users/{id}', [AdminController::class, 'deleteUser']);
+            Route::get('/services', [AdminController::class, 'getServices']);
+
+            Route::prefix('products')->group(function () {
+                Route::post('/', [AdminProductController::class, 'store']);
+                Route::put('/{uuid}', [AdminProductController::class, 'update']);
+                Route::delete('/{uuid}', [AdminProductController::class, 'destroy']);
+            });
+
+            Route::prefix('invoices')->group(function () {
+                Route::post('/', [InvoiceController::class, 'store']);
+                Route::put('/{uuid}/status', [InvoiceController::class, 'updateStatus']);
+            });
+
+            Route::prefix("categories")->group(function () {
+                Route::post("/", [AdminCategoryController::class, "store"]);
+                Route::put("/{uuid}", [AdminCategoryController::class, "update"]);
+                Route::delete("/{uuid}", [AdminCategoryController::class, "destroy"]);
+            });
+
+            Route::prefix("billing-cycles")->group(function () {
+                Route::post("/", [AdminBillingCycleController::class, "store"]);
+                Route::put("/{uuid}", [AdminBillingCycleController::class, "update"]);
+                Route::delete("/{uuid}", [AdminBillingCycleController::class, "destroy"]);
+            });
+
+            Route::prefix("service-plans")->group(function () {
+                Route::post("/", [AdminServicePlanController::class, "store"]);
+                Route::put("/{uuid}", [AdminServicePlanController::class, "update"]);
+                Route::delete("/{uuid}", [AdminServicePlanController::class, "destroy"]);
+            });
+        });
+    });
 });

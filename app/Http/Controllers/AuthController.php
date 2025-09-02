@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -60,26 +61,34 @@ class AuthController extends Controller
             ], 403);
         }
 
+        if ($user->two_factor_enabled) {
+            return response()->json([
+                'two_factor_required' => true,
+                'email' => $user->email,
+                'message' => 'Se requiere verificación de dos pasos.'
+            ]);
+        }
+
         // Update last login
         $user->update(['last_login_at' => now()]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        $cookie = cookie('auth_token', $token, config('sanctum.expiration'), null, null, config('session.secure'), true, false, config('session.same_site', 'lax'));
+
         return response()->json([
             'message' => 'Logged in successfully',
-            'access_token' => $token,
-            'token_type' => 'Bearer',
             'user' => [
-                'id' => $user->id,
                 'uuid' => $user->uuid,
                 'email' => $user->email,
                 'first_name' => $user->first_name,
                 'last_name' => $user->last_name,
+                'phone' => $user->phone,
                 'role' => $user->role,
                 'status' => $user->status,
             ],
             'redirect_to' => $this->getRedirectPath($user->role)
-        ]);
+        ])->withCookie($cookie);
     }
 
     public function me(Request $request)
@@ -93,6 +102,7 @@ class AuthController extends Controller
                 'first_name'  => $u->first_name,
                 'last_name'   => $u->last_name,
                 'email'       => $u->email,
+                'phone'       => $u->phone,
                 'role'        => $u->role,
                 'avatar_url'  => $u->avatar_full_url, // atributo calculado (ver abajo)
             ],
@@ -117,7 +127,10 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         return response()->json(['message' => 'Logged out successfully']);
     }

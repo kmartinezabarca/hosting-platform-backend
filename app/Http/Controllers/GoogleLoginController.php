@@ -32,6 +32,7 @@ class GoogleLoginController extends Controller
                     'first_name' => $request->first_name,
                     'last_name' => $request->last_name,
                     'google_id' => $request->google_id,
+                    'last_login_at' => now(),
                     'email_verified_at' => now(),
                     'password' => Hash::make(uniqid()),
                     'status' => 'active',
@@ -64,13 +65,24 @@ class GoogleLoginController extends Controller
             }
 
             // 3. Generar un token de API con Sanctum
-            $token = $user->createToken('google-auth-token')->plainTextToken;
+            \Illuminate\Support\Facades\Auth::login($user);
+
+            $request->session()->regenerate();
 
             // 4. Devolver el token y los datos del usuario
             return response()->json([
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-                'user' => $user,
+                'message' => 'Logged in successfully',
+                'two_factor_required' => $user->two_factor_enabled,
+                'user' => [
+                    'uuid' => $user->uuid,
+                    'email' => $user->email,
+                    'first_name' => $user->first_name,
+                    'last_name' => $user->last_name,
+                    'phone' => $user->phone,
+                    'role' => $user->role,
+                    'status' => $user->status,
+                ],
+                'redirect_to' => $this->getRedirectPath($user->role)
             ]);
 
         } catch (\Exception $e) {
@@ -79,6 +91,22 @@ class GoogleLoginController extends Controller
                 'message' => 'Ocurrió un error durante la autenticación.',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+     /**
+     * Get redirect path based on user role
+     */
+    private function getRedirectPath($role)
+    {
+        switch ($role) {
+            case 'super_admin':
+            case 'admin':
+                return '/admin/dashboard';
+            case 'support':
+                return '/admin/tickets';
+            default:
+                return '/client/dashboard';
         }
     }
 }

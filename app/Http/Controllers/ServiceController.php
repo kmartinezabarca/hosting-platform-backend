@@ -19,7 +19,7 @@ use App\Models\InvoiceItem;
 use App\Models\Transaction;
 use App\Models\Subscription;
 use App\Models\Invoice;
-use App\Models\AddOn;
+use App\Models\ActivityLog;
 use App\Models\PaymentMethod;
 use App\Models\ServiceAddOn;
 
@@ -314,6 +314,18 @@ class ServiceController extends Controller
                 'failure_reason'          => null,
                 'processed_at'            => now(),
             ]);
+
+            ActivityLog::record(
+                'Pago de servicio',
+                $plan->name,
+                'payment',
+                [
+                    'invoice_id' => $invoice->id,
+                    'service_id' => $service->id,
+                    'amount'   => $total,
+                    'currency' => $currency,
+                ]
+            );
 
             // 6) (Opcional) suscripción en Stripe
             if (!empty($validated['create_subscription'])) {

@@ -143,8 +143,8 @@ class Service extends Model
      */
     public function scopeServiceType($query, $type)
     {
-        return $query->whereHas('product', function ($q) use ($type) {
-            $q->where('service_type', $type);
+        return $query->whereHas('plan.category', function ($q) use ($type) {
+            $q->where('slug', $type);
         });
     }
 
@@ -197,20 +197,19 @@ class Service extends Model
         return $this->next_due_date < now() && in_array($this->status, ['active', 'suspended']);
     }
 
-    /**
-     * Get the service type from the product.
+     /**
+     * Obtiene el tipo de servicio desde la categoría del plan.
      */
     public function getServiceType()
     {
-        return $this->product->service_type;
+        return $this->plan->category->name ?? 'Unknown'; // O 'slug', 'type', etc.
     }
-
     /**
      * Check if this is a game server service.
      */
     public function isGameServer()
     {
-        return $this->product->isGameServer();
+        return $this->plan->category->slug === 'game-servers';
     }
 
     /**
@@ -218,7 +217,7 @@ class Service extends Model
      */
     public function isHosting()
     {
-        return $this->product->isHosting();
+        return $this->plan->category->slug === 'domains';
     }
 
     /**
