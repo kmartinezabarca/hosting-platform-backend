@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use App\Models\ActivityLog;
 
 class GoogleLoginController extends Controller
 {
@@ -21,6 +22,13 @@ class GoogleLoginController extends Controller
         ]);
 
         if ($validator->fails()) {
+             ActivityLog::record(
+                'Intento de inicio de sesión fallido',
+                'Email: ' . $request->email,
+                'authentication',
+                ['email' => $request->email, 'status' => 'failed'],
+                null
+            );
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
@@ -51,6 +59,13 @@ class GoogleLoginController extends Controller
             ];
 
             if (array_key_exists($user->status, $statusMessages)) {
+                ActivityLog::record(
+                    'Intento de inicio de sesión fallido',
+                    'Email: ' . $request->email,
+                    'authentication',
+                    ['email' => $request->email, 'status' => 'failed'],
+                    $user->id ?? null
+                );
                 return response()->json([
                     'message' => $statusMessages[$user->status]
                 ], 403); // 403 Forbidden
@@ -68,6 +83,14 @@ class GoogleLoginController extends Controller
             \Illuminate\Support\Facades\Auth::login($user);
 
             $request->session()->regenerate();
+
+            ActivityLog::record(
+                'Inicio de sesión exitoso',
+                'Email: ' . $user->email,
+                'authentication',
+                ['email' => $user->email, 'status' => 'success'],
+                $user->id ?? null
+            );
 
             // 4. Devolver el token y los datos del usuario
             return response()->json([
