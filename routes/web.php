@@ -303,6 +303,7 @@ Route::prefix("api")->group(function () {
             });
 
             Route::prefix("categories")->group(function () {
+                Route::get("/", [AdminCategoryController::class, "index"]);
                 Route::post("/", [AdminCategoryController::class, "store"]);
                 Route::put("/{uuid}", [AdminCategoryController::class, "update"]);
                 Route::delete("/{uuid}", [
@@ -312,6 +313,7 @@ Route::prefix("api")->group(function () {
             });
 
             Route::prefix("billing-cycles")->group(function () {
+                Route::get("/", [AdminBillingCycleController::class, "index"]);
                 Route::post("/", [AdminBillingCycleController::class, "store"]);
                 Route::put("/{uuid}", [
                     AdminBillingCycleController::class,
@@ -324,6 +326,8 @@ Route::prefix("api")->group(function () {
             });
 
             Route::prefix("service-plans")->group(function () {
+                Route::get("/", [AdminServicePlanController::class, "index"]);
+                Route::get("/categories", [AdminCategoryController::class, "index"]);
                 Route::post("/", [AdminServicePlanController::class, "store"]);
                 Route::put("/{uuid}", [
                     AdminServicePlanController::class,

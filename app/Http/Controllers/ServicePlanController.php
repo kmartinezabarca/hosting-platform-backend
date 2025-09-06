@@ -25,14 +25,40 @@ class ServicePlanController extends Controller
                 $query->where('category_id', $request->category_id);
             }
 
-            $servicePlans = $query->orderBy('sort_order')
-                                ->orderBy('name')
-                                ->get();
+            // Check if this is an admin request (has page parameter or is from admin route)
+            if ($request->has('page') || $request->is('api/admin/*')) {
+                // Admin version with pagination
+                $perPage = $request->get('per_page', 15);
+                $perPage = min($perPage, 100); // Limit max per page
+                
+                $servicePlans = $query->orderBy('sort_order')
+                                    ->orderBy('name')
+                                    ->paginate($perPage);
 
-            return response()->json([
-                'success' => true,
-                'data' => $servicePlans
-            ]);
+                return response()->json([
+                    'success' => true,
+                    'data' => $servicePlans->items(),
+                    'pagination' => [
+                        'current_page' => $servicePlans->currentPage(),
+                        'per_page' => $servicePlans->perPage(),
+                        'total' => $servicePlans->total(),
+                        'last_page' => $servicePlans->lastPage(),
+                        'from' => $servicePlans->firstItem(),
+                        'to' => $servicePlans->lastItem(),
+                        'has_more_pages' => $servicePlans->hasMorePages()
+                    ]
+                ]);
+            } else {
+                // Public version without pagination
+                $servicePlans = $query->orderBy('sort_order')
+                                    ->orderBy('name')
+                                    ->get();
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $servicePlans
+                ]);
+            }
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
