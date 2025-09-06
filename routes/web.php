@@ -249,15 +249,41 @@ Route::prefix("api")->group(function () {
 
         // --- RUTAS DE ADMINISTRADOR (Protegidas por middleware 'admin') ---
         Route::middleware("admin")->prefix("admin")->group(function () {
+            // Dashboard routes
             Route::get("/dashboard/stats", [
                 AdminController::class,
                 "getDashboardStats",
             ]);
+
+            // Users management
             Route::get("/users", [AdminController::class, "getUsers"]);
             Route::post("/users", [AdminController::class, "createUser"]);
             Route::put("/users/{id}", [AdminController::class, "updateUser"]);
             Route::delete("/users/{id}", [AdminController::class, "deleteUser"]);
+            Route::put("/users/{id}/status", [AdminController::class, "updateUserStatus"]);
+
+            // Services management
             Route::get("/services", [AdminController::class, "getServices"]);
+            Route::put("/services/{id}/status", [AdminController::class, "updateServiceStatus"]);
+
+            // Invoices management
+            Route::get("/invoices", [AdminController::class, "getInvoices"]);
+            Route::post("/invoices", [AdminController::class, "createInvoice"]);
+            Route::put("/invoices/{id}", [AdminController::class, "updateInvoice"]);
+            Route::delete("/invoices/{id}", [AdminController::class, "deleteInvoice"]);
+            Route::put("/invoices/{id}/status", [AdminController::class, "updateInvoiceStatus"]);
+            Route::post("/invoices/{id}/mark-paid", [AdminController::class, "markInvoiceAsPaid"]);
+            Route::post("/invoices/{id}/send-reminder", [AdminController::class, "sendInvoiceReminder"]);
+            Route::post("/invoices/{id}/cancel", [AdminController::class, "cancelInvoice"]);
+
+            // Tickets management
+            Route::get("/tickets", [AdminController::class, "getTickets"]);
+            Route::put("/tickets/{id}/status", [AdminController::class, "updateTicketStatus"]);
+            Route::put("/tickets/{id}/priority", [AdminController::class, "updateTicketPriority"]);
+            Route::post("/tickets/{id}/assign", [AdminController::class, "assignTicket"]);
+            Route::post("/tickets/{id}/reply", [AdminController::class, "addTicketReply"]);
+            Route::get("/tickets/categories", [AdminController::class, "getTicketCategories"]);
+            Route::get("/support-agents", [AdminController::class, "getSupportAgents"]);
 
             Route::prefix("products")->group(function () {
                 Route::post("/", [AdminProductController::class, "store"]);

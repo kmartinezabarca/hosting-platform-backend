@@ -50,8 +50,8 @@ Route::prefix("service-plans")->group(function () {
 });
 
 // Temporary routes for testing (without authentication) - Consider removing in production
-Route::get("/test/dashboard/stats", [App\Http\Controllers\DashboardController::class, "getStats"]);
-Route::get("/test/dashboard/services", [App\Http\Controllers\DashboardController::class, "getServices"]);
-Route::get("/test/dashboard/activity", [App\Http\Controllers\DashboardController::class, "getActivity"]);
+// Route::get("/test/dashboard/stats", [App\Http\Controllers\DashboardController::class, "getStats"]);
+// Route::get("/test/dashboard/services", [App\Http\Controllers\DashboardController::class, "getServices"]);
+// Route::get("/test/dashboard/activity", [App\Http\Controllers\DashboardController::class, "getActivity"]);
 
 
