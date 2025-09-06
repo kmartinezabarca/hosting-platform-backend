@@ -186,7 +186,7 @@ class AdminController extends Controller
             $sortBy = $request->get('sort_by', 'created_at');
             $sortOrder = $request->get('sort_order', 'desc');
 
-            $query = Service::with(['user', 'servicePlan']);
+            $query = Service::with(['user', 'plan']);
 
             // Search filter
             if ($search) {
