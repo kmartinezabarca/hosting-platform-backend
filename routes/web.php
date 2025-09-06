@@ -350,3 +350,7 @@ Route::fallback(function () {
 });
 
 
+
+
+            Route::get("/services/{id}", [AdminController::class, "getService"]);
+

@@ -1111,3 +1111,28 @@ class AdminController extends Controller
     }
 }
 
+
+
+    /**
+     * Get a single service with details (Admin)
+     */
+    public function getService($id)
+    {
+        try {
+            $service = Service::with(["user", "plan.category", "plan.features", "plan.pricing.billingCycle", "invoices", "tickets"])->findOrFail($id);
+
+            return response()->json([
+                "success" => true,
+                "data" => $service
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                "success" => false,
+                "message" => "Service not found",
+                "error" => $e->getMessage()
+            ], 404);
+        }
+    }
+
+
