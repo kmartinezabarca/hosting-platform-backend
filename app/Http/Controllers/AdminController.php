@@ -49,11 +49,11 @@ class AdminController extends Controller
             // Revenue statistics
             $monthlyRevenue = Invoice::where('status', 'paid')
                 ->whereMonth('created_at', now()->month)
-                ->sum('total_amount');
+                ->sum('total');
             
             $yearlyRevenue = Invoice::where('status', 'paid')
                 ->whereYear('created_at', now()->year)
-                ->sum('total_amount');
+                ->sum('total');
 
             $revenueStats = [
                 'monthly' => $monthlyRevenue,
@@ -69,8 +69,8 @@ class AdminController extends Controller
                 'pending' => Invoice::where('status', 'pending')->count(),
                 'overdue' => Invoice::where('status', 'overdue')->count(),
                 'cancelled' => Invoice::where('status', 'cancelled')->count(),
-                'total_amount' => Invoice::sum('total_amount'),
-                'pending_amount' => Invoice::whereIn('status', ['pending', 'overdue'])->sum('total_amount')
+                'total_amount' => Invoice::sum('total'),
+                'pending_amount' => Invoice::whereIn('status', ['pending', 'overdue'])->sum('total')
             ];
 
             // Tickets statistics
@@ -566,11 +566,11 @@ class AdminController extends Controller
     {
         $thisMonth = Invoice::where('status', 'paid')
             ->whereMonth('created_at', now()->month)
-            ->sum('total_amount');
+            ->sum('total');
             
         $lastMonth = Invoice::where('status', 'paid')
             ->whereMonth('created_at', now()->subMonth()->month)
-            ->sum('total_amount');
+            ->sum('total');
         
         if ($lastMonth == 0) return $thisMonth > 0 ? 100 : 0;
         
