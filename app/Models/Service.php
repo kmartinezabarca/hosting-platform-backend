@@ -103,7 +103,7 @@ class Service extends Model
 
     public function invoice()
     {
-        return $this->hasOne(ServiceInvoice::class);
+        return $this->hasOne(Invoice::class);
     }
 
     /**

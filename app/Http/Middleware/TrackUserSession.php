@@ -17,54 +17,58 @@ class TrackUserSession
      * @param  \Closure  $next
      * @return mixed
      */
-    public function handle(Request $request, Closure $next)
+     public function handle(Request $request, Closure $next)
     {
-        // Solo se ejecuta si hay un usuario autenticado en la sesión.
+        // El middleware se ejecuta después de que la petición ha sido manejada.
+        // Esto nos permite adjuntar la cookie a la respuesta saliente.
+        $response = $next($request);
+
+        // Solo se ejecuta si hay un usuario autenticado.
         if (auth()->check()) {
             $user = $request->user();
-            $sessionId = $request->session()->getId();
+            $deviceToken = $request->cookie('device_token');
 
-            // Obtener IP real del cliente (considerando proxies como Cloudflare).
-            $ip = $this->clientIp($request);
-
-            // Parsear el User-Agent para obtener detalles del dispositivo.
-            $agent = new Agent();
-            $agent->setUserAgent((string) $request->userAgent());
-
-            $deviceType = $agent->isTablet() ? 'tablet' : ($agent->isMobile() ? 'mobile' : 'desktop');
-            $platform   = $agent->platform() ?: 'Unknown';
-            $browser    = $agent->browser()  ?: 'Unknown';
-
-            // Obtener localización geográfica.
-            [$country, $region, $city] = $this->extractLocation($ip, $request);
-
-            // Busca la sesión actual por ID de usuario y de sesión, o crea una nueva si no existe.
-            // Esto es más eficiente y preciso que la versión anterior.
-            $session = UserSession::firstOrNew([
-                'user_id'            => $user->id,
-                'laravel_session_id' => $sessionId,
-            ]);
-
-            // Si la sesión es nueva, establece los datos iniciales.
-            if (! $session->exists) {
-                $session->uuid     = (string) Str::uuid();
-                $session->login_at = now();
+            // --- Lógica de Identificación de Sesión del Dispositivo ---
+            $session = null;
+            if ($deviceToken) {
+                $session = UserSession::where('device_token', $deviceToken)
+                                      ->where('user_id', $user->id)
+                                      ->first();
             }
 
-            // Actualiza los datos en cada petición.
-            $session->ip_address    = $ip;
-            $session->user_agent    = (string) $request->userAgent();
-            $session->device        = $deviceType;
-            $session->platform      = $platform;
-            $session->browser       = $browser;
-            $session->country       = $country;
-            $session->region        = $region;
-            $session->city          = $city;
+            // Si no encontramos una sesión con el token, creamos una nueva.
+            if (!$session) {
+                $session = new UserSession();
+                $session->uuid = (string) Str::uuid();
+                $session->user_id = $user->id;
+                $session->device_token = Str::random(60);
+                $session->login_at = now(); // Se establece solo en la creación
+
+                // Adjuntamos la cookie con el nuevo token a la respuesta.
+                $response->cookie('device_token', $session->device_token, 60 * 24 * 365 * 5);
+            }
+
+            // --- Actualización de Datos en Cada Petición ---
+            $ip = $this->clientIp($request);
+            $agent = new Agent();
+            $agent->setUserAgent((string) $request->userAgent());
+            [$country, $region, $city] = $this->extractLocation($ip, $request);
+
+            $session->ip_address = $ip;
+            $session->user_agent = (string) $request->userAgent();
+            $session->device = $agent->isTablet() ? 'tablet' : ($agent->isMobile() ? 'mobile' : 'desktop');
+            $session->platform = $agent->platform() ?: 'Unknown';
+            $session->browser = $agent->browser() ?: 'Unknown';
+            $session->country = $country;
+            $session->region = $region;
+            $session->city = $city;
             $session->last_activity = now();
+            $session->laravel_session_id = $request->session()->getId();
+
             $session->save();
         }
 
-        return $next($request);
+        return $response;
     }
 
     /**

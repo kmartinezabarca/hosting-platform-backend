@@ -28,7 +28,7 @@ class PaymentMethodResource extends JsonResource
         }
 
         return [
-            'id'    => $this->id,
+            'uuid'       => $this->uuid,
             'stripe_payment_method_id' => $this->stripe_payment_method_id,
             'name'       => $this->name,      // etiqueta editable por el usuario
             'brand'      => $brand,           // visa/mastercard/amex...

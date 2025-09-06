@@ -259,65 +259,64 @@ class ProfileController extends Controller
       /**
      * Listar sesiones del usuario autenticado.
      */
-    public function getSessions()
+      public function getSessions(Request $request)
     {
         try {
             $user = Auth::user();
 
-            // Resolver “sesión actual”
+            $currentDeviceToken = $request->cookie('device_token');
             $currentTokenId = null;
-            $currentSessionId = null;
 
-            if ($tokenString = request()->bearerToken()) {
+            if ($tokenString = $request->bearerToken()) {
                 $pat = PersonalAccessToken::findToken($tokenString);
                 if ($pat && (int) $pat->tokenable_id === (int) $user->getKey()) {
                     $currentTokenId = $pat->id;
                 }
             }
 
-            if (method_exists(request(), "hasSession") && request()->hasSession()) {
-                $currentSessionId = request()->session()->getId();
-            }
 
+            $perPage = $request->query('per_page', 15);
             $sessions = UserSession::where("user_id", $user->id)
                 ->orderByDesc("last_activity")
-                ->limit(50)
-                ->get()
-                ->map(function (UserSession $s) use ($currentTokenId, $currentSessionId) {
-                    $isCurrent = false;
+                ->paginate($perPage);
 
-                    if (!is_null($s->sanctum_token_id) && $currentTokenId && $s->sanctum_token_id === $currentTokenId) {
-                        $isCurrent = true;
-                    }
-                    if (!is_null($s->laravel_session_id) && $currentSessionId && $s->laravel_session_id === $currentSessionId) {
-                        $isCurrent = true;
-                    }
+            $sessions->through(function (UserSession $s) use ($currentDeviceToken, $currentTokenId) {
+                $isCurrent = false;
 
-                    return [
-                        "uuid"          => $s->uuid,
-                        "ip_address"    => $s->ip_address,
-                        "user_agent"    => $s->user_agent,
-                        "location"      => $this->composeLocation($s), // si tienes city/region/country
-                        "login_at"      => $s->login_at,
-                        "last_activity" => $s->last_activity,
-                        "logout_at"     => $s->logout_at,
-                        "is_current"    => $isCurrent,
-                        "device"        => $s->device,
-                        "platform"      => $s->platform,
-                        "browser"       => $s->browser,
-                        "created_at"    => $s->created_at,
-                    ];
-                })
-                ->values();
+    
+                if (!is_null($s->sanctum_token_id) && $currentTokenId && $s->sanctum_token_id === $currentTokenId) {
+                    $isCurrent = true;
+                }
+             
+                if (!is_null($s->device_token) && $currentDeviceToken && $s->device_token === $currentDeviceToken) {
+                    $isCurrent = true;
+                }
+
+                return [
+                    "uuid"          => $s->uuid,
+                    "ip_address"    => $s->ip_address,
+                    "user_agent"    => $s->user_agent,
+                    "location"      => $this->composeLocation($s),
+                    "login_at"      => $s->login_at,
+                    "last_activity" => $s->last_activity,
+                    "logout_at"     => $s->logout_at,
+                    "is_current"    => $isCurrent,
+                    "device"        => $s->device,
+                    "platform"      => $s->platform,
+                    "browser"       => $s->browser,
+                    "created_at"    => $s->created_at,
+                ];
+            });
 
             return response()->json([
                 "success" => true,
                 "data"    => $sessions,
             ]);
+
         } catch (\Throwable $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error fetching sessions",
+                "message" => "Error al obtener las sesiones",
                 "error"   => $e->getMessage(),
             ], 500);
         }
@@ -333,53 +332,99 @@ class ProfileController extends Controller
     }
 
     /**
-     * Revocar una sesión específica.
+     * Revoca y elimina una sesión de dispositivo específica.
+     *
+     * @param  string  $uuid El UUID de la sesión a revocar.
+     * @return \Illuminate\Http\JsonResponse
      */
     public function revokeSession(string $uuid)
     {
         try {
             $user = Auth::user();
-            $session = UserSession::where("user_id", $user->id)
-                ->where("uuid", $uuid)
+
+            $session = UserSession::where('uuid', $uuid)
+                ->where('user_id', $user->id)
                 ->firstOrFail();
 
-            // Si fue token personal de Sanctum, puedes borrar el token:
             if ($session->sanctum_token_id) {
-                $patModel = config("sanctum.personal_access_token_model", \Laravel\Sanctum\PersonalAccessToken::class);
-                $token = $patModel::find($session->sanctum_token_id);
-                if ($token) {
-                    $token->delete();
-                }
+                $patModel = config('sanctum.personal_access_token_model', \Laravel\Sanctum\PersonalAccessToken::class);
+                $patModel::where('id', $session->sanctum_token_id)->delete();
             }
 
-            // Si fue sesión Laravel (SPA), puedes intentar destruirla si tu handler lo permite.
-            // (Opcional; muchos handlers de sesión no exponen destroy por ID en runtime)
-            // $handler = app('session')->getHandler();
-            // if (method_exists($handler, 'destroy') && $session->laravel_session_id) {
-            //     $handler->destroy($session->laravel_session_id);
-            // }
+            $session->delete();
 
-            $session->logout_at = now();
-            $session->save();
-
-            // Registrar actividad de revocación de sesión
             ActivityLog::record(
-                "Sesión revocada",
-                "El usuario " . $user->email . " ha revocado una sesión.",
-                "security",
-                ["user_id" => $user->id, "session_uuid" => $uuid, "ip_address" => $session->ip_address],
+                'Sesión de dispositivo revocada',
+                "El usuario {$user->email} ha revocado la sesión de {$session->browser} en {$session->platform}.",
+                'security',
+                ['user_id' => $user->id, 'revoked_session_uuid' => $uuid, 'ip_address' => $session->ip_address],
                 $user->id
             );
 
             return response()->json([
-                "success" => true,
-                "message" => "Sesión revocada",
+                'success' => true,
+                'message' => 'La sesión del dispositivo ha sido revocada con éxito.',
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sesión no encontrada o no tienes permiso para revocarla.',
+            ], 404);
         } catch (\Throwable $e) {
             return response()->json([
-                "success" => false,
-                "message" => "No fue posible revocar la sesión",
-                "error"   => $e->getMessage(),
+                'success' => false,
+                'message' => 'No fue posible revocar la sesión en este momento.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Revoca todas las sesiones de dispositivo del usuario excepto la actual.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function revokeOtherSessions(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $currentDeviceToken = $request->cookie('device_token');
+
+            // 1. Si por alguna razón no hay un token de dispositivo actual, no podemos proceder.
+            if (!$currentDeviceToken) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo identificar la sesión actual.',
+                ], 400);
+            }
+
+            // 2. Eliminar todas las sesiones del usuario que NO coincidan con el token actual.
+            $revokedCount = UserSession::where('user_id', $user->id)
+                ->where('device_token', '!=', $currentDeviceToken)
+                ->delete();
+
+            // (Opcional) También puedes querer eliminar los tokens de Sanctum que no estén asociados a ninguna sesión restante.
+            // Esta lógica puede ser más compleja y depende de tus necesidades.
+
+            // 3. Registrar la actividad.
+            ActivityLog::record(
+                'Otras sesiones revocadas',
+                "El usuario {$user->email} ha revocado {$revokedCount} sesión(es) en otros dispositivos.",
+                'security',
+                ['user_id' => $user->id, 'kept_device_token' => $currentDeviceToken],
+                $user->id
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => "Se han cerrado {$revokedCount} sesión(es) en otros dispositivos.",
+                'revoked_count' => $revokedCount,
+            ]);
+        } catch (\Throwable $e) {
+            // Log::error('Error al revocar otras sesiones: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'No fue posible revocar las otras sesiones en este momento.',
             ], 500);
         }
     }

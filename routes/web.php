@@ -97,6 +97,7 @@ Route::prefix("api")->group(function () {
                 ProfileController::class,
                 "revokeSession",
             ]);
+            Route::post('/devices/revoke-others', [ProfileController::class, 'revokeOtherSessions']);
         });
 
         // Two-Factor Authentication (gestión)
@@ -116,10 +117,12 @@ Route::prefix("api")->group(function () {
                 "contractService",
             ]);
             Route::get("/user", [ServiceController::class, "getUserServices"]);
-            Route::get("/{serviceId}", [
+            Route::get("/{uuid}", [
                 ServiceController::class,
                 "getServiceDetails",
             ]);
+            Route::get('/{uuid}/invoices', [ServiceController::class, 'getServiceInvoices']);
+            Route::patch('/{uuid}/configuration', [ServiceController::class, 'updateConfiguration']);
             Route::put("/{serviceId}/config", [
                 ServiceController::class,
                 "updateServiceConfig",
@@ -171,7 +174,7 @@ Route::prefix("api")->group(function () {
                 "createSetupIntent",
             ]);
             Route::post("/process", [PaymentController::class, "processPayment"]);
-            Route::post("/intent", [PaymentController::class, "createPaymentIntent"]);
+            Route::post("/intent", [PaymentController::class, "createSetupIntent"]);
             Route::get("/stats", [PaymentController::class, "getPaymentStats"]);
             Route::get("/transactions", [
                 PaymentController::class,

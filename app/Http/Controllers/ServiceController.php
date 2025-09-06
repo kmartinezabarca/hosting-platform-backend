@@ -407,7 +407,7 @@ class ServiceController extends Controller
         try {
             $user = Auth::user();
             $services = Service::where("user_id", $user->id)
-                ->with(["plan", "plan.category", "plan.features", "addOns"])
+                ->with(["plan", "plan.category", "plan.features"])
                 ->orderByDesc("created_at")
                 ->get();
 
@@ -415,6 +415,7 @@ class ServiceController extends Controller
                 "success" => true,
                 "data" => $services
             ]);
+
         } catch (\Exception $e) {
             Log::error("Error fetching user services: " . $e->getMessage());
             return response()->json([
@@ -433,7 +434,7 @@ class ServiceController extends Controller
             $user = Auth::user();
             $service = Service::where("user_id", $user->id)
                 ->where("uuid", $serviceId)
-                ->with(["plan", "plan.category", "plan.features", "addOns", "invoices", "transactions"])
+                ->with(["plan", "plan.category", "plan.features"])
                 ->firstOrFail();
 
             return response()->json([
@@ -447,6 +448,40 @@ class ServiceController extends Controller
                 "message" => "Service not found or not authorized"
             ], 404);
         }
+    }
+
+    public function getServiceInvoices(Request $request, $uuid)
+    {
+        $service = Service::where('uuid', $uuid)->where('user_id', $request->user()->id)->firstOrFail();
+
+        $invoices = $service->invoice()->orderBy('created_at', 'desc')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $invoices,
+        ]);
+    }
+
+    public function updateConfiguration(Request $request, $uuid)
+    {
+        $service = Service::where('uuid', $uuid)->where('user_id', $request->user()->id)->firstOrFail();
+
+        $validated = $request->validate([
+            'auto_renew' => 'required|boolean',
+        ]);
+
+        // El ->cast('array') en el modelo Service se encarga de esto
+        $currentConfig = $service->configuration;
+        $currentConfig['auto_renew'] = $validated['auto_renew'];
+        $service->configuration = $currentConfig;
+
+        $service->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Configuración actualizada correctamente.',
+            'data' => $service,
+        ]);
     }
 
     /**

@@ -36,7 +36,7 @@ class PaymentController extends Controller
                 ->orderByDesc('is_default')
                 ->orderByDesc('created_at')
                 ->get([
-                    'id',
+                    'uuid',
                     'user_id',
                     'name',
                     'type',
@@ -264,7 +264,7 @@ class PaymentController extends Controller
 
             ActivityLog::record(
                 'Cliente Stripe creado',
-                'Cliente Stripe creado para el usuario ' . $user->email . '.', 
+                'Cliente Stripe creado para el usuario ' . $user->email . '.',
                 'payment_method',
                 ['user_id' => $user->id, 'stripe_customer_id' => $customer->id],
                 $user->id
@@ -287,7 +287,7 @@ class PaymentController extends Controller
     /**
      * Update payment method
      */
-    public function updatePaymentMethod(Request $request, $id)
+    public function updatePaymentMethod(Request $request, $uuid)
     {
         try {
             $validated = $request->validate([
@@ -298,7 +298,7 @@ class PaymentController extends Controller
 
             $user = Auth::user();
             $paymentMethod = PaymentMethod::where('user_id', $user->id)
-                ->where('id', $id)
+                ->where('uuid', $uuid)
                 ->firstOrFail();
 
             $oldIsDefault = $paymentMethod->is_default;
@@ -307,7 +307,7 @@ class PaymentController extends Controller
             // If setting as default, unset other defaults
             if (isset($validated['is_default']) && $validated['is_default']) {
                 PaymentMethod::where('user_id', $user->id)
-                    ->where('id', '!=', $id)
+                    ->where('uuid', '!=', $uuid)
                     ->update(['is_default' => false]);
 
                 if (!$oldIsDefault) {
@@ -354,7 +354,7 @@ class PaymentController extends Controller
                 'Error al actualizar método de pago',
                 'Error: ' . $e->getMessage(),
                 'payment_method',
-                ['user_id' => $user->id, 'payment_method_id' => $id, 'error' => $e->getMessage()],
+                ['error' => $e->getMessage()],
                 $user->id
             );
             return response()->json([
@@ -368,12 +368,12 @@ class PaymentController extends Controller
     /**
      * Delete payment method
      */
-    public function deletePaymentMethod($id)
+    public function deletePaymentMethod($uuid)
     {
         try {
             $user = Auth::user();
             $paymentMethod = PaymentMethod::where('user_id', $user->id)
-                ->where('id', $id)
+                ->where('uuid', $uuid)
                 ->firstOrFail();
 
             // Detach from Stripe if it exists
@@ -396,7 +396,7 @@ class PaymentController extends Controller
             // If this was the default method, set another one as default
             if ($paymentMethod->is_default) {
                 $nextDefault = PaymentMethod::where('user_id', $user->id)
-                    ->where('id', '!=', $id)
+                    ->where('uuid', '!=', $uuid)
                     ->where('is_active', true)
                     ->first();
 
