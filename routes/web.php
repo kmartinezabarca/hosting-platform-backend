@@ -21,6 +21,7 @@ use App\Http\Controllers\ProductController as AdminProductController;
 use App\Http\Controllers\CategoryController as AdminCategoryController;
 use App\Http\Controllers\BillingCycleController as AdminBillingCycleController;
 use App\Http\Controllers\ServicePlanController as AdminServicePlanController;
+use App\Http\Controllers\AgentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -284,6 +285,19 @@ Route::prefix("api")->group(function () {
             Route::post("/tickets/{id}/reply", [AdminController::class, "addTicketReply"]);
             Route::get("/tickets/categories", [AdminController::class, "getTicketCategories"]);
             Route::get("/support-agents", [AdminController::class, "getSupportAgents"]);
+
+            // Agents management - Nueva API completa para agentes
+            Route::prefix("tickets/agents")->group(function () {
+                Route::get("/", [AgentController::class, "index"]); // Listar agentes con filtros
+                Route::post("/", [AgentController::class, "store"]); // Crear nuevo agente
+                Route::get("/statistics", [AgentController::class, "statistics"]); // Estadísticas de agentes
+                Route::get("/recommended", [AgentController::class, "getRecommendedAgent"]); // Agente recomendado para asignación
+                Route::get("/{uuid}", [AgentController::class, "show"]); // Mostrar agente específico
+                Route::put("/{uuid}", [AgentController::class, "update"]); // Actualizar agente
+                Route::delete("/{uuid}", [AgentController::class, "destroy"]); // Eliminar agente
+                Route::post("/{uuid}/assign-ticket", [AgentController::class, "assignTicket"]); // Asignar ticket a agente
+                Route::get("/{uuid}/tickets", [AgentController::class, "tickets"]); // Tickets del agente
+            });
 
             Route::prefix("products")->group(function () {
                 Route::post("/", [AdminProductController::class, "store"]);
