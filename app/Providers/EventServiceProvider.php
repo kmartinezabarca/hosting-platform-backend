@@ -23,6 +23,29 @@ class EventServiceProvider extends ServiceProvider
         Logout::class => [
             MarkUserSessionLoggedOut::class,
         ],
+        
+        // Email Events
+        \App\Events\UserRegistered::class => [
+            \App\Listeners\SendWelcomeEmail::class,
+        ],
+        \App\Events\PasswordResetRequested::class => [
+            \App\Listeners\SendPasswordResetEmail::class,
+        ],
+        \App\Events\PurchaseCompleted::class => [
+            \App\Listeners\SendPurchaseConfirmationEmail::class,
+        ],
+        \App\Events\PaymentProcessed::class => [
+            \App\Listeners\SendPaymentSuccessEmail::class,
+        ],
+        \App\Events\InvoiceGenerated::class => [
+            \App\Listeners\SendInvoiceGeneratedEmail::class,
+        ],
+        \App\Events\ServiceNotificationSent::class => [
+            \App\Listeners\SendServiceNotificationEmail::class,
+        ],
+        \App\Events\AccountUpdated::class => [
+            \App\Listeners\SendAccountUpdateEmail::class,
+        ],
     ];
 
     /**
