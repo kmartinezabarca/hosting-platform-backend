@@ -1109,11 +1109,8 @@ class AdminController extends Controller
             ], 500);
         }
     }
-}
 
-
-
-    /**
+     /**
      * Get a single service with details (Admin)
      */
     public function getService($id)
@@ -1134,5 +1131,4 @@ class AdminController extends Controller
             ], 404);
         }
     }
-
-
+}

@@ -22,6 +22,7 @@ use App\Http\Controllers\CategoryController as AdminCategoryController;
 use App\Http\Controllers\BillingCycleController as AdminBillingCycleController;
 use App\Http\Controllers\ServicePlanController as AdminServicePlanController;
 use App\Http\Controllers\AgentController;
+use App\Http\Controllers\AdminAddOnController;
 
 /*
 |--------------------------------------------------------------------------
@@ -306,6 +307,18 @@ Route::prefix("api")->group(function () {
                     AdminProductController::class,
                     "destroy",
                 ]);
+            });
+
+            Route::prefix('add-ons')->group(function () {
+                Route::get('/',               [AdminAddOnController::class, 'index']);   // lista con filtros
+                Route::post('/',              [AdminAddOnController::class, 'store']);   // crear
+                Route::get('/{uuid}',         [AdminAddOnController::class, 'show']);    // detalle (opcional)
+                Route::put('/{uuid}',         [AdminAddOnController::class, 'update']);  // actualizar
+                Route::delete('/{uuid}',      [AdminAddOnController::class, 'destroy']); // eliminar
+
+                // relaciones con planes
+                Route::post('/{uuid}/attach-to-plan',  [AdminAddOnController::class, 'attachToPlan']);
+                Route::post('/{uuid}/detach-from-plan', [AdminAddOnController::class, 'detachFromPlan']);
             });
 
             Route::prefix("invoices")->group(function () {
