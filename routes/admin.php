@@ -118,5 +118,30 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
         Route::put("/{uuid}", [ServicePlanController::class, "update"]);
         Route::delete("/{uuid}", [ServicePlanController::class, "destroy"]);
     });
+
+    // Rutas de Notificaciones para Admin
+    Route::prefix('notifications')->name('notifications.')->group(function () {
+        Route::get('/dashboard', [NotificationController::class, 'dashboard'])->name('dashboard');
+        Route::get('/', [NotificationController::class, 'index'])->name('index');
+        Route::get('/stats', [NotificationController::class, 'getStats'])->name('stats');
+        Route::post('/broadcast', [NotificationController::class, 'broadcastToUsers'])->name('broadcast');
+        Route::post('/send-to-user/{user}', [NotificationController::class, 'sendToUser'])->name('send-to-user');
+        Route::put('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/mark-all-read', [NotificationController::class, 'markAllAsRead'])->name('mark-all-read');
+        Route::delete('/{notification}', [NotificationController::class, 'destroy'])->name('destroy');
+    });
+
+    // Rutas de Chat para Admin
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::get('/active-rooms', [ChatController::class, 'getActiveRooms'])->name('active-rooms');
+        Route::get('/all-rooms', [ChatController::class, 'getAllRooms'])->name('all-rooms');
+        Route::get('/stats', [ChatController::class, 'getStats'])->name('stats');
+        Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
+        Route::get('/{chatRoom}/messages', [ChatController::class, 'getMessages'])->name('messages');
+        Route::post('/{chatRoom}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
+        Route::put('/{chatRoom}/assign', [ChatController::class, 'assignToAgent'])->name('assign');
+        Route::put('/{chatRoom}/close', [ChatController::class, 'closeRoom'])->name('close');
+        Route::put('/{chatRoom}/reopen', [ChatController::class, 'reopenRoom'])->name('reopen');
+    });
 });
 

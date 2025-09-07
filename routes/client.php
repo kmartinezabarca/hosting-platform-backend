@@ -123,5 +123,27 @@ Route::middleware("auth")->group(function () {
         Route::put("/{uuid}", [DomainController::class, "update"]);
         Route::post("/{uuid}/renew", [DomainController::class, "renew"]);
     });
+
+    // Rutas de Notificaciones para Cliente
+    Route::prefix('notifications')->name('notifications.')->group(function () {
+        Route::get('/', [NotificationController::class, 'index'])->name('index');
+        Route::get('/unread-count', [NotificationController::class, 'getUnreadCount'])->name('unread-count');
+        Route::get('/preferences', [NotificationController::class, 'getPreferences'])->name('preferences');
+        Route::put('/preferences', [NotificationController::class, 'updatePreferences'])->name('update-preferences');
+        Route::put('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/mark-all-read', [NotificationController::class, 'markAllAsRead'])->name('mark-all-read');
+        Route::delete('/{notification}', [NotificationController::class, 'destroy'])->name('destroy');
+    });
+
+    // Rutas de Chat para Cliente
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::get('/support-room', [ChatController::class, 'getSupportRoom'])->name('support-room');
+        Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
+        Route::get('/history', [ChatController::class, 'getHistory'])->name('history');
+        Route::get('/{chatRoom}/messages', [ChatController::class, 'getMessages'])->name('messages');
+        Route::post('/{chatRoom}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
+        Route::put('/{chatRoom}/read', [ChatController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/{chatRoom}/close', [ChatController::class, 'closeRoom'])->name('close');
+    });
 });
 
