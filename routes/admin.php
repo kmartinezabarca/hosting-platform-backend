@@ -10,6 +10,8 @@ use App\Http\Controllers\Admin\BillingCycleController;
 use App\Http\Controllers\Admin\ServicePlanController;
 use App\Http\Controllers\Admin\AddOnController;
 use App\Http\Controllers\Client\InvoiceController;
+use App\Http\Controllers\Admin\NotificationController;
+use App\Http\Controllers\Admin\ChatController;
 
 /*
 |--------------------------------------------------------------------------
