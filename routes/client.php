@@ -10,10 +10,8 @@ use App\Http\Controllers\Client\TicketController;
 use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\TransactionController;
 use App\Http\Controllers\Client\DomainController;
-use App\Http\Controllers\Client\ProductController;
-use App\Http\Controllers\Client\CategoryController;
-use App\Http\Controllers\Client\BillingCycleController;
-use App\Http\Controllers\Client\ServicePlanController;
+use App\Http\Controllers\Client\NotificationController;
+use App\Http\Controllers\Client\ChatController;
 
 /*
 |--------------------------------------------------------------------------
