@@ -372,3 +372,20 @@ Route::fallback(function () {
 
             Route::get("/services/{id}", [AdminController::class, "getService"]);
 
+
+
+            // Add-ons management
+            Route::prefix("add-ons")->group(function () {
+                Route::get("/", [AddOnController::class, "index"]);
+                Route::post("/", [AddOnController::class, "store"]);
+                Route::get("/{uuid}", [AddOnController::class, "show"]);
+                Route::put("/{uuid}", [AddOnController::class, "update"]);
+                Route::delete("/{uuid}", [AddOnController::class, "destroy"]);
+                Route::post("/{uuid}/attach-to-plan", [AddOnController::class, "attachToPlan"]);
+                Route::post("/{uuid}/detach-from-plan", [AddOnController::class, "detachFromPlan"]);
+            });
+
+
+
+use App\Http\Controllers\AddOnController;
+
