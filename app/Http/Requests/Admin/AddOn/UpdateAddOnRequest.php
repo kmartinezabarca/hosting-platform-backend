@@ -1,7 +1,7 @@
 <?php
 
-// app/Http/Requests/Admin/UpdateAddOnRequest.php
-namespace App\Http\Requests\Admin;
+// app/Http/Requests/Admin/AddOn/UpdateAddOnRequest.php
+namespace App\Http\Requests\Admin\AddOn;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
