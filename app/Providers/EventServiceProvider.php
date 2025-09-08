@@ -36,6 +36,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         \App\Events\PaymentProcessed::class => [
             \App\Listeners\SendPaymentSuccessEmail::class,
+            \App\Listeners\CreatePaymentNotification::class . '@handleProcessed',
         ],
         \App\Events\InvoiceGenerated::class => [
             \App\Listeners\SendInvoiceGeneratedEmail::class,
@@ -45,6 +46,36 @@ class EventServiceProvider extends ServiceProvider
         ],
         \App\Events\AccountUpdated::class => [
             \App\Listeners\SendAccountUpdateEmail::class,
+        ],
+
+        // Service Events
+        \App\Events\ServiceStatusChanged::class => [
+            \App\Listeners\CreateServiceNotification::class . '@handleStatusChanged',
+        ],
+        \App\Events\ServicePurchased::class => [
+            \App\Listeners\CreateServiceNotification::class . '@handlePurchased',
+        ],
+        \App\Events\ServiceReady::class => [
+            \App\Listeners\CreateServiceNotification::class . '@handleReady',
+        ],
+        \App\Events\ServiceMaintenanceScheduled::class => [
+            \App\Listeners\CreateServiceNotification::class . '@handleMaintenanceScheduled',
+        ],
+        \App\Events\ServiceMaintenanceCompleted::class => [
+            \App\Listeners\CreateServiceNotification::class . '@handleMaintenanceCompleted',
+        ],
+
+        // Payment Events
+        \App\Events\PaymentFailed::class => [
+            \App\Listeners\CreatePaymentNotification::class . '@handleFailed',
+        ],
+        \App\Events\AutomaticPaymentProcessed::class => [
+            \App\Listeners\CreatePaymentNotification::class . '@handleAutomaticProcessed',
+        ],
+
+        // Invoice Events
+        \App\Events\InvoiceStatusChanged::class => [
+            // Add invoice notification listener here if needed
         ],
     ];
 

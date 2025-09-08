@@ -10,7 +10,7 @@
         "guzzlehttp/guzzle": "^7.2",
         "jenssegers/agent": "^2.6",
         "laravel/framework": "^10.10",
-        "laravel/reverb": "^1.5",
+        "laravel/reverb": "*",
         "laravel/sanctum": "^3.3",
         "laravel/socialite": "^5.23",
         "laravel/tinker": "^2.8",
