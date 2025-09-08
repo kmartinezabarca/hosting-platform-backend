@@ -11,7 +11,7 @@ use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\TransactionController;
 use App\Http\Controllers\Client\DomainController;
 use App\Http\Controllers\Client\NotificationController;
-use App\Http\Controllers\Client\ChatController;
+use App\Http\Controllers\Client\SupportChatController;
 
 /*
 |--------------------------------------------------------------------------
@@ -135,13 +135,13 @@ Route::middleware("auth")->group(function () {
 
     // Rutas de Chat para Cliente
     Route::prefix('chat')->name('chat.')->group(function () {
-        Route::get('/support-room', [ChatController::class, 'getSupportRoom'])->name('support-room');
-        Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
-        Route::get('/history', [ChatController::class, 'getHistory'])->name('history');
-        Route::get('/{chatRoom}/messages', [ChatController::class, 'getMessages'])->name('messages');
-        Route::post('/{chatRoom}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
-        Route::put('/{chatRoom}/read', [ChatController::class, 'markAsRead'])->name('mark-as-read');
-        Route::put('/{chatRoom}/close', [ChatController::class, 'closeRoom'])->name('close');
+        Route::get('/support-room', [SupportChatController::class, 'getSupportRoom'])->name('support-room');
+        Route::get('/unread-count', [SupportChatController::class, 'getUnreadCount'])->name('unread-count');
+        Route::get('/history', [SupportChatController::class, 'getHistory'])->name('history');
+        Route::get('/{chatRoom}/messages', [SupportChatController::class, 'getMessages'])->name('messages');
+        Route::post('/{chatRoom}/messages', [SupportChatController::class, 'sendMessage'])->name('send-message');
+        Route::put('/{chatRoom}/read', [SupportChatController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/{chatRoom}/close', [SupportChatController::class, 'closeRoom'])->name('close');
     });
 });
 

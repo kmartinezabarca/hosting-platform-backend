@@ -18,6 +18,7 @@ use App\Http\Controllers\Auth\TwoFactorController;
 */
 
 // Public authentication routes (initial login/registration, no session required yet)
+Route::post('/login', [AuthController::class, 'login'])->name('login');
 Route::post("auth/register", [AuthController::class, "register"]);
 Route::post("auth/login", [AuthController::class, "login"]);
 Route::post("auth/google/callback", [GoogleLoginController::class, "handleGoogleCallback"]);

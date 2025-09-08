@@ -30,7 +30,7 @@ class TicketReply extends Model
     // Relaciones
     public function ticket()
     {
-        return $this->belongsTo(Ticket::class);
+        return $this->belongsTo(Ticket::class, 'ticket_id');
     }
 
     public function user()

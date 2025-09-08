@@ -76,6 +76,15 @@ class Ticket extends Model
         return $this->belongsTo(User::class, 'last_reply_by');
     }
 
+    public function latestReply()
+    {
+        // Laravel 8.42+ / 9+:
+        return $this->hasOne(TicketReply::class, 'ticket_id')->latestOfMany('created_at');
+
+        // Si tu versión fuera más antigua y no tienes latestOfMany, usa:
+        // return $this->hasOne(TicketReply::class, 'ticket_id')->latest('created_at');
+    }
+
     // Servicio asociado (nullable)
     public function service()
     {
