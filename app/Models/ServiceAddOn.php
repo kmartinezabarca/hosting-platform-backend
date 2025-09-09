@@ -6,10 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class ServiceAddOn extends Model
 {
-    protected $fillable = [
-        'uuid', 'slug', 'name', 'description',
-        'price', 'currency', 'is_active', 'metadata'
-    ];
+    protected $guarded = [];
+
+    // protected $fillable = [
+    //     'uuid', 'slug', 'name', 'description',
+    //     'price', 'currency', 'is_active', 'metadata'
+    // ];
 
     protected $casts = [
         'price'    => 'decimal:2',
@@ -24,7 +26,7 @@ class ServiceAddOn extends Model
 
     public function addOn()
     {
-        return $this->belongsTo(AddOn::class);
+        return $this->belongsTo(AddOn::class, 'add_on_id');
     }
 
     public function plans()

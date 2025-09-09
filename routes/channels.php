@@ -14,6 +14,12 @@ use App\Models\User;
 |
 */
 
+Broadcast::channel('admin.chat.status', function (User $user) {
+    // Reutiliza la misma lógica que los otros canales de admin:
+    // solo los administradores pueden suscribirse.
+    return $user->isAdmin();
+});
+
 // Canal general para usuarios autenticados
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;

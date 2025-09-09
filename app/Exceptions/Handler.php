@@ -30,8 +30,10 @@ class Handler extends ExceptionHandler
      */
     public function register(): void
     {
-        $this->reportable(function (Throwable $e) {
-            //
+        $this->renderable(function (\Illuminate\Auth\AuthenticationException $e, $request) {
+            if ($request->is('api/*') || $request->is('broadcasting/auth')) {
+                return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
         });
     }
 
@@ -117,7 +119,7 @@ class Handler extends ExceptionHandler
         // Error interno del servidor
         $statusCode = 500;
         $message = 'An internal server error occurred.';
-        
+
         // En desarrollo, mostrar más detalles
         if (config('app.debug')) {
             $message = $e->getMessage();
