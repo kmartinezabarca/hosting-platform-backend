@@ -112,8 +112,8 @@ class SupportChatController extends Controller
             'status'        => in_array($ticket->status, ['open', 'waiting_customer']) ? 'in_progress' : $ticket->status,
         ]);
 
-        // Broadcast opcional (ver evento más abajo)
-        // event(new \App\Events\TicketMessageSent($ticket, $reply));
+        // Broadcast del evento
+        event(new \App\Events\TicketReplied($ticket, $reply));
 
         return response()->json([
             'success' => true,

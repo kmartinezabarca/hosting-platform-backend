@@ -166,8 +166,8 @@ class ChatController extends Controller
             'status'        => 'waiting_customer',
         ]);
 
-        // Opcional: broadcast con Echo/Pusher si lo usas
-        // event(new \App\Events\TicketMessageSent($ticket, $reply));
+        // Broadcast del evento
+        event(new \App\Events\TicketReplied($ticket, $reply));
 
         return response()->json([
             'success' => true,

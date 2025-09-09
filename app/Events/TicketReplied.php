@@ -34,7 +34,7 @@ class TicketReplied implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('user.' . $this->ticket->user_id),
+            new PrivateChannel('user.' . $this->ticket->user->uuid),
             new PrivateChannel('admin.tickets'),
             new PrivateChannel('ticket.' . $this->ticket->uuid),
         ];

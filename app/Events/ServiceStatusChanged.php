@@ -35,7 +35,7 @@ class ServiceStatusChanged implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('user.' . $this->service->user_id),
+            new PrivateChannel('user.' . $this->service->user->uuid),
             new PrivateChannel('admin.services'),
         ];
     }

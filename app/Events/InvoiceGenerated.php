@@ -31,7 +31,7 @@ class InvoiceGenerated implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('user.' . $this->invoice->user_id),
+            new PrivateChannel('user.' . $this->invoice->user->uuid),
             new PrivateChannel('admin.invoices'),
         ];
     }

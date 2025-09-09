@@ -33,7 +33,7 @@ class PaymentFailed implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('user.' . $this->transaction->user_id),
+            new PrivateChannel('user.' . $this->transaction->user->uuid),
             new PrivateChannel('admin.payments'),
         ];
     }
