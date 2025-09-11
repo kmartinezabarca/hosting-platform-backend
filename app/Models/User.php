@@ -175,4 +175,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(TicketReply::class);
     }
+
+    public function receivesBroadcastNotificationsOn(): string
+    {
+        return 'user.' . $this->uuid; // => private-user.{uuid}
+    }
 }

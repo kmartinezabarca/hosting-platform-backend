@@ -3,87 +3,36 @@
 namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Notifications\Messages\BroadcastMessage;
 
-class ServiceNotification extends Notification implements ShouldQueue
+class ServiceNotification extends Notification
 {
     use Queueable;
 
-    protected $notificationData;
+    public function __construct(public array $notificationData) {}
 
-    /**
-     * Create a new notification instance.
-     */
-    public function __construct(array $notificationData)
-    {
-        $this->notificationData = $notificationData;
-    }
-
-    /**
-     * Get the notification's delivery channels.
-     */
+    // Guarda en DB y emite por WS
     public function via(object $notifiable): array
     {
         return ['database', 'broadcast'];
     }
 
-    /**
-     * Get the mail representation of the notification.
-     */
-    public function toMail(object $notifiable): MailMessage
-    {
-        return (new MailMessage)
-                    ->subject($this->notificationData['title'])
-                    ->line($this->notificationData['message'])
-                    ->action('Ver en Panel', url('/dashboard'))
-                    ->line('Gracias por usar nuestra plataforma.');
-    }
-
-    /**
-     * Get the array representation of the notification.
-     */
+    // Lo que se guarda en la tabla notifications
     public function toArray(object $notifiable): array
     {
         return [
-            'title' => $this->notificationData['title'],
-            'message' => $this->notificationData['message'],
-            'type' => $this->notificationData['type'],
-            'data' => $this->notificationData['data'] ?? [],
+            'title'     => $this->notificationData['title']   ?? 'Notificación',
+            'message'   => $this->notificationData['message'] ?? '',
+            'type'      => $this->notificationData['type']    ?? 'info',
+            'data'      => $this->notificationData['data']    ?? [],
             'timestamp' => now()->toISOString(),
         ];
     }
 
-    /**
-     * Get the broadcastable representation of the notification.
-     */
+    // Lo que se envía por WS (puedes reutilizar lo de arriba)
     public function toBroadcast(object $notifiable): BroadcastMessage
     {
-        return new BroadcastMessage([
-            'title' => $this->notificationData['title'],
-            'message' => $this->notificationData['message'],
-            'type' => $this->notificationData['type'],
-            'data' => $this->notificationData['data'] ?? [],
-            'timestamp' => now()->toISOString(),
-        ]);
-    }
-
-    /**
-     * Get the channels the event should broadcast on.
-     */
-    public function broadcastOn()
-    {
-        return ['user.' . $this->notifiable->id];
-    }
-
-    /**
-     * Get the broadcast event name.
-     */
-    public function broadcastAs()
-    {
-        return 'notification.received';
+        return new BroadcastMessage($this->toArray($notifiable));
     }
 }
-

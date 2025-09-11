@@ -15,19 +15,21 @@ use App\Models\User;
 */
 
 Broadcast::channel('admin.chat.status', function (User $user) {
-    // Reutiliza la misma lógica que los otros canales de admin:
-    // solo los administradores pueden suscribirse.
     return $user->isAdmin();
 });
 
+Broadcast::channel('admin.chat', function (User $user) {
+    return $user->isAdmin(); // sólo administradores
+});
+
 // Canal general para usuarios autenticados
-Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
-    return (int) $user->id === (int) $id;
+Broadcast::channel('App.Models.User.{uuid}', function ($user, $uuid) {
+    return (int) $user->uuid === (int) $uuid;
 });
 
 // Canal privado para cada usuario específico
-Broadcast::channel('user.{userId}', function (User $user, $userId) {
-    return (int) $user->id === (int) $userId;
+Broadcast::channel('user.{uuid}', function (User $user, $uuid) {
+    return (int) $user->uuid === (int) $uuid;
 });
 
 // Canales administrativos - solo para administradores
@@ -68,7 +70,7 @@ Broadcast::channel('admin.super', function (User $user) {
 Broadcast::channel('chat.{roomId}', function (User $user, $roomId) {
     // Verificar si el usuario tiene acceso a esta sala de chat
     return [
-        'id' => $user->id,
+        'id' => $user->uuid,
         'name' => $user->full_name,
         'avatar' => $user->avatar_full_url,
         'role' => $user->role,
@@ -79,7 +81,7 @@ Broadcast::channel('chat.{roomId}', function (User $user, $roomId) {
 Broadcast::channel('admin.online', function (User $user) {
     if ($user->isAdmin()) {
         return [
-            'id' => $user->id,
+            'id' => $user->uuid,
             'name' => $user->full_name,
             'role' => $user->role,
         ];
