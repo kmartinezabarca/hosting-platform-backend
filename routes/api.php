@@ -55,3 +55,8 @@ Route::prefix("service-plans")->group(function () {
 // Route::get("/test/dashboard/activity", [App\Http\Controllers\DashboardController::class, "getActivity"]);
 
 
+
+
+// Marketing Services (public)
+Route::get("/marketing-services", [App\Http\Controllers\MarketingServiceController::class, "index"]);
+
