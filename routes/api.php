@@ -58,5 +58,5 @@ Route::prefix("service-plans")->group(function () {
 
 
 // Marketing Services (public)
-Route::get("/marketing-services", [App\Http\Controllers\MarketingServiceController::class, "index"]);
+Route::get("/marketing-services", [App\Http\Controllers\Client\MarketingServiceController::class, "index"]);
 

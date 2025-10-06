@@ -1,4 +1,4 @@
-_#DUST_OFF_EXISTING_FILE_#_<?php
+<?php
 
 namespace App\Models;
 
