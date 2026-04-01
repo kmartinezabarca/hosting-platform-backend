@@ -60,3 +60,12 @@ Route::prefix("service-plans")->group(function () {
 // Marketing Services (public)
 Route::get("/marketing-services", [App\Http\Controllers\Client\MarketingServiceController::class, "index"]);
 
+
+// Blog routes (public)
+Route::prefix("blog")->group(function () {
+    Route::get("/posts", [App\Http\Controllers\Client\BlogController::class, "index"]);
+    Route::get("/posts/featured", [App\Http\Controllers\Client\BlogController::class, "featuredPosts"]);
+    Route::get("/posts/{slug}", [App\Http\Controllers\Client\BlogController::class, "show"]);
+    Route::get("/categories", [App\Http\Controllers\Client\BlogController::class, "categories"]);
+    Route::get("/categories/{categorySlug}/posts", [App\Http\Controllers\Client\BlogController::class, "postsByCategory"]);
+});
