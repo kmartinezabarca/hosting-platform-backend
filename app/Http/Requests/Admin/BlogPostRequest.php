@@ -23,12 +23,15 @@ class BlogPostRequest extends FormRequest
     {
         return [
             'title' => ['required', 'string', 'max:255'],
-            'slug' => ['required', 'string', 'max:255', 'unique:blog_posts,slug,' . $this->route('blog_post')],
+            'slug' => ['nullable', 'string', 'max:255', 'unique:blog_posts,slug,' . ($this->route('blog_post') ? $this->route('blog_post')->uuid : null) . ',uuid'],
+            'excerpt' => ['required', 'string', 'max:500'],
             'content' => ['required', 'string'],
-            'image' => ['nullable', 'string', 'max:255'],
+            'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
             'published_at' => ['nullable', 'date'],
             'user_id' => ['required', 'exists:users,id'],
             'blog_category_id' => ['required', 'exists:blog_categories,id'],
+            'is_featured' => ['boolean'],
+            'read_time' => ['nullable', 'integer', 'min:1'],
         ];
     }
 }

@@ -44,9 +44,11 @@ class BlogCategoryController extends Controller
      */
     public function store(BlogCategoryRequest $request): JsonResponse
     {
-        $category = BlogCategory::create(array_merge($request->validated(), [
-            "slug" => Str::slug($request->name),
-        ]));
+        $data = $request->validated();
+        if (empty($data["slug"])) {
+            $data["slug"] = Str::slug($request->name);
+        }
+        $category = BlogCategory::create($data);
 
         return response()->json([
             "success" => true,
@@ -74,9 +76,11 @@ class BlogCategoryController extends Controller
     public function update(BlogCategoryRequest $request, string $uuid): JsonResponse
     {
         $category = BlogCategory::where("uuid", $uuid)->firstOrFail();
-        $category->update(array_merge($request->validated(), [
-            "slug" => Str::slug($request->name),
-        ]));
+        $data = $request->validated();
+        if (empty($data["slug"])) {
+            $data["slug"] = Str::slug($request->name);
+        }
+        $category->update($data);
 
         return response()->json([
             "success" => true,
