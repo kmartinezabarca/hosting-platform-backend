@@ -11,18 +11,20 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Paso 1: Eliminar la llave foránea y la columna user_id existente
         Schema::table("blog_posts", function (Blueprint $table) {
-            // 1. Eliminar la llave foránea existente
             $table->dropForeign(["user_id"]);
-            // 2. Eliminar la columna user_id (bigInt)
             $table->dropColumn("user_id");
+        });
 
-            // 3. Añadir la nueva columna user_id de tipo UUID
+        // Paso 2: Añadir la nueva columna user_id (UUID) y author_name
+        Schema::table("blog_posts", function (Blueprint $table) {
             $table->uuid("user_id")->nullable()->after("blog_category_id");
-            // 4. Añadir la columna author_name
             $table->string("author_name")->nullable()->after("user_id");
+        });
 
-            // 5. Restaurar la llave foránea a la nueva columna user_id (UUID)
+        // Paso 3: Añadir la nueva llave foránea
+        Schema::table("blog_posts", function (Blueprint $table) {
             $table->foreign("user_id")->references("uuid")->on("users")->onDelete("set null");
         });
     }
@@ -32,15 +34,15 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // Paso 1: Eliminar la llave foránea y las columnas añadidas
         Schema::table("blog_posts", function (Blueprint $table) {
-            // 1. Eliminar la nueva llave foránea
             $table->dropForeign(["user_id"]);
-            // 2. Eliminar la columna user_id (UUID)
             $table->dropColumn("user_id");
-            // 3. Eliminar la columna author_name
             $table->dropColumn("author_name");
+        });
 
-            // 4. Re-añadir la columna user_id original (foreignId) y su llave foránea
+        // Paso 2: Re-añadir la columna user_id original (foreignId) y su llave foránea
+        Schema::table("blog_posts", function (Blueprint $table) {
             $table->foreignId("user_id")->nullable()->after("blog_category_id")->constrained("users")->onDelete("set null");
         });
     }
