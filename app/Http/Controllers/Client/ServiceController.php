@@ -28,8 +28,6 @@ use Stripe\PaymentIntent;
 use Stripe\PaymentMethod as StripePaymentMethod;
 use Stripe\PaymentIntent as StripePaymentIntent;
 
-
-
 class ServiceController extends Controller
 {
     public function __construct()
