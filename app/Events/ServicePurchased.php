@@ -3,61 +3,75 @@
 namespace App\Events;
 
 use App\Models\Service;
-use Illuminate\Broadcasting\Channel;
-use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
+use App\Models\User;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow; // para pruebas sin cola
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
-class ServicePurchased implements ShouldBroadcast
+class ServicePurchased implements ShouldBroadcastNow
 {
-    use Dispatchable, InteractsWithSockets, SerializesModels;
+    use Dispatchable, SerializesModels;
 
-    public $service;
-    public $purchaseAmount;
+    public Service $service;
+    public float $purchaseAmount;
 
-    /**
-     * Create a new event instance.
-     */
     public function __construct(Service $service, float $purchaseAmount)
     {
-        $this->service = $service;
+        // nos aseguramos de tener el usuario y su uuid
+        $this->service = $service->loadMissing(['user:id,uuid,name']);
         $this->purchaseAmount = $purchaseAmount;
+
+        Log::info('ServicePurchased::__construct', [
+            'service_id'  => $this->service->id,
+            'service_uuid'=> $this->service->uuid ?? null,
+            'user_loaded' => $this->service->relationLoaded('user'),
+            'user_id'     => $this->service->user?->id,
+            'user_uuid'   => $this->service->user?->uuid,
+            'amount'      => $this->purchaseAmount,
+        ]);
     }
 
-    /**
-     * Get the channels the event should broadcast on.
-     */
     public function broadcastOn(): array
     {
-        return [
-            new PrivateChannel('user.' . $this->service->user->uuid),
-            new PrivateChannel('admin.services'),
-        ];
+        $user = $this->service->user; // puede ser null si algo falló
+
+        // log de los canales que vamos a usar
+        Log::info('ServicePurchased::broadcastOn', [
+            'service_id' => $this->service->id,
+            'user_uuid'  => $user?->uuid,
+            'channels'   => [
+                $user?->uuid ? 'private-user.'.$user->uuid : '(omitido: sin uuid)',
+                'private-admin.services',
+            ],
+        ]);
+
+        // si no hay uuid, emite solo a admin.services para no construir "user."
+        $channels = [ new PrivateChannel('admin.services') ];
+        if ($user?->uuid) {
+            $channels[] = new PrivateChannel('user.'.$user->uuid);
+        }
+        return $channels;
     }
 
-    /**
-     * Get the data to broadcast.
-     */
-    public function broadcastWith(): array
-    {
-        return [
-            'service_id' => $this->service->uuid,
-            'service_name' => $this->service->name,
-            'purchase_amount' => $this->purchaseAmount,
-            'message' => "¡Gracias por tu compra! Tu servicio '{$this->service->name}' ha sido adquirido exitosamente y está siendo configurado.",
-            'timestamp' => now()->toISOString(),
-        ];
-    }
-
-    /**
-     * Get the broadcast event name.
-     */
     public function broadcastAs(): string
     {
         return 'service.purchased';
     }
-}
 
+    public function broadcastWith(): array
+    {
+        $payload = [
+            'service_id'      => $this->service->uuid ?? $this->service->id,
+            'service_name'    => $this->service->name,
+            'purchase_amount' => $this->purchaseAmount,
+            'message'         => "¡Gracias por tu compra! Tu servicio '{$this->service->name}' ha sido adquirido exitosamente.",
+            'timestamp'       => now()->toISOString(),
+        ];
+
+        Log::info('ServicePurchased::broadcastWith', $payload);
+
+        return $payload;
+    }
+}

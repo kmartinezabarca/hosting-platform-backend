@@ -12,6 +12,8 @@ use App\Http\Controllers\Admin\AddOnController;
 use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\ChatController;
+use App\Http\Controllers\Admin\BlogCategoryController;
+use App\Http\Controllers\Admin\BlogPostController;
 
 /*
 |--------------------------------------------------------------------------
@@ -145,5 +147,11 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
         Route::put('/{chatRoom}/close', [ChatController::class, 'closeRoom'])->name('close');
         Route::put('/{chatRoom}/reopen', [ChatController::class, 'reopenRoom'])->name('reopen');
     });
+
+    // Blog Categories Routes
+    Route::apiResource('blog-categories', BlogCategoryController::class);
+
+    // Blog Posts Routes
+    Route::apiResource('blog-posts', BlogPostController::class);
 });
 

@@ -476,6 +476,21 @@ class ServiceController extends Controller
 
             DB::commit();
 
+            DB::afterCommit(function () use ($user, $invoice, $service, $total) {
+                broadcast(new \App\Events\ServicePurchased($service->fresh('user'), (float) $total));
+                broadcast(new \App\Events\InvoiceGenerated($invoice));
+                // broadcast(new \App\Events\PaymentProcessed($invoice));
+                \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\ServiceNotification([
+                    'title'   => 'Compra realizada',
+                    'message' => "¡Gracias por tu compra! Tu servicio '{$this->service->name}' ha sido adquirido exitosamente.",
+                    'type'    => 'service.purchased',
+                    'data'    => [
+                        'service_id' => $service->uuid ?? $service->id,
+                        'amount'     => $total,
+                    ],
+                ]));
+            });
+
             return response()->json([
                 'success' => true,
                 'message' => 'Service contracted successfully',

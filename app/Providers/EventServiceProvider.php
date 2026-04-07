@@ -74,8 +74,12 @@ class EventServiceProvider extends ServiceProvider
         ],
 
         // Invoice Events
+        \App\Events\InvoiceGenerated::class => [
+            \App\Listeners\SendInvoiceGeneratedEmail::class,
+            \App\Listeners\CreateInvoiceNotification::class . '@handleGenerated',
+        ],
         \App\Events\InvoiceStatusChanged::class => [
-            // Add invoice notification listener here if needed
+            \App\Listeners\CreateInvoiceNotification::class . '@handleStatusChanged',
         ],
     ];
 
