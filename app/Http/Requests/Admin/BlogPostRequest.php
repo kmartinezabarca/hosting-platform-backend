@@ -29,7 +29,7 @@ class BlogPostRequest extends FormRequest
             'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
             'published_at' => ['nullable', 'date'],
             'user_id' => ['nullable', 'exists:users,id'],
-            'blog_category_id' => ['required', 'exists:blog_categories,id'],
+            'blog_category_id' => ['required', 'uuid', 'exists:blog_categories,uuid'],
             'is_featured' => ['boolean'],
             'read_time' => ['nullable', 'integer', 'min:1'],
         ];

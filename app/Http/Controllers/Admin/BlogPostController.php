@@ -63,8 +63,12 @@ class BlogPostController extends Controller
             $data["slug"] = Str::slug($request->title);
         }
 
-        if ($request->hasFile('image')) {
-            $data['image'] = $request->file('image')->store('blog_images', 'public');
+        // Convertir blog_category_id (UUID) a ID interno
+        $category = \App\Models\BlogCategory::where("uuid", $data["blog_category_id"])->firstOrFail();
+        $data["blog_category_id"] = $category->id;
+
+        if ($request->hasFile("image")) {
+            $data["image"] = $request->file("image")->store("blog_images", "public");
         }
 
         $post = BlogPost::create($data);
@@ -97,15 +101,19 @@ class BlogPostController extends Controller
         $post = BlogPost::where('uuid', $uuid)->firstOrFail();
         $data = $request->validated();
         
-        if (empty($data['slug'])) {
-            $data['slug'] = Str::slug($request->title);
+        if (empty($data["slug"])) {
+            $data["slug"] = Str::slug($request->title);
         }
 
-        if ($request->hasFile('image')) {
+        // Convertir blog_category_id (UUID) a ID interno
+        $category = \App\Models\BlogCategory::where("uuid", $data["blog_category_id"])->firstOrFail();
+        $data["blog_category_id"] = $category->id;
+
+        if ($request->hasFile("image")) {
             if ($post->image) {
-                Storage::disk('public')->delete($post->image);
+                Storage::disk("public")->delete($post->image);
             }
-            $data['image'] = $request->file('image')->store('blog_images', 'public');
+            $data["image"] = $request->file("image")->store("blog_images", "public");
         }
 
         $post->update($data);
