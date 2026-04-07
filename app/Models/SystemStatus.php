@@ -8,9 +8,8 @@ use Illuminate\Support\Str;
 
 class SystemStatus extends Model
 {
-    use HasFactory;
-
     protected $table = 'system_status';
+    use HasFactory;
 
     protected $fillable = [
         'service_name',
