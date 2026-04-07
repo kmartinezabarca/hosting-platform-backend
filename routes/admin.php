@@ -152,6 +152,7 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     Route::apiResource('blog-categories', BlogCategoryController::class);
 
     // Blog Posts Routes
+    Route::post('blog/upload-image', [BlogPostController::class, 'uploadImage']);
     Route::apiResource('blog-posts', BlogPostController::class);
 });
 
