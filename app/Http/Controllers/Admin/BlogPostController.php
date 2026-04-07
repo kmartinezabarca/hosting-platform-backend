@@ -53,11 +53,15 @@ class BlogPostController extends Controller
     {
         $data = $request->validated();
         
-        if (empty($data['slug'])) {
-            $data['slug'] = Str::slug($request->title);
+        // Asignar el user_id del usuario autenticado si no se proporciona en la petición
+        // o si se proporciona pero es nulo. Esto asegura que el autor siempre esté presente.
+        if (!isset($data["user_id"]) || is_null($data["user_id"])) {
+            $data["user_id"] = auth()->id();
         }
-        
-        $data['user_id'] = auth()->id();
+
+        if (empty($data["slug"])) {
+            $data["slug"] = Str::slug($request->title);
+        }
 
         if ($request->hasFile('image')) {
             $data['image'] = $request->file('image')->store('blog_images', 'public');
