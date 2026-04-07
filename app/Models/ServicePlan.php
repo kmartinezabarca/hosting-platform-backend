@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 
 class ServicePlan extends Model
 {
-    use HasFactory;
+    public $incrementing = false;    protected $keyType = 'string';    use HasFactory;
 
     /**
      * The attributes that are mass assignable.
@@ -16,6 +16,7 @@ class ServicePlan extends Model
      * @var array<int, string>
      */
     protected $fillable = [
+        'id',
         'uuid',
         'category_id',
         'slug',
@@ -50,8 +51,11 @@ class ServicePlan extends Model
         parent::boot();
 
         static::creating(function ($model) {
+            if (empty($model->id)) {
+                $model->id = (string) Str::uuid();
+            }
             if (empty($model->uuid)) {
-                $model->uuid = (string) Str::uuid();
+                $model->uuid = $model->id;
             }
             if (empty($model->slug) && !empty($model->name)) {
                 $model->slug = Str::slug($model->name);

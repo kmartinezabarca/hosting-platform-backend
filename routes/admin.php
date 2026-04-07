@@ -13,11 +13,11 @@ use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\BlogCategoryController;
-use App\Http\Controllers\Admin\BlogPostController;
 use App\Http\Controllers\Admin\DocumentationController;
 use App\Http\Controllers\Admin\ApiDocumentationController;
 use App\Http\Controllers\Admin\SystemStatusController;
-use App\Http\Controllers\Admin\DocumentationRequestController;
+use App\Http\Controllers\Admin\UserRequestController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -155,12 +155,7 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     // Blog Categories Routes
     Route::apiResource('blog-categories', BlogCategoryController::class);
 
-        // Blog Subscriptions Routes
-    Route::prefix("blog-subscriptions")->group(function () {
-        Route::get("/", [BlogSubscriptionController::class, "index"]);
-        Route::get("/{uuid}", [BlogSubscriptionController::class, "show"]);
-        Route::delete("/{uuid}", [BlogSubscriptionController::class, "destroy"]);
-    });
+    
 
     // Documentation Routes
     Route::prefix("documentation")->group(function () {
@@ -193,12 +188,14 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     Route::post("blog/upload-image", [BlogPostController::class, "uploadImage"]);
     Route::apiResource("blog-posts", BlogPostController::class);
 
-    // Documentation Requests Routes
-    Route::prefix("documentation-requests")->group(function () {
-        Route::get("/", [DocumentationRequestController::class, "index"]);
-        Route::get("/{id}", [DocumentationRequestController::class, "show"]);
-        Route::put("/{id}/mark-resolved", [DocumentationRequestController::class, "markResolved"]);
-        Route::delete("/{id}", [DocumentationRequestController::class, "destroy"]);
+    // User Requests Routes (Unified)
+    Route::prefix("user-requests")->group(function () {
+        Route::get("/", [UserRequestController::class, "index"]);
+        Route::get("/{id}", [UserRequestController::class, "show"]);
+        Route::put("/{id}/mark-resolved", [UserRequestController::class, "markResolved"]);
+        Route::delete("/{id}", [UserRequestController::class, "destroy"]);
     });
+
+
 });
 

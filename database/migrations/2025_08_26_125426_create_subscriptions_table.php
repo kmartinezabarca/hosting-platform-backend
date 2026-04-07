@@ -12,10 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('subscriptions', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->foreignId('service_id')->nullable()->constrained()->onDelete('set null');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->uuid("service_id")->nullable();
+            $table->foreign("service_id")->references("id")->on("services")->onDelete("set null");
             $table->string('stripe_subscription_id')->unique();
             $table->string('stripe_customer_id');
             $table->string('stripe_price_id');

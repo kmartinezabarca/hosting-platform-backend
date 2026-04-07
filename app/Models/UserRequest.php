@@ -6,30 +6,26 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
-class MarketingService extends Model
+class UserRequest extends Model
 {
     use HasFactory;
 
     public $incrementing = false;
     protected $keyType = 'string';
 
-    protected $table = 'marketing_services';
-
     protected $fillable = [
-
-        'type',
-        'icon_name',
-        'title',
-        'slug',
+        'id',
+        'name',
+        'email',
+        'topic',
         'description',
-        'features',
-        'color',
-        'bg_color',
-        'order',
+        'kind',
+        'status',
+        'is_resolved',
     ];
 
     protected $casts = [
-        'features' => 'array',
+        'is_resolved' => 'boolean',
     ];
 
     protected static function boot()
@@ -40,15 +36,6 @@ class MarketingService extends Model
             if (empty($model->id)) {
                 $model->id = (string) Str::uuid();
             }
-            if (empty($model->slug)) {
-                $model->slug = Str::slug($model->title);
-            }
         });
     }
-
-    public function getRouteKeyName()
-    {
-        return 'slug';
-    }
 }
-

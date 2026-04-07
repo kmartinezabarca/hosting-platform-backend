@@ -12,8 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('billing_cycles', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
+            $table->uuid("id")->primary();
             $table->string('slug', 50)->unique(); // monthly, quarterly, annually
             $table->string('name', 100); // Mensual, Trimestral, Anual
             $table->integer('months')->default(1); // 1, 3, 12

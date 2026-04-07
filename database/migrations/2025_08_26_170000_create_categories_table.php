@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('categories', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
             $table->string('slug', 50)->unique(); // hosting, gameserver, vps, database
             $table->string('name', 100); // Web Hosting, Servidores de Juegos, etc.

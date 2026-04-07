@@ -12,11 +12,14 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('tickets', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->foreignId('assigned_to')->nullable()->constrained('users')->onDelete('set null');
-            $table->foreignId('service_id')->nullable()->constrained()->onDelete('set null');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->uuid("assigned_to")->nullable();
+            $table->foreign("assigned_to")->references("id")->on("users")->onDelete("set null");
+            $table->uuid('service_id')->nullable();
+            $table->foreign('service_id')->references('id')->on('services')->onDelete('set null');
             $table->string('ticket_number', 20)->unique();
             $table->string('subject', 500);
             $table->enum('priority', ['low', 'medium', 'high', 'urgent'])->default('medium');

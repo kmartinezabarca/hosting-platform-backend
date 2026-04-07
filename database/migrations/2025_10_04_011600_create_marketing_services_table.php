@@ -14,7 +14,7 @@ class CreateMarketingServicesTable extends Migration
     public function up()
     {
         Schema::create('marketing_services', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
             $table->enum('type', ['main', 'additional']);
             $table->string('icon_name');

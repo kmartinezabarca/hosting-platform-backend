@@ -16,7 +16,8 @@ return new class extends Migration
             $table->dropColumn(["service_type", "game_type", "specifications", "pricing"]);
 
             // Añadir service_plan_id
-            $table->foreignId("service_plan_id")->nullable()->constrained("service_plans")->onDelete("set null");
+            $table->uuid("service_plan_id")->nullable();
+            $table->foreign("service_plan_id")->references("id")->on("service_plans")->onDelete("set null");
             
             $table->index(["service_plan_id"]);
         });

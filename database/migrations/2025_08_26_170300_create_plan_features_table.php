@@ -12,8 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('plan_features', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('service_plan_id')->constrained()->onDelete('cascade');
+            $table->uuid("id")->primary();
+            $table->uuid("service_plan_id");
+            $table->foreign("service_plan_id")->references("id")->on("service_plans")->onDelete("cascade");
             $table->string('feature', 500); // "1 Sitio Web", "10 GB SSD", etc.
             $table->boolean('is_highlighted')->default(false); // Para destacar características importantes
             $table->integer('sort_order')->default(0);

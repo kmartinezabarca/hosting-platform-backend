@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('blog_categories', function (Blueprint $table) {
-            $table->bigIncrements("id");
+            $table->uuid("id")->primary();
             $table->uuid("uuid")->unique();
             $table->string("name")->unique();
             $table->string("slug")->unique();

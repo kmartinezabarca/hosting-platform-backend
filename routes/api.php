@@ -2,6 +2,9 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Client\DocumentationController;
+use App\Http\Controllers\Client\ApiDocumentationController;
+use App\Http\Controllers\Client\SystemStatusController;
 
 /*
 |--------------------------------------------------------------------------
@@ -61,14 +64,9 @@ Route::prefix("service-plans")->group(function () {
 Route::get("/marketing-services", [App\Http\Controllers\Client\MarketingServiceController::class, "index"]);
 
 
-use App\Http\Controllers\Client\BlogSubscriptionController;
 
-Route::post("/blog/subscribe", [BlogSubscriptionController::class, "subscribe"]);
-Route::post("/blog/unsubscribe/{uuid}", [BlogSubscriptionController::class, "unsubscribe"]);
 
-use App\Http\Controllers\Client\DocumentationController;
-use App\Http\Controllers\Client\ApiDocumentationController;
-use App\Http\Controllers\Client\SystemStatusController;
+
 
 Route::prefix("documentation")->group(function () {
     Route::get("/", [DocumentationController::class, "index"]);
@@ -84,7 +82,7 @@ Route::prefix("system-status")->group(function () {
     Route::get("/", [SystemStatusController::class, "index"]);
 });
 
-Route::post("/documentation-requests", [App\Http\Controllers\Api\DocumentationRequestController::class, "store"]);
+
 
 // Blog routes (public)
 Route::prefix("blog")->group(function () {
@@ -94,3 +92,5 @@ Route::prefix("blog")->group(function () {
     Route::get("/categories", [App\Http\Controllers\Client\BlogController::class, "categories"]);
     Route::get("/categories/{categorySlug}/posts", [App\Http\Controllers\Client\BlogController::class, "postsByCategory"]);
 });
+
+Route::post("/user-requests", [App\Http\Controllers\Api\UserRequestController::class, "store"]);
