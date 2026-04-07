@@ -151,6 +151,40 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     // Blog Categories Routes
     Route::apiResource('blog-categories', BlogCategoryController::class);
 
+        // Blog Subscriptions Routes
+    Route::prefix("blog-subscriptions")->group(function () {
+        Route::get("/", [BlogSubscriptionController::class, "index"]);
+        Route::get("/{uuid}", [BlogSubscriptionController::class, "show"]);
+        Route::delete("/{uuid}", [BlogSubscriptionController::class, "destroy"]);
+    });
+
+    // Documentation Routes
+    Route::prefix("documentation")->group(function () {
+        Route::get("/", [DocumentationController::class, "index"]);
+        Route::post("/", [DocumentationController::class, "store"]);
+        Route::get("/{uuid}", [DocumentationController::class, "show"]);
+        Route::put("/{uuid}", [DocumentationController::class, "update"]);
+        Route::delete("/{uuid}", [DocumentationController::class, "destroy"]);
+    });
+
+    // API Documentation Routes
+    Route::prefix("api-documentation")->group(function () {
+        Route::get("/", [ApiDocumentationController::class, "index"]);
+        Route::post("/", [ApiDocumentationController::class, "store"]);
+        Route::get("/{uuid}", [ApiDocumentationController::class, "show"]);
+        Route::put("/{uuid}", [ApiDocumentationController::class, "update"]);
+        Route::delete("/{uuid}", [ApiDocumentationController::class, "destroy"]);
+    });
+
+    // System Status Routes
+    Route::prefix("system-status")->group(function () {
+        Route::get("/", [SystemStatusController::class, "index"]);
+        Route::post("/", [SystemStatusController::class, "store"]);
+        Route::get("/{uuid}", [SystemStatusController::class, "show"]);
+        Route::put("/{uuid}", [SystemStatusController::class, "update"]);
+        Route::delete("/{uuid}", [SystemStatusController::class, "destroy"]);
+    });
+
     // Blog Posts Routes
     Route::post('blog/upload-image', [BlogPostController::class, 'uploadImage']);
     Route::apiResource('blog-posts', BlogPostController::class);

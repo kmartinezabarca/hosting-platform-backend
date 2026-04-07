@@ -61,6 +61,29 @@ Route::prefix("service-plans")->group(function () {
 Route::get("/marketing-services", [App\Http\Controllers\Client\MarketingServiceController::class, "index"]);
 
 
+use App\Http\Controllers\Client\BlogSubscriptionController;
+
+Route::post("/blog/subscribe", [BlogSubscriptionController::class, "subscribe"]);
+Route::post("/blog/unsubscribe/{uuid}", [BlogSubscriptionController::class, "unsubscribe"]);
+
+use App\Http\Controllers\Client\DocumentationController;
+use App\Http\Controllers\Client\ApiDocumentationController;
+use App\Http\Controllers\Client\SystemStatusController;
+
+Route::prefix("documentation")->group(function () {
+    Route::get("/", [DocumentationController::class, "index"]);
+    Route::get("/{slug}", [DocumentationController::class, "show"]);
+});
+
+Route::prefix("api-documentation")->group(function () {
+    Route::get("/", [ApiDocumentationController::class, "index"]);
+    Route::get("/{slug}", [ApiDocumentationController::class, "show"]);
+});
+
+Route::prefix("system-status")->group(function () {
+    Route::get("/", [SystemStatusController::class, "index"]);
+});
+
 // Blog routes (public)
 Route::prefix("blog")->group(function () {
     Route::get("/posts", [App\Http\Controllers\Client\BlogController::class, "index"]);
