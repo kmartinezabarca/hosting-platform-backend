@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\BlogCategoryController;
 use App\Http\Controllers\Admin\BlogPostController;
+use App\Http\Controllers\Admin\DocumentationRequestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -188,5 +189,13 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     // Blog Posts Routes
     Route::post('blog/upload-image', [BlogPostController::class, 'uploadImage']);
     Route::apiResource('blog-posts', BlogPostController::class);
+
+    // Documentation Requests Routes
+    Route::prefix("documentation-requests")->group(function () {
+        Route::get("/", [DocumentationRequestController::class, "index"]);
+        Route::get("/{id}", [DocumentationRequestController::class, "show"]);
+        Route::put("/{id}/mark-resolved", [DocumentationRequestController::class, "markResolved"]);
+        Route::delete("/{id}", [DocumentationRequestController::class, "destroy"]);
+    });
 });
 

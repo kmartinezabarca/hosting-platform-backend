@@ -30,7 +30,7 @@ return new class extends Migration {
     {
         Schema::table('ticket_replies', function (Blueprint $table) {
             // Quitar índices agregados por esta migración
-            $table->dropIndex('ticket_replies_is_internal_idx');
+            // $table->dropIndex("ticket_replies_is_internal_idx"); // Comentado porque el índice no se crea en el 'up'
 
             // Mantengo created_at/user_id porque probablemente existían antes
             // $table->dropIndex('ticket_replies_user_id_index');

@@ -84,6 +84,8 @@ Route::prefix("system-status")->group(function () {
     Route::get("/", [SystemStatusController::class, "index"]);
 });
 
+Route::post("/documentation-requests", [App\Http\Controllers\Api\DocumentationRequestController::class, "store"]);
+
 // Blog routes (public)
 Route::prefix("blog")->group(function () {
     Route::get("/posts", [App\Http\Controllers\Client\BlogController::class, "index"]);
