@@ -53,9 +53,13 @@ class BlogPostController extends Controller
     {
         $data = $request->validated();
         
-        // Asignar el user_id del usuario autenticado si no se proporciona en la petición
-        // o si se proporciona pero es nulo. Esto asegura que el autor siempre esté presente.
-        if (!isset($data["user_id"]) || is_null($data["user_id"])) {
+        // Si no se proporciona un author_name, usar el nombre del usuario autenticado o 'ROKE Industries'
+        if (empty($data["author_name"])) {
+            $data["author_name"] = auth()->check() ? auth()->user()->name : 'ROKE Industries';
+        }
+
+        // Asignar user_id si hay un usuario autenticado y no se ha proporcionado explícitamente
+        if (auth()->check() && (empty($data["user_id"]) || is_null($data["user_id"]))) {
             $data["user_id"] = auth()->id();
         }
 
@@ -98,9 +102,19 @@ class BlogPostController extends Controller
      */
     public function update(BlogPostRequest $request, string $uuid): JsonResponse
     {
-        $post = BlogPost::where('uuid', $uuid)->firstOrFail();
+        $post = BlogPost::where("uuid", $uuid)->firstOrFail();
         $data = $request->validated();
         
+        // Si no se proporciona un author_name, usar el nombre del usuario autenticado o 'ROKE Industries'
+        if (empty($data["author_name"])) {
+            $data["author_name"] = auth()->check() ? auth()->user()->name : 'ROKE Industries';
+        }
+
+        // Asignar user_id si hay un usuario autenticado y no se ha proporcionado explícitamente
+        if (auth()->check() && (empty($data["user_id"]) || is_null($data["user_id"]))) {
+            $data["user_id"] = auth()->id();
+        }
+
         if (empty($data["slug"])) {
             $data["slug"] = Str::slug($request->title);
         }

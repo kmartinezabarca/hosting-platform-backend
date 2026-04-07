@@ -25,6 +25,7 @@ class BlogPostResource extends JsonResource
             'isFeatured' => $this->is_featured,
             'publishedAt' => $this->published_at ? $this->published_at->format('Y-m-d H:i:s') : null,
             'category' => new BlogCategoryResource($this->whenLoaded('category')),
+            'authorName' => $this->author_name,
             'author' => new UserResource($this->whenLoaded('author')),
             'createdAt' => $this->created_at->format('Y-m-d H:i:s'),
             'updatedAt' => $this->updated_at->format('Y-m-d H:i:s'),

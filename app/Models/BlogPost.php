@@ -17,6 +17,7 @@ class BlogPost extends Model
         'uuid',
         'blog_category_id',
         'user_id',
+        'author_name',
         'title',
         'slug',
         'excerpt',
