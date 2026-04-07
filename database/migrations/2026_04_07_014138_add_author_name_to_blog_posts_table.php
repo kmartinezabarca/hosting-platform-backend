@@ -13,7 +13,9 @@ return new class extends Migration
     {
         Schema::table("blog_posts", function (Blueprint $table) {
             $table->string("author_name")->nullable()->after("user_id");
-            $table->uuid("user_id")->nullable()->change();
+            $table->dropForeign(['user_id']);
+            $table->uuid('user_id')->nullable()->change();
+            $table->foreign('user_id')->references('uuid')->on('users')->onDelete('set null');
         });
     }
 
@@ -24,7 +26,9 @@ return new class extends Migration
     {
         Schema::table("blog_posts", function (Blueprint $table) {
             $table->dropColumn("author_name");
-            $table->uuid("user_id")->nullable(false)->change();
+            $table->dropForeign(['user_id']);
+            $table->foreignId('user_id')->nullable(false)->change();
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
         });
     }
 };
