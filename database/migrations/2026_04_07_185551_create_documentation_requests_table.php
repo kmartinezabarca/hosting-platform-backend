@@ -12,13 +12,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('documentation_requests', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
+            $table->uuid('uuid')->unique();
             $table->string("name");
             $table->string("email");
             $table->string("topic");
             $table->text("description")->nullable();
             $table->enum("kind", ["documentation", "api_documentation"]);
             $table->boolean("is_resolved")->default(false);
+            $table->index(['uuid']);
             $table->timestamps();
         });
     }

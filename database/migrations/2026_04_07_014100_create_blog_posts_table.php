@@ -12,20 +12,21 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('blog_posts', function (Blueprint $table) {
-            $table->uuid("id")->primary();
-            $table->uuid("user_id");
-            $table->uuid("category_id");
+            $table->id();
+            $table->uuid('uuid')->unique();
             $table->string("title");
             $table->string("slug")->unique();
             $table->text("content");
             $table->string("image")->nullable();
             $table->boolean("is_published")->default(false);
             $table->timestamp("published_at")->nullable();
-            $table->timestamps();
-            $table->softDeletes();
-
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('category_id');
             $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
             $table->foreign("category_id")->references("id")->on("blog_categories")->onDelete("cascade");
+            $table->index(['uuid']);
+            $table->timestamps();
+            $table->softDeletes();
         });
     }
 

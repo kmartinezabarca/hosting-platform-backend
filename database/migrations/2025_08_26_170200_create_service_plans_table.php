@@ -12,10 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('service_plans', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid('category_id');
-            $table->foreign('category_id')->references('id')->on('categories')->onDelete('cascade');
+            $table->unsignedBigInteger('category_id');
             $table->string('slug', 100)->unique(); // hosting-starter, hosting-pro, etc.
             $table->string('name', 200); // Hosting Starter, Hosting Pro, etc.
             $table->text('description')->nullable();
@@ -25,13 +24,14 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->integer('sort_order')->default(0);
             $table->json('specifications')->nullable(); // storage, bandwidth, domains, email, etc.
-            $table->timestamps();
-            
             $table->index(['category_id']);
             $table->index(['is_active']);
             $table->index(['is_popular']);
             $table->index(['sort_order']);
             $table->index(['slug']);
+            $table->foreign('category_id')->references('id')->on('categories')->onDelete('cascade');
+            $table->index(['uuid']);
+            $table->timestamps();
         });
     }
 

@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('categories', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
             $table->string('slug', 50)->unique(); // hosting, gameserver, vps, database
             $table->string('name', 100); // Web Hosting, Servidores de Juegos, etc.
@@ -22,11 +22,11 @@ return new class extends Migration
             $table->string('bg_color', 50)->nullable(); // Clase CSS para el color de fondo
             $table->boolean('is_active')->default(true);
             $table->integer('sort_order')->default(0);
-            $table->timestamps();
-            
             $table->index(['is_active']);
             $table->index(['sort_order']);
             $table->index(['slug']);
+            $table->index(['uuid']);
+            $table->timestamps();
         });
     }
 

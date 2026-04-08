@@ -14,7 +14,7 @@ class CreateMarketingServicesTable extends Migration
     public function up()
     {
         Schema::create('marketing_services', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
             $table->enum('type', ['main', 'additional']);
             $table->string('icon_name');
@@ -25,6 +25,7 @@ class CreateMarketingServicesTable extends Migration
             $table->string('color')->nullable();
             $table->string('bg_color')->nullable();
             $table->integer('order')->default(0);
+            $table->index(['uuid']);
             $table->timestamps();
         });
     }

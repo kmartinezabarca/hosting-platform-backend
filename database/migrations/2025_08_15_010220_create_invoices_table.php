@@ -12,10 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('invoices', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->unsignedBigInteger('user_id');
             $table->string('invoice_number', 50)->unique();
             $table->enum('status', ['draft', 'sent', 'paid', 'overdue', 'cancelled', 'refunded'])->default('draft');
             $table->decimal('subtotal', 10, 2);
@@ -28,12 +27,13 @@ return new class extends Migration
             $table->string('payment_method', 50)->nullable();
             $table->string('payment_reference')->nullable();
             $table->text('notes')->nullable();
-            $table->timestamps();
-            
             $table->index(['user_id']);
             $table->index(['status']);
             $table->index(['due_date']);
             $table->index(['invoice_number']);
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->index(['uuid']);
+            $table->timestamps();
         });
     }
 

@@ -13,18 +13,19 @@ return new class extends Migration
     {
         Schema::create('invoice_items', function (Blueprint $table) {
             $table->id();
-            $table->uuid("invoice_id");
-            $table->foreign("invoice_id")->references("id")->on("invoices")->onDelete("cascade");
-            $table->uuid("service_id")->nullable();
-            $table->foreign("service_id")->references("id")->on("services")->onDelete("set null");
+            $table->uuid('uuid')->unique();
+            $table->unsignedBigInteger('invoice_id');
+            $table->unsignedBigInteger('service_id');
             $table->string('description', 500);
             $table->integer('quantity')->default(1);
             $table->decimal('unit_price', 10, 2);
             $table->decimal('total', 10, 2);
-            $table->timestamps();
-            
             $table->index(['invoice_id']);
             $table->index(['service_id']);
+            $table->foreign("invoice_id")->references("id")->on("invoices")->onDelete("cascade");
+            $table->foreign("service_id")->references("id")->on("services")->onDelete("set null");
+            $table->index(['uuid']);
+            $table->timestamps();
         });
     }
 
