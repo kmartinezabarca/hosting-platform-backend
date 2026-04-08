@@ -13,18 +13,18 @@ return new class extends Migration
     {
         Schema::create('ticket_replies', function (Blueprint $table) {
             $table->id();
-            $table->uuid('uuid')->unique();
-            $table->unsignedBigInteger('ticket_id');
-            $table->unsignedBigInteger('user_id');
+            $table->uuid("ticket_id");
+            $table->foreign("ticket_id")->references("id")->on("tickets")->onDelete("cascade");
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
             $table->text('message');
             $table->boolean('is_internal')->default(false);
             $table->json('attachments')->nullable();
+            $table->timestamps();
+            
             $table->index(['ticket_id']);
             $table->index(['user_id']);
-            $table->foreign("ticket_id")->references("id")->on("tickets")->onDelete("cascade");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->index(['uuid']);
-            $table->timestamps();
+            $table->index(['created_at']);
         });
     }
 

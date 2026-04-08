@@ -12,9 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('agents', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
-            $table->unsignedBigInteger('user_id');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
             $table->string('agent_code', 20)->unique(); // Código único del agente
             $table->string('department', 100)->default('support'); // Departamento: support, technical, billing, etc.
             $table->enum('specialization', ['general', 'technical', 'billing', 'sales', 'escalation'])->default('general');
@@ -29,6 +30,9 @@ return new class extends Migration
             $table->json('skills')->nullable(); // Habilidades/competencias en formato JSON
             $table->text('notes')->nullable(); // Notas administrativas
             $table->timestamp('last_activity_at')->nullable(); // Última actividad
+            $table->timestamps();
+            $table->softDeletes();
+            
             // Índices para optimizar consultas
             $table->index(['status']);
             $table->index(['department']);
@@ -36,10 +40,6 @@ return new class extends Migration
             $table->index(['current_ticket_count']);
             $table->index(['performance_rating']);
             $table->index(['last_activity_at']);
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->index(['uuid']);
-            $table->timestamps();
-            $table->softDeletes();
         });
     }
 

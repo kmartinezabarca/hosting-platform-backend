@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('server_nodes', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
             $table->string('name');
             $table->string('hostname');
@@ -24,11 +24,11 @@ return new class extends Migration
             $table->enum('status', ['active', 'maintenance', 'offline'])->default('active');
             $table->integer('max_services')->default(0);
             $table->integer('current_services')->default(0);
+            $table->timestamps();
+            
             $table->index(['node_type']);
             $table->index(['status']);
             $table->index(['location']);
-            $table->index(['uuid']);
-            $table->timestamps();
         });
     }
 

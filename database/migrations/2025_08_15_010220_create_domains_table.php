@@ -14,7 +14,8 @@ return new class extends Migration
         Schema::create('domains', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->unsignedBigInteger('user_id');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
             $table->string('domain_name')->unique();
             $table->string('registrar', 100);
             $table->string('external_id')->nullable();
@@ -25,12 +26,11 @@ return new class extends Migration
             $table->json('nameservers')->nullable();
             $table->json('dns_records')->nullable();
             $table->boolean('whois_privacy')->default(false);
+            $table->timestamps();
+            
             $table->index(['user_id']);
             $table->index(['status']);
             $table->index(['expiration_date']);
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->index(['uuid']);
-            $table->timestamps();
         });
     }
 

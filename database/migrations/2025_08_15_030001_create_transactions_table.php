@@ -12,11 +12,14 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('transactions', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('invoice_id');
-            $table->unsignedBigInteger('payment_method_id');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->uuid("invoice_id")->nullable();
+            $table->foreign("invoice_id")->references("id")->on("invoices")->onDelete("set null");
+            $table->uuid("payment_method_id")->nullable();
+            $table->foreign("payment_method_id")->references("id")->on("payment_methods")->onDelete("set null");
             $table->string('transaction_id')->unique(); // ID único de la transacción
             $table->string('provider_transaction_id')->nullable(); // ID del proveedor
             $table->enum('type', ['payment', 'refund', 'chargeback', 'fee']);
@@ -29,15 +32,12 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->text('failure_reason')->nullable();
             $table->timestamp('processed_at')->nullable();
+            $table->timestamps();
+            
             $table->index(['user_id', 'status']);
             $table->index(['invoice_id']);
             $table->index(['transaction_id']);
             $table->index(['provider_transaction_id']);
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->foreign("invoice_id")->references("id")->on("invoices")->onDelete("set null");
-            $table->foreign("payment_method_id")->references("id")->on("payment_methods")->onDelete("set null");
-            $table->index(['uuid']);
-            $table->timestamps();
         });
     }
 

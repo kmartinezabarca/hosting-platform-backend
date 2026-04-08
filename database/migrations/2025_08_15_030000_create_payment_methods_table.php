@@ -12,9 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('payment_methods', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
-            $table->unsignedBigInteger('user_id');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
             $table->enum('type', ['card', 'bank_account', 'paypal', 'stripe', 'conekta']);
             $table->string('provider')->nullable(); // stripe, conekta, etc.
             $table->string('provider_id')->nullable(); // ID del proveedor
@@ -23,11 +24,10 @@ return new class extends Migration
             $table->boolean('is_default')->default(false);
             $table->boolean('is_active')->default(true);
             $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+            
             $table->index(['user_id', 'is_active']);
             $table->index(['user_id', 'is_default']);
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->index(['uuid']);
-            $table->timestamps();
         });
     }
 

@@ -12,10 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('subscriptions', function (Blueprint $table) {
-            $table->id();
+            $table->uuid("id")->primary();
             $table->uuid('uuid')->unique();
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('service_id');
+            $table->uuid("user_id");
+            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->uuid("service_id")->nullable();
+            $table->foreign("service_id")->references("id")->on("services")->onDelete("set null");
             $table->string('stripe_subscription_id')->unique();
             $table->string('stripe_customer_id');
             $table->string('stripe_price_id');
@@ -31,14 +33,12 @@ return new class extends Migration
             $table->timestamp('canceled_at')->nullable();
             $table->timestamp('ends_at')->nullable();
             $table->json('metadata')->nullable(); // Additional data
+            $table->timestamps();
+            
             // Indexes
             $table->index(['user_id', 'status']);
             $table->index('stripe_subscription_id');
             $table->index('stripe_customer_id');
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->foreign("service_id")->references("id")->on("services")->onDelete("set null");
-            $table->index(['uuid']);
-            $table->timestamps();
         });
     }
 

@@ -12,8 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('user_requests', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
+            $table->uuid("id")->primary();
             $table->string("name");
             $table->string("email");
             $table->string("topic")->nullable();
@@ -21,7 +20,6 @@ return new class extends Migration
             $table->enum("kind", ["blog_subscription", "documentation_request", "api_documentation_request"]);
             $table->string("status")->default("pending"); // e.g., pending, resolved, rejected
             $table->boolean("is_resolved")->default(false);
-            $table->index(['uuid']);
             $table->timestamps();
         });
     }
