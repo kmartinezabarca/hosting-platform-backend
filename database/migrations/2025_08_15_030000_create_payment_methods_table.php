@@ -12,10 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('payment_methods', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->enum('type', ['card', 'bank_account', 'paypal', 'stripe', 'conekta']);
             $table->string('provider')->nullable(); // stripe, conekta, etc.
             $table->string('provider_id')->nullable(); // ID del proveedor

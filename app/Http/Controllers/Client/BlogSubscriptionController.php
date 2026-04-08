@@ -3,44 +3,26 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-use App\Models\UserRequest;
+use App\Http\Requests\Client\BlogSubscriptionRequest;
+use App\Http\Resources\BlogSubscriptionResource;
+use App\Models\BlogSubscription;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 
 class BlogSubscriptionController extends Controller
 {
-    public function subscribe(Request $request): JsonResponse
+    public function subscribe(BlogSubscriptionRequest $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'email' => 'required|string|email|max:255|unique:user_requests,email,NULL,id,kind,blog_subscription',
-        ]);
+        $subscription = BlogSubscription::create($request->validated());
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        $userRequest = UserRequest::create([
-            'name' => $request->input('name', 'Anónimo'), // Asume un nombre si no se proporciona
-            'email' => $request->input('email'),
-            'kind' => 'blog_subscription',
-            'topic' => 'Suscripción al Blog',
-            'description' => 'Solicitud de suscripción al blog.',
-            'status' => 'pending',
-            'is_resolved' => false,
-        ]);
-
-        return response()->json(['message' => 'Suscripción al blog realizada con éxito.', 'data' => $userRequest], 201);
+        return response()->json(new BlogSubscriptionResource($subscription), 201);
     }
 
     public function unsubscribe(string $uuid): JsonResponse
     {
-        $userRequest = UserRequest::where('id', $uuid)
-                                  ->where('kind', 'blog_subscription')
-                                  ->firstOrFail();
-        
-        $userRequest->update(['is_resolved' => true, 'status' => 'unsubscribed']);
+        $subscription = BlogSubscription::where("uuid", $uuid)->firstOrFail();
+        $subscription->update(["is_active" => false]);
 
-        return response()->json(['message' => 'Suscripción cancelada exitosamente.']);
+        return response()->json(["message" => "Suscripción cancelada exitosamente."]);
     }
 }

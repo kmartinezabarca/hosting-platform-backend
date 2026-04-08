@@ -8,8 +8,6 @@ use Illuminate\Support\Str;
 
 class Category extends Model
 {
-    public $incrementing = false;
-    protected $keyType = 'string';
     use HasFactory;
 
     /**
@@ -18,7 +16,6 @@ class Category extends Model
      * @var array<int, string>
      */
     protected $fillable = [
-        'id',
         'uuid',
         'slug',
         'name',
@@ -47,11 +44,8 @@ class Category extends Model
         parent::boot();
         
         static::creating(function ($model) {
-            if (empty($model->id)) {
-                $model->id = (string) Str::uuid();
-            }
             if (empty($model->uuid)) {
-                $model->uuid = $model->id;
+                $model->uuid = (string) Str::uuid();
             }
             if (empty($model->slug) && !empty($model->name)) {
                 $model->slug = Str::slug($model->name);

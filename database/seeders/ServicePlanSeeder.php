@@ -146,11 +146,9 @@ class ServicePlanSeeder extends Seeder
 
             foreach ($plans as $planData) {
                 $servicePlan = ServicePlan::updateOrCreate(
-                    ["slug" => $planData["id"]],
+                    ['slug' => $planData["id"]],
                     [
-                        "id" => (string) \Illuminate\Support\Str::uuid(),
                         "category_id" => $category->id,
-                        "slug" => $planData["id"],
                         "name" => $planData["name"],
                         "description" => $planData["description"],
                         "base_price" => $planData["price"]["monthly"],
@@ -163,7 +161,6 @@ class ServicePlanSeeder extends Seeder
                 $servicePlan->features()->delete();
                 foreach ($planData["features"] as $index => $feature) {
                     PlanFeature::create([
-                        "id" => (string) \Illuminate\Support\Str::uuid(),
                         "service_plan_id" => $servicePlan->id,
                         "feature" => $feature,
                         "sort_order" => $index,
@@ -177,7 +174,6 @@ class ServicePlanSeeder extends Seeder
                     $billingCycle = BillingCycle::where("slug", $cycleSlug)->first();
                     if ($billingCycle) {
                         PlanPricing::create([
-                            "id" => (string) \Illuminate\Support\Str::uuid(),
                             "service_plan_id" => $servicePlan->id,
                             "billing_cycle_id" => $billingCycle->id,
                             "price" => $price,
@@ -186,5 +182,5 @@ class ServicePlanSeeder extends Seeder
                 }
             }
         }
-}
+    }
 }

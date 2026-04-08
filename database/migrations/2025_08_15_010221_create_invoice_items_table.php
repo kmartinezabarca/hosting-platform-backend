@@ -13,10 +13,8 @@ return new class extends Migration
     {
         Schema::create('invoice_items', function (Blueprint $table) {
             $table->id();
-            $table->uuid("invoice_id");
-            $table->foreign("invoice_id")->references("id")->on("invoices")->onDelete("cascade");
-            $table->uuid("service_id")->nullable();
-            $table->foreign("service_id")->references("id")->on("services")->onDelete("set null");
+            $table->foreignId('invoice_id')->constrained()->onDelete('cascade');
+            $table->foreignId('service_id')->nullable()->constrained()->onDelete('set null');
             $table->string('description', 500);
             $table->integer('quantity')->default(1);
             $table->decimal('unit_price', 10, 2);

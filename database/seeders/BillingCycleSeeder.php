@@ -41,10 +41,7 @@ class BillingCycleSeeder extends Seeder
         ];
 
         foreach ($billingCycles as $cycleData) {
-            BillingCycle::updateOrCreate(
-                ["slug" => $cycleData["slug"]],
-                $cycleData
-            );
+            BillingCycle::updateOrCreate($cycleData);
         }
     }
 }

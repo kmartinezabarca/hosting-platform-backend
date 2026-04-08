@@ -12,10 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('service_plans', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid('category_id');
-            $table->foreign('category_id')->references('id')->on('categories')->onDelete('cascade');
+            $table->foreignId('category_id')->constrained()->onDelete('cascade');
             $table->string('slug', 100)->unique(); // hosting-starter, hosting-pro, etc.
             $table->string('name', 200); // Hosting Starter, Hosting Pro, etc.
             $table->text('description')->nullable();

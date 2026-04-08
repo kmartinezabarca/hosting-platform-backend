@@ -10,13 +10,10 @@ class MarketingService extends Model
 {
     use HasFactory;
 
-    public $incrementing = false;
-    protected $keyType = 'string';
-
     protected $table = 'marketing_services';
 
     protected $fillable = [
-
+        'uuid',
         'type',
         'icon_name',
         'title',
@@ -37,8 +34,8 @@ class MarketingService extends Model
         parent::boot();
 
         static::creating(function ($model) {
-            if (empty($model->id)) {
-                $model->id = (string) Str::uuid();
+            if (empty($model->uuid)) {
+                $model->uuid = (string) Str::uuid();
             }
             if (empty($model->slug)) {
                 $model->slug = Str::slug($model->title);

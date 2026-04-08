@@ -36,7 +36,7 @@ return new class extends Migration
             }
 
             if (!Schema::hasColumn('tickets', 'last_reply_by')) {
-                $table->uuid("last_reply_by")->nullable()->after("last_reply_at");
+                $table->unsignedBigInteger('last_reply_by')->nullable()->after('last_reply_at');
                 $table->foreign('last_reply_by')->references('id')->on('users')->nullOnDelete();
                 $table->index('last_reply_by');
             }

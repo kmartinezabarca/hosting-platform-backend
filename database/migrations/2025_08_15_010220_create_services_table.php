@@ -12,14 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('services', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
-            $table->uuid("product_id");
-            $table->foreign("product_id")->references("id")->on("products")->onDelete("restrict");
-            $table->uuid("server_node_id")->nullable();
-            $table->foreign("server_node_id")->references("id")->on("server_nodes")->onDelete("set null");
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->foreignId('product_id')->constrained()->onDelete('restrict');
+            $table->foreignId('server_node_id')->nullable()->constrained()->onDelete('set null');
             $table->string('name');
             $table->enum('status', ['pending', 'active', 'suspended', 'terminated', 'failed'])->default('pending');
             $table->string('external_id')->nullable(); // ID en Proxmox/Pterodactyl

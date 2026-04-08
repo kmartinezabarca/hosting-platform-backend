@@ -8,11 +8,10 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('user_sessions', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
 
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
 
             // Para ambos modos de auth
             $table->unsignedBigInteger('sanctum_token_id')->nullable()->index(); // si usas tokens personales

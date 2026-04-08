@@ -12,9 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('service_invoices', function (Blueprint $table) {
-            $table->uuid("id")->primary();
-            $table->uuid("service_id");
-            $table->foreign("service_id")->references("id")->on("services")->cascadeOnDelete();
+            $table->id();
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
             $table->string('rfc', 13);
             $table->string('name');
             $table->string('zip', 5);

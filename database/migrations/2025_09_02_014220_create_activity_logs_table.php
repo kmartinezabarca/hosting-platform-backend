@@ -7,9 +7,8 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void {
         Schema::create('activity_logs', function (Blueprint $table) {
-            $table->uuid("id")->primary();
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->cascadeOnDelete();
+            $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
 
             $table->string('action', 120);           // p.ej. "Service deployed"
             $table->string('service')->nullable();   // p.ej. "Web Hosting Pro" o "roketech.com"

@@ -14,8 +14,7 @@ return new class extends Migration
         Schema::create('domains', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->string('domain_name')->unique();
             $table->string('registrar', 100);
             $table->string('external_id')->nullable();

@@ -12,10 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('agents', function (Blueprint $table) {
-            $table->uuid("id")->primary();
+            $table->id();
             $table->uuid('uuid')->unique();
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             $table->string('agent_code', 20)->unique(); // Código único del agente
             $table->string('department', 100)->default('support'); // Departamento: support, technical, billing, etc.
             $table->enum('specialization', ['general', 'technical', 'billing', 'sales', 'escalation'])->default('general');

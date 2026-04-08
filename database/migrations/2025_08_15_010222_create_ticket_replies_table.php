@@ -13,10 +13,8 @@ return new class extends Migration
     {
         Schema::create('ticket_replies', function (Blueprint $table) {
             $table->id();
-            $table->uuid("ticket_id");
-            $table->foreign("ticket_id")->references("id")->on("tickets")->onDelete("cascade");
-            $table->uuid("user_id");
-            $table->foreign("user_id")->references("id")->on("users")->onDelete("cascade");
+            $table->foreignId('ticket_id')->constrained()->onDelete('cascade');
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->text('message');
             $table->boolean('is_internal')->default(false);
             $table->json('attachments')->nullable();

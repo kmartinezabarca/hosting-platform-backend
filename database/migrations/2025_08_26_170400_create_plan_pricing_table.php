@@ -12,11 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('plan_pricing', function (Blueprint $table) {
-            $table->uuid("id")->primary();
-            $table->uuid("service_plan_id");
-            $table->foreign("service_plan_id")->references("id")->on("service_plans")->onDelete("cascade");
-            $table->uuid("billing_cycle_id");
-            $table->foreign("billing_cycle_id")->references("id")->on("billing_cycles")->onDelete("cascade");
+            $table->id();
+            $table->foreignId('service_plan_id')->constrained()->onDelete('cascade');
+            $table->foreignId('billing_cycle_id')->constrained()->onDelete('cascade');
             $table->decimal('price', 10, 2); // Precio específico para este plan y ciclo
             $table->timestamps();
             

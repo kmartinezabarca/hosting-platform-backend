@@ -9,9 +9,8 @@ return new class extends Migration {
     {
         Schema::table('services', function (Blueprint $table) {
             // Agregar plan_id y quitar product_id
-            $table->uuid('plan_id')->after('user_id');
-            $table->foreign('plan_id')->references('id')->on('service_plans')->restrictOnDelete();
-
+            $table->foreignId('plan_id')->after('user_id')
+                  ->constrained('service_plans')->restrictOnDelete();
 
             // Quitar FK y columna product_id si existen
             if (Schema::hasColumn('services', 'product_id')) {
@@ -24,8 +23,8 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::table('services', function (Blueprint $table) {
-            $table->uuid('product_id')->nullable();
-            $table->foreign('product_id')->references('id')->on('products')->restrictOnDelete();
+            $table->foreignId('product_id')->nullable()
+                  ->constrained('products')->restrictOnDelete();
             $table->dropForeign(['plan_id']);
             $table->dropColumn('plan_id');
         });
