@@ -24,7 +24,7 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->foreign("category_id")->references("uuid")->on("blog_categories")->onDelete("cascade");
+            $table->foreign("category_id")->references("id")->on("blog_categories")->onDelete("cascade");
 
             $table->foreign("user_id")->references("uuid")->on("users")->onDelete("cascade");
         });
