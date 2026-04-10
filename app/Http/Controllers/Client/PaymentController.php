@@ -22,7 +22,7 @@ class PaymentController extends Controller
     public function __construct()
     {
         // Set Stripe API key
-        Stripe::setApiKey(env('STRIPE_SECRET'));
+        Stripe::setApiKey(config('services.stripe.secret'));
     }
     /**
      * Get user payment methods
@@ -105,7 +105,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating setup intent',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -362,7 +362,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating payment method',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -440,7 +440,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al eliminar método de pago',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -467,7 +467,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching transactions',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -614,7 +614,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching payment statistics',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }

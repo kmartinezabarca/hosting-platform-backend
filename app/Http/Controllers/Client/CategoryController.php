@@ -31,7 +31,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving categories',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -56,7 +56,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving categories with plans',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -84,7 +84,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving category',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -114,7 +114,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving category',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -155,7 +155,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating category',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -205,7 +205,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating category',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -243,7 +243,7 @@ class CategoryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting category',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }

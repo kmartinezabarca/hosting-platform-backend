@@ -36,7 +36,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving products',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -64,7 +64,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving product',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -89,7 +89,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving products',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -131,7 +131,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating product',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -182,7 +182,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating product',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -220,7 +220,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting product',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }

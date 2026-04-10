@@ -72,7 +72,7 @@ class TicketController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving tickets',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -104,7 +104,7 @@ class TicketController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving ticket',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -327,7 +327,7 @@ class TicketController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error closing ticket',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -358,7 +358,7 @@ class TicketController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving ticket statistics',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
