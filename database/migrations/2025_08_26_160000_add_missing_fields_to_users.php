@@ -11,14 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (!Schema::hasColumn('users', 'google_id')) {
-                $table->string('google_id')->nullable()->after('id');
-            }
-            if (!Schema::hasColumn('users', 'company')) {
-                $table->string('company', 200)->nullable()->after('phone');
-            }
-        });
+        // Esta migración es redundante, sus funcionalidades ya existen en otras migraciones.
     }
 
     /**
@@ -26,14 +19,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'google_id')) {
-                $table->dropColumn('google_id');
-            }
-            if (Schema::hasColumn('users', 'company')) {
-                $table->dropColumn('company');
-            }
-        });
+        // No hay nada que revertir ya que no se añadió nada en up().
     }
 };
-

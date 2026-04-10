@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('blog_posts', function (Blueprint $table) {
             $table->uuid("id")->primary();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->uuid('user_id')->nullable();
             $table->uuid("category_id");
             $table->string("title");
             $table->string("slug")->unique();
@@ -24,9 +24,9 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->foreign("category_id")->references("id")->on("blog_categories")->onDelete("cascade");
+            $table->foreign("category_id")->references("uuid")->on("blog_categories")->onDelete("cascade");
 
-            $table->index(['user_id']);
+            $table->foreign("user_id")->references("uuid")->on("users")->onDelete("cascade");
         });
     }
 
