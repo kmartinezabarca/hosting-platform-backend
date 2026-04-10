@@ -34,8 +34,7 @@ class ServiceController extends Controller
 {
     public function __construct()
     {
-        // Set Stripe API key
-        Stripe::setApiKey(env("STRIPE_SECRET"));
+        Stripe::setApiKey(config('services.stripe.secret'));
     }
 
     /**
