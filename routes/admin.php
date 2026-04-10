@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\BillingCycleController;
 use App\Http\Controllers\Admin\ServicePlanController;
 use App\Http\Controllers\Admin\AddOnController;
+use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\BlogCategoryController;
@@ -53,6 +54,12 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     Route::post("/invoices/{id}/mark-paid", [AdminController::class, "markInvoiceAsPaid"]);
     Route::post("/invoices/{id}/send-reminder", [AdminController::class, "sendInvoiceReminder"]);
     Route::post("/invoices/{id}/cancel", [AdminController::class, "cancelInvoice"]);
+
+    // Additional invoice routes
+    Route::prefix("invoices")->group(function () {
+        Route::post("/", [InvoiceController::class, "store"]);
+        Route::put("/{uuid}/status", [InvoiceController::class, "updateStatus"]);
+    });
 
     // Tickets management
     Route::get("/tickets", [AdminController::class, "getTickets"]);

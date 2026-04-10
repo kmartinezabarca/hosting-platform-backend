@@ -45,13 +45,7 @@ class AuthController extends Controller
             'message' => 'User registered successfully',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => [
-                'uuid'       => $user->uuid,
-                'first_name' => $user->first_name,
-                'last_name'  => $user->last_name,
-                'email'      => $user->email,
-                'role'       => $user->role,
-            ],
+            'user' => $user,
         ], 201);
     }
 
@@ -178,17 +172,13 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $user = $request->user();
-
-        // Revoke current Sanctum token (Bearer token)
-        if ($user && $user->currentAccessToken()) {
-            $user->currentAccessToken()->delete();
-        }
-
+        $user = Auth::user(); // Obtener el usuario antes de desloguear
         Auth::guard('web')->logout();
+
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
+        // Registrar actividad de cierre de sesión
         if ($user) {
             ActivityLog::record(
                 'Cierre de sesión',
@@ -199,8 +189,7 @@ class AuthController extends Controller
             );
         }
 
-        return response()->json(['message' => 'Logged out successfully'])
-            ->withCookie(\Cookie::forget('auth_token'));
+        return response()->json(['message' => 'Logged out successfully']);
     }
 }
 

@@ -45,7 +45,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving add-ons',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -68,7 +68,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving active add-ons',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -96,7 +96,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving add-on',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -155,7 +155,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating add-on',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -223,7 +223,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating add-on',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -267,7 +267,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting add-on',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -300,7 +300,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving add-ons for service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -347,7 +347,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error attaching add-on to service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -389,7 +389,7 @@ class AddOnController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error detaching add-on from service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
