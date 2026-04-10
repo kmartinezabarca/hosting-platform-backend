@@ -18,10 +18,15 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Public authentication routes (initial login/registration, no session required yet)
-Route::post("auth/register", [App\Http\Controllers\Auth\AuthController::class, "register"]);
-Route::post("auth/login", [App\Http\Controllers\Auth\AuthController::class, "login"]);
-Route::post("auth/google/callback", [App\Http\Controllers\Auth\GoogleLoginController::class, "handleGoogleCallback"]);
-Route::post("auth/2fa/verify", [App\Http\Controllers\Auth\TwoFactorController::class, "verifyLogin"]);
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post("auth/register", [App\Http\Controllers\Auth\AuthController::class, "register"]);
+    Route::post("auth/google/callback", [App\Http\Controllers\Auth\GoogleLoginController::class, "handleGoogleCallback"]);
+});
+
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post("auth/login", [App\Http\Controllers\Auth\AuthController::class, "login"]);
+    Route::post("auth/2fa/verify", [App\Http\Controllers\Auth\TwoFactorController::class, "verifyLogin"]);
+});
 
 // Stripe webhook (no authentication required)
 Route::post("/stripe/webhook", [App\Http\Controllers\Common\StripeWebhookController::class, "handleWebhook"]);
