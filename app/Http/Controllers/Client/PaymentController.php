@@ -225,7 +225,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error de Stripe al agregar método de pago',
-                'error'   => $e->getMessage(),
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 422);
         } catch (\Throwable $e) {
             Log::error('Error adding payment method: ' . $e->getMessage());
@@ -239,7 +239,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al agregar método de pago',
-                'error'   => $e->getMessage(),
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -434,7 +434,7 @@ class PaymentController extends Controller
                 'Error al eliminar método de pago',
                 'Error: ' . $e->getMessage(),
                 'payment_method',
-                ['user_id' => $user->id, 'payment_method_id' => $id, 'error' => $e->getMessage()],
+                ['user_id' => $user->id, 'payment_method_uuid' => $uuid, 'error' => $e->getMessage()],
                 $user->id
             );
             return response()->json([
@@ -452,7 +452,7 @@ class PaymentController extends Controller
     {
         try {
             $user = Auth::user();
-            $perPage = $request->get('per_page', 15);
+            $perPage = min((int) $request->get('per_page', 15), 100);
 
             $transactions = Transaction::where('user_id', $user->id)
                 ->with(['invoice', 'paymentMethod'])
@@ -478,16 +478,20 @@ class PaymentController extends Controller
     public function processPayment(Request $request)
     {
         try {
+            $user = Auth::user();
+
             $validated = $request->validate([
-                'amount' => 'required|numeric|min:1',
-                'currency' => 'sometimes|string|size:3',
+                'amount'            => 'required|numeric|min:1|max:999999',
+                'currency'          => 'sometimes|string|size:3',
                 'payment_method_id' => 'sometimes|string',
-                'service_id' => 'sometimes|integer',
-                'invoice_id' => 'sometimes|exists:invoices,id',
-                'description' => 'sometimes|string|max:500'
+                'service_id'        => 'sometimes|integer',
+                'invoice_id'        => [
+                    'sometimes',
+                    \Illuminate\Validation\Rule::exists('invoices', 'id')->where('user_id', $user->id),
+                ],
+                'description' => 'sometimes|string|max:500',
             ]);
 
-            $user = Auth::user();
             $amount = $validated['amount'];
             $currency = $validated['currency'] ?? 'usd';
 
