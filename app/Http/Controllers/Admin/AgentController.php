@@ -80,7 +80,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener agentes',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -149,7 +149,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al crear agente',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -191,7 +191,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener agente',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -252,7 +252,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al actualizar agente',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -295,7 +295,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al eliminar agente',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -336,7 +336,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener estadísticas',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -400,7 +400,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al asignar ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -454,7 +454,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener tickets del agente',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -488,7 +488,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener agente recomendado',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

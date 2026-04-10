@@ -49,7 +49,7 @@ class InvoiceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving invoices',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -81,7 +81,7 @@ class InvoiceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -163,7 +163,7 @@ class InvoiceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -220,7 +220,7 @@ class InvoiceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating invoice status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -251,7 +251,7 @@ class InvoiceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving invoice statistics',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

@@ -21,7 +21,8 @@ class PaymentController extends Controller
 {
     public function __construct()
     {
-        Stripe::setApiKey(config('services.stripe.secret'));
+        // Set Stripe API key
+        Stripe::setApiKey(env('STRIPE_SECRET'));
     }
     /**
      * Get user payment methods
@@ -104,7 +105,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating setup intent',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -361,7 +362,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating payment method',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -439,7 +440,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al eliminar método de pago',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -466,7 +467,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching transactions',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -613,7 +614,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching payment statistics',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

@@ -53,7 +53,7 @@ class TransactionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving transactions',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -85,7 +85,7 @@ class TransactionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving transaction',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -123,7 +123,7 @@ class TransactionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving transaction statistics',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -151,7 +151,7 @@ class TransactionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving recent transactions',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

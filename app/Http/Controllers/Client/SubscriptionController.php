@@ -19,7 +19,8 @@ class SubscriptionController extends Controller
 {
     public function __construct()
     {
-        Stripe::setApiKey(config('services.stripe.secret'));
+        // Set Stripe API key
+        Stripe::setApiKey(env('STRIPE_SECRET'));
     }
 
     /**

@@ -65,7 +65,7 @@ class TwoFactorController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error generating 2FA secret',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -113,7 +113,7 @@ class TwoFactorController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error enabling 2FA',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -167,7 +167,7 @@ class TwoFactorController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error disabling 2FA',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -211,7 +211,7 @@ class TwoFactorController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error verifying 2FA code',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -280,7 +280,7 @@ class TwoFactorController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error getting 2FA status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

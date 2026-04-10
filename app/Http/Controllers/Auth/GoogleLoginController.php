@@ -112,7 +112,7 @@ class GoogleLoginController extends Controller
             // Manejo de errores
             return response()->json([
                 'message' => 'Ocurrió un error durante la autenticación.',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

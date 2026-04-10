@@ -65,7 +65,7 @@ class ServicePlanController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plans',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -105,7 +105,7 @@ class ServicePlanController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plans',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -135,7 +135,7 @@ class ServicePlanController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -216,7 +216,7 @@ class ServicePlanController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -308,7 +308,7 @@ class ServicePlanController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -346,7 +346,7 @@ class ServicePlanController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }

@@ -116,7 +116,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching dashboard statistics',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -127,14 +127,12 @@ class AdminController extends Controller
     public function getUsers(Request $request)
     {
         try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
+            $perPage = $request->get('per_page', 15);
             $search = $request->get('search');
             $status = $request->get('status');
             $role = $request->get('role');
-
-            $allowedSortColumns = ['created_at', 'first_name', 'last_name', 'email', 'status', 'role', 'last_login_at'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
 
             $query = User::query();
 
@@ -172,7 +170,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching users',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -183,14 +181,12 @@ class AdminController extends Controller
     public function getServices(Request $request)
     {
         try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
+            $perPage = $request->get('per_page', 15);
             $search = $request->get('search');
             $status = $request->get('status');
             $planId = $request->get('plan_id');
-
-            $allowedSortColumns = ['created_at', 'name', 'domain', 'status', 'next_due_date'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
 
             $query = Service::with(['user', 'plan']);
 
@@ -228,7 +224,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching services',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -239,13 +235,11 @@ class AdminController extends Controller
     public function getInvoices(Request $request)
     {
         try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
+            $perPage = $request->get('per_page', 15);
             $search = $request->get('search');
             $status = $request->get('status');
-
-            $allowedSortColumns = ['created_at', 'invoice_number', 'total', 'due_date', 'paid_at', 'status'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
 
             $query = Invoice::with(['user', 'items']);
 
@@ -277,7 +271,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching invoices',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -288,15 +282,13 @@ class AdminController extends Controller
     public function getTickets(Request $request)
     {
         try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
+            $perPage = $request->get('per_page', 15);
             $search = $request->get('search');
             $status = $request->get('status');
             $priority = $request->get('priority');
             $department = $request->get('department');
-
-            $allowedSortColumns = ['created_at', 'subject', 'status', 'priority', 'updated_at'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+            $sortBy = $request->get('sort_by', 'created_at');
+            $sortOrder = $request->get('sort_order', 'desc');
 
             $query = Ticket::with(['user', 'assignedTo', 'service']);
 
@@ -339,7 +331,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching tickets',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -372,7 +364,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating service status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -406,7 +398,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating invoice status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -436,7 +428,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error assigning ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -479,7 +471,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating user',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -523,7 +515,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating user',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -555,7 +547,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting user',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -601,11 +593,10 @@ class AdminController extends Controller
         $recentUsers = User::latest()->take(3)->get();
         foreach ($recentUsers as $user) {
             $activities[] = [
-                'type'        => 'user_registered',
+                'type' => 'user_registered',
                 'description' => "New user registered: {$user->first_name} {$user->last_name}",
-                'time'        => $user->created_at->diffForHumans(),
-                'timestamp'   => $user->created_at->timestamp,
-                'icon'        => 'user-plus',
+                'time' => $user->created_at->diffForHumans(),
+                'icon' => 'user-plus'
             ];
         }
 
@@ -613,11 +604,10 @@ class AdminController extends Controller
         $recentServices = Service::latest()->take(3)->get();
         foreach ($recentServices as $service) {
             $activities[] = [
-                'type'        => 'service_created',
+                'type' => 'service_created',
                 'description' => "New service created: {$service->name}",
-                'time'        => $service->created_at->diffForHumans(),
-                'timestamp'   => $service->created_at->timestamp,
-                'icon'        => 'server',
+                'time' => $service->created_at->diffForHumans(),
+                'icon' => 'server'
             ];
         }
 
@@ -625,15 +615,15 @@ class AdminController extends Controller
         $recentTickets = Ticket::latest()->take(2)->get();
         foreach ($recentTickets as $ticket) {
             $activities[] = [
-                'type'        => 'ticket_created',
+                'type' => 'ticket_created',
                 'description' => "New ticket: {$ticket->subject}",
-                'time'        => $ticket->created_at->diffForHumans(),
-                'timestamp'   => $ticket->created_at->timestamp,
-                'icon'        => 'help-circle',
+                'time' => $ticket->created_at->diffForHumans(),
+                'icon' => 'help-circle'
             ];
         }
 
-        return collect($activities)->sortByDesc('timestamp')->take(10)->values();
+        // Sort by time and return latest 10
+        return collect($activities)->sortByDesc('time')->take(10)->values();
     }
 
     /**
@@ -666,7 +656,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating user status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -695,7 +685,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error marking invoice as paid',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -720,7 +710,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error sending invoice reminder',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -747,7 +737,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error cancelling invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -785,7 +775,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating ticket status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -820,7 +810,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating ticket priority',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -857,7 +847,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error adding reply',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -886,7 +876,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching categories',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -912,7 +902,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching agents',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -956,7 +946,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -995,7 +985,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -1018,7 +1008,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -1058,7 +1048,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -1094,7 +1084,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -1117,7 +1107,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'error' => $e->getMessage()
             ], 500);
         }
     }
