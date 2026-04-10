@@ -37,7 +37,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving domains',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -68,7 +68,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving domain',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -132,7 +132,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error registering domain',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -181,7 +181,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating domain',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -229,7 +229,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error renewing domain',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -266,7 +266,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error checking domain availability',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -298,7 +298,7 @@ class DomainController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving domain statistics',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }

@@ -58,11 +58,11 @@ class Handler extends ExceptionHandler
         // Autenticación requerida
         if ($e instanceof AuthenticationException) {
             return response()->json([
-                'error' => 'Acceso no autorizado',
-                'message' => 'Este servicio API es de uso exclusivo para clientes autorizados de ROKE Industries. Acceso denegado.',
-                'status_code' => 403,
-                'type' => 'unauthorized_access'
-            ], 403);
+                'error' => 'Authentication required',
+                'message' => 'You must be authenticated to access this resource.',
+                'status_code' => 401,
+                'type' => 'authentication_error'
+            ], 401);
         }
 
         // Errores de validación

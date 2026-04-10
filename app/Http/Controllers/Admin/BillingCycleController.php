@@ -30,7 +30,7 @@ class BillingCycleController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving billing cycles',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -58,7 +58,7 @@ class BillingCycleController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving billing cycle',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -97,7 +97,7 @@ class BillingCycleController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating billing cycle',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -145,7 +145,7 @@ class BillingCycleController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating billing cycle',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
@@ -183,7 +183,7 @@ class BillingCycleController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting billing cycle',
-                'error' => $e->getMessage()
+                'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }
