@@ -45,15 +45,19 @@ class TicketReplied implements ShouldBroadcast
      */
     public function broadcastWith(): array
     {
+        $isFromStaff = $this->reply->isFromStaff();
+
         return [
-            'ticket_id' => $this->ticket->uuid,
+            'ticket_id'      => $this->ticket->uuid,
             'ticket_subject' => $this->ticket->subject,
-            'reply_id' => $this->reply->id,
-            'reply_message' => $this->reply->message,
-            'reply_by' => $this->reply->user ? $this->reply->user->name : 'Soporte',
-            'is_from_admin' => $this->reply->is_from_admin,
-            'message' => $this->getReplyMessage(),
-            'timestamp' => now()->toISOString(),
+            'reply_id'       => $this->reply->id,
+            'reply_message'  => $this->reply->message,
+            'reply_by'       => $this->reply->user?->full_name ?? 'Soporte',
+            'is_from_staff'  => $isFromStaff,
+            'message'        => $isFromStaff
+                ? "El equipo de soporte ha respondido a tu ticket: {$this->ticket->subject}"
+                : "Nueva respuesta del cliente en el ticket: {$this->ticket->subject}",
+            'timestamp'      => now()->toISOString(),
         ];
     }
 
@@ -63,18 +67,6 @@ class TicketReplied implements ShouldBroadcast
     public function broadcastAs(): string
     {
         return 'ticket.replied';
-    }
-
-    /**
-     * Get user-friendly reply message.
-     */
-    private function getReplyMessage(): string
-    {
-        if ($this->reply->is_from_admin) {
-            return "El equipo de soporte ha respondido a tu ticket: {$this->ticket->subject}";
-        } else {
-            return "Nueva respuesta del cliente en el ticket: {$this->ticket->subject}";
-        }
     }
 }
 

@@ -57,6 +57,14 @@ class Ticket extends Model
         });
     }
 
+    /**
+     * Use uuid as the route key so model binding works with UUID-based URLs.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
+
     /* ===================== Relaciones ===================== */
 
     public function user()
