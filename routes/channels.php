@@ -23,13 +23,28 @@ Broadcast::channel('admin.chat', function (User $user) {
 });
 
 // Canal general para usuarios autenticados
-Broadcast::channel('App.Models.User.{uuid}', function ($user, $uuid) {
-    return (int) $user->uuid === (int) $uuid;
+Broadcast::channel('App.Models.User.{uuid}', function (User $user, $uuid) {
+    return $user->uuid === $uuid;
 });
 
 // Canal privado para cada usuario específico
 Broadcast::channel('user.{uuid}', function (User $user, $uuid) {
-    return (int) $user->uuid === (int) $uuid;
+    return $user->uuid === $uuid;
+});
+
+// Canal privado por ticket (chat de soporte en tiempo real)
+Broadcast::channel('ticket.{uuid}', function (User $user, $uuid) {
+    // El cliente dueño del ticket o un admin pueden suscribirse
+    if ($user->isAdmin()) {
+        return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
+    }
+
+    $ticket = \App\Models\Ticket::where('uuid', $uuid)->first();
+    if ($ticket && (int) $ticket->user_id === (int) $user->id) {
+        return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
+    }
+
+    return false;
 });
 
 // Canales administrativos - solo para administradores
