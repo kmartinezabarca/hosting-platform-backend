@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Services\InvoiceService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\Validator;
 
 class InvoiceController extends Controller
 {
+    public function __construct(private readonly InvoiceService $invoiceService)
+    {
+    }
+
     /**
      * Get user's invoices
      */
@@ -37,9 +41,11 @@ class InvoiceController extends Controller
                 $query->whereDate('created_at', '<=', $request->to_date);
             }
 
+            $perPage = min((int) $request->get('per_page', 15), 100);
+
             $invoices = $query->with('items')
                             ->orderBy('created_at', 'desc')
-                            ->paginate($request->get('per_page', 15));
+                            ->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -93,7 +99,6 @@ class InvoiceController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'user_id' => 'required|exists:users,id',
                 'items' => 'required|array|min:1',
                 'items.*.description' => 'required|string',
                 'items.*.quantity' => 'required|integer|min:1',
@@ -111,47 +116,33 @@ class InvoiceController extends Controller
                 ], 422);
             }
 
-            DB::beginTransaction();
-
             // Calculate totals
             $subtotal = 0;
             foreach ($request->items as $item) {
                 $subtotal += $item['quantity'] * $item['unit_price'];
             }
 
-            $taxRate = $request->get('tax_rate', 0);
-            $taxAmount = ($subtotal * $taxRate) / 100;
-            $total = $subtotal + $taxAmount;
+            $taxRate   = (float) $request->get('tax_rate', 0);
+            $taxAmount = round($subtotal * $taxRate / 100, 2);
+            $total     = round($subtotal + $taxAmount, 2);
 
-            // Generate invoice number
-            $invoiceNumber = $this->generateInvoiceNumber();
-
-            // Create invoice
-            $invoice = Invoice::create([
-                'user_id' => $request->user_id,
-                'invoice_number' => $invoiceNumber,
-                'subtotal' => $subtotal,
-                'tax_rate' => $taxRate,
-                'tax_amount' => $taxAmount,
-                'total' => $total,
-                'due_date' => $request->due_date,
-                'notes' => $request->notes
-            ]);
-
-            // Create invoice items
-            foreach ($request->items as $item) {
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'description' => $item['description'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'total_price' => $item['quantity'] * $item['unit_price']
-                ]);
-            }
-
-            DB::commit();
-
-            $invoice->load('items');
+            $invoice = $this->invoiceService->createWithItems(
+                [
+                    'user_id'   => Auth::id(),
+                    'subtotal'  => $subtotal,
+                    'tax_rate'  => $taxRate,
+                    'tax_amount'=> $taxAmount,
+                    'total'     => $total,
+                    'due_date'  => $request->due_date,
+                    'notes'     => $request->notes,
+                    'status'    => 'draft',
+                ],
+                collect($request->items)->map(fn($i) => [
+                    'description' => $i['description'],
+                    'quantity'    => $i['quantity'],
+                    'unit_price'  => $i['unit_price'],
+                ])->all()
+            );
 
             return response()->json([
                 'success' => true,
@@ -159,7 +150,6 @@ class InvoiceController extends Controller
                 'data' => $invoice
             ], 201);
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating invoice',
@@ -188,7 +178,8 @@ class InvoiceController extends Controller
                 ], 422);
             }
 
-            $invoice = Invoice::where('uuid', $uuid)->first();
+            $user    = Auth::user();
+            $invoice = Invoice::where('uuid', $uuid)->where('user_id', $user->id)->first();
 
             if (!$invoice) {
                 return response()->json([
@@ -230,54 +221,10 @@ class InvoiceController extends Controller
      */
     public function getStats(Request $request): JsonResponse
     {
-        try {
-            $user = Auth::user();
-            
-            $stats = [
-                'total_invoices' => Invoice::where('user_id', $user->id)->count(),
-                'paid_invoices' => Invoice::where('user_id', $user->id)->where('status', 'paid')->count(),
-                'pending_invoices' => Invoice::where('user_id', $user->id)->whereIn('status', ['draft', 'sent'])->count(),
-                'overdue_invoices' => Invoice::where('user_id', $user->id)->where('status', 'overdue')->count(),
-                'total_amount' => Invoice::where('user_id', $user->id)->sum('total'),
-                'paid_amount' => Invoice::where('user_id', $user->id)->where('status', 'paid')->sum('total'),
-                'pending_amount' => Invoice::where('user_id', $user->id)->whereIn('status', ['draft', 'sent', 'overdue'])->sum('total')
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data' => $stats
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving invoice statistics',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Generate unique invoice number
-     */
-    private function generateInvoiceNumber(): string
-    {
-        $prefix = config('app.invoice_prefix', 'INV-');
-        $year = date('Y');
-        $month = date('m');
-        
-        // Get the last invoice number for this month
-        $lastInvoice = Invoice::where('invoice_number', 'like', $prefix . $year . $month . '%')
-                            ->orderBy('invoice_number', 'desc')
-                            ->first();
-
-        if ($lastInvoice) {
-            $lastNumber = (int) substr($lastInvoice->invoice_number, -4);
-            $newNumber = $lastNumber + 1;
-        } else {
-            $newNumber = 1;
-        }
-
-        return $prefix . $year . $month . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
+        return response()->json([
+            'success' => true,
+            'data'    => $this->invoiceService->getStatsForUser(Auth::id()),
+        ]);
     }
 }
 
