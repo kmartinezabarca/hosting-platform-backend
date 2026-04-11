@@ -138,10 +138,10 @@ Route::middleware("auth")->group(function () {
         Route::get('/support-room', [SupportChatController::class, 'getSupportRoom'])->name('support-room');
         Route::get('/unread-count', [SupportChatController::class, 'getUnreadCount'])->name('unread-count');
         Route::get('/history', [SupportChatController::class, 'getHistory'])->name('history');
-        Route::get('/{chatRoom}/messages', [SupportChatController::class, 'getMessages'])->name('messages');
-        Route::post('/{chatRoom}/messages', [SupportChatController::class, 'sendMessage'])->name('send-message');
-        Route::put('/{chatRoom}/read', [SupportChatController::class, 'markAsRead'])->name('mark-as-read');
-        Route::put('/{chatRoom}/close', [SupportChatController::class, 'closeRoom'])->name('close');
+        Route::get('/{ticket}/messages', [SupportChatController::class, 'getMessages'])->name('messages');
+        Route::post('/{ticket}/messages', [SupportChatController::class, 'sendMessage'])->name('send-message');
+        Route::put('/{ticket}/read', [SupportChatController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/{ticket}/close', [SupportChatController::class, 'closeRoom'])->name('close');
     });
 });
 
