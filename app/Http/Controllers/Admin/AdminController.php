@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\DashboardStatsService;
 
 use App\Models\User;
 use App\Models\Service;
@@ -21,102 +22,25 @@ use Carbon\Carbon;
 
 class AdminController extends Controller
 {
+    public function __construct(private readonly DashboardStatsService $dashboardStats)
+    {
+    }
+
     /**
      * Get comprehensive admin dashboard statistics
      */
     public function getDashboardStats()
     {
         try {
-            // Users statistics
-            $usersStats = [
-                'total' => User::count(),
-                'active' => User::where('status', 'active')->count(),
-                'pending' => User::where('status', 'pending_verification')->count(),
-                'suspended' => User::where('status', 'suspended')->count(),
-                'new_this_month' => User::whereMonth('created_at', now()->month)->count(),
-                'growth_rate' => $this->calculateGrowthRate(User::class, 'created_at')
-            ];
-
-            // Services statistics
-            $servicesStats = [
-                'total' => Service::count(),
-                'active' => Service::where('status', 'active')->count(),
-                'suspended' => Service::where('status', 'suspended')->count(),
-                'maintenance' => Service::where('status', 'maintenance')->count(),
-                'cancelled' => Service::where('status', 'cancelled')->count(),
-                'new_this_month' => Service::whereMonth('created_at', now()->month)->count(),
-                'growth_rate' => $this->calculateGrowthRate(Service::class, 'created_at')
-            ];
-
-            // Revenue statistics
-            $monthlyRevenue = Invoice::where('status', 'paid')
-                ->whereMonth('created_at', now()->month)
-                ->sum('total');
-            
-            $yearlyRevenue = Invoice::where('status', 'paid')
-                ->whereYear('created_at', now()->year)
-                ->sum('total');
-
-            $revenueStats = [
-                'monthly' => $monthlyRevenue,
-                'yearly' => $yearlyRevenue,
-                'currency' => 'MXN',
-                'growth_rate' => $this->calculateRevenueGrowthRate()
-            ];
-
-            // Invoices statistics
-            $invoicesStats = [
-                'total' => Invoice::count(),
-                'paid' => Invoice::where('status', 'paid')->count(),
-                'pending' => Invoice::where('status', 'pending')->count(),
-                'overdue' => Invoice::where('status', 'overdue')->count(),
-                'cancelled' => Invoice::where('status', 'cancelled')->count(),
-                'total_amount' => Invoice::sum('total'),
-                'pending_amount' => Invoice::whereIn('status', ['pending', 'overdue'])->sum('total')
-            ];
-
-            // Tickets statistics
-            $ticketsStats = [
-                'total' => Ticket::count(),
-                'open' => Ticket::where('status', 'open')->count(),
-                'in_progress' => Ticket::where('status', 'in_progress')->count(),
-                'resolved' => Ticket::where('status', 'resolved')->count(),
-                'closed' => Ticket::where('status', 'closed')->count(),
-                'high_priority' => Ticket::where('priority', 'high')->count(),
-                'urgent' => Ticket::where('priority', 'urgent')->count(),
-                'avg_response_time' => $this->calculateAvgResponseTime()
-            ];
-
-            // Plans and Add-ons statistics
-            $plansStats = [
-                'total_plans' => ServicePlan::count(),
-                'active_plans' => ServicePlan::where('is_active', true)->count(),
-                'popular_plans' => ServicePlan::where('is_popular', true)->count(),
-                'total_addons' => AddOn::count(),
-                'active_addons' => AddOn::where('is_active', true)->count()
-            ];
-
-            // Recent activity
-            $recentActivity = $this->getRecentActivity();
-
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'users' => $usersStats,
-                    'services' => $servicesStats,
-                    'revenue' => $revenueStats,
-                    'invoices' => $invoicesStats,
-                    'tickets' => $ticketsStats,
-                    'plans' => $plansStats,
-                    'recent_activity' => $recentActivity
-                ]
+                'data'    => $this->dashboardStats->getAll(),
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error fetching dashboard statistics',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -560,81 +484,6 @@ class AdminController extends Controller
         }
     }
 
-    // Helper methods
-
-    private function calculateGrowthRate($model, $dateField)
-    {
-        $thisMonth = $model::whereMonth($dateField, now()->month)->count();
-        $lastMonth = $model::whereMonth($dateField, now()->subMonth()->month)->count();
-        
-        if ($lastMonth == 0) return $thisMonth > 0 ? 100 : 0;
-        
-        return round((($thisMonth - $lastMonth) / $lastMonth) * 100, 1);
-    }
-
-    private function calculateRevenueGrowthRate()
-    {
-        $thisMonth = Invoice::where('status', 'paid')
-            ->whereMonth('created_at', now()->month)
-            ->sum('total');
-            
-        $lastMonth = Invoice::where('status', 'paid')
-            ->whereMonth('created_at', now()->subMonth()->month)
-            ->sum('total');
-        
-        if ($lastMonth == 0) return $thisMonth > 0 ? 100 : 0;
-        
-        return round((($thisMonth - $lastMonth) / $lastMonth) * 100, 1);
-    }
-
-    private function calculateAvgResponseTime()
-    {
-        // This would calculate based on ticket replies in a real implementation
-        return '2.5 hours'; // Mock value
-    }
-
-    private function getRecentActivity()
-    {
-        $activities = [];
-
-        // Recent users
-        $recentUsers = User::latest()->take(3)->get();
-        foreach ($recentUsers as $user) {
-            $activities[] = [
-                'type'        => 'user_registered',
-                'description' => "New user registered: {$user->first_name} {$user->last_name}",
-                'time'        => $user->created_at->diffForHumans(),
-                'timestamp'   => $user->created_at->timestamp,
-                'icon'        => 'user-plus',
-            ];
-        }
-
-        // Recent services
-        $recentServices = Service::latest()->take(3)->get();
-        foreach ($recentServices as $service) {
-            $activities[] = [
-                'type'        => 'service_created',
-                'description' => "New service created: {$service->name}",
-                'time'        => $service->created_at->diffForHumans(),
-                'timestamp'   => $service->created_at->timestamp,
-                'icon'        => 'server',
-            ];
-        }
-
-        // Recent tickets
-        $recentTickets = Ticket::latest()->take(2)->get();
-        foreach ($recentTickets as $ticket) {
-            $activities[] = [
-                'type'        => 'ticket_created',
-                'description' => "New ticket: {$ticket->subject}",
-                'time'        => $ticket->created_at->diffForHumans(),
-                'timestamp'   => $ticket->created_at->timestamp,
-                'icon'        => 'help-circle',
-            ];
-        }
-
-        return collect($activities)->sortByDesc('timestamp')->take(10)->values();
-    }
 
     /**
      * Update user status (activate, suspend, etc.)
