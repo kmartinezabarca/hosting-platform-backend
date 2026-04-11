@@ -36,25 +36,26 @@ class ProfileController extends Controller
             return response()->json([
                 "success" => true,
                 "data" => [
-                    "uuid" => $user->uuid,
-                    "email" => $user->email,
-                    "first_name" => $user->first_name,
-                    "last_name" => $user->last_name,
-                    "phone" => $user->phone,
-                    "address" => $user->address,
-                    "city" => $user->city,
-                    "state" => $user->state,
-                    "country" => $user->country,
-                    "postal_code" => $user->postal_code,
-                    "role" => $user->role,
-                    "status" => $user->status,
+                    "uuid"               => $user->uuid,
+                    "email"              => $user->email,
+                    "first_name"         => $user->first_name,
+                    "last_name"          => $user->last_name,
+                    "phone"              => $user->phone,
+                    "address"            => $user->address,
+                    "city"               => $user->city,
+                    "state"              => $user->state,
+                    "country"            => $user->country,
+                    "postal_code"        => $user->postal_code,
+                    "role"               => $user->role,
+                    "status"             => $user->status,
                     "two_factor_enabled" => $user->two_factor_enabled,
-                    "email_verified_at" => $user->email_verified_at,
-                    "last_login_at" => $user->last_login_at,
-                    "created_at" => $user->created_at,
-                    "avatar_url"     => $avatarFull,
-                    "years_with_us"  => $yearsWithUs,
-                    "active_services" => $activeServices
+                    "email_verified_at"  => $user->email_verified_at,
+                    "last_login_at"      => $user->last_login_at,
+                    "created_at"         => $user->created_at,
+                    "avatar_url"         => $avatarFull,
+                    "years_with_us"      => $yearsWithUs,
+                    "active_services"    => $activeServices,
+                    "is_google_account"  => $user->is_google_account,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -168,9 +169,17 @@ class ProfileController extends Controller
         try {
             $user = Auth::user();
 
+            if ($user->is_google_account) {
+                return response()->json([
+                    "success"    => false,
+                    "message"    => "Las cuentas vinculadas con Google no pueden establecer una contraseña desde aquí. Accede a tu cuenta de Google para gestionar tu seguridad.",
+                    "error_code" => "GOOGLE_ACCOUNT_NO_PASSWORD",
+                ], 422);
+            }
+
             $validated = $request->validate([
                 "current_password" => "required|string",
-                "new_password" => "required|string|min:8|confirmed",
+                "new_password"     => "required|string|min:8|confirmed",
             ]);
 
             // Verify current password
@@ -217,7 +226,7 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $request->validate([
-                "avatar" => ["required", "image", "mimes:jpg,jpeg,png,gif,svg", "max:2048"],
+                "avatar" => ["required", "image", "mimes:jpg,jpeg,png,gif", "max:2048"],
             ]);
 
             $path = $request->file("avatar")->store("avatars", "public");
@@ -494,13 +503,14 @@ class ProfileController extends Controller
             $user = Auth::user();
 
             $overview = [
-                "password_last_changed" => $user->updated_at, // Approximate
-                "two_factor_enabled" => $user->two_factor_enabled,
-                "email_verified" => !is_null($user->email_verified_at),
-                "last_login" => $user->last_login_at,
-                "account_status" => $user->status,
-                "login_attempts_today" => 0, // Would track in production
-                "security_score" => $this->calculateSecurityScore($user)
+                "password_last_changed" => $user->updated_at,
+                "two_factor_enabled"    => $user->two_factor_enabled,
+                "email_verified"        => !is_null($user->email_verified_at),
+                "last_login"            => $user->last_login_at,
+                "account_status"        => $user->status,
+                "is_google_account"     => $user->is_google_account,
+                "login_attempts_today"  => 0,
+                "security_score"        => $this->calculateSecurityScore($user),
             ];
 
             return response()->json([
@@ -517,14 +527,11 @@ class ProfileController extends Controller
     }
 
     /**
-     * Calculate security score based on user settings
+     * Calculate security score based on user settings.
      */
-    private function calculateSecurityScore($user)
+    private function calculateSecurityScore($user): int
     {
-        $score = 0;
-
-        // Base score
-        $score += 20;
+        $score = 20; // base
 
         // Email verified
         if ($user->email_verified_at) {
@@ -536,8 +543,11 @@ class ProfileController extends Controller
             $score += 30;
         }
 
-        // Strong password (assume if recent)
-        if ($user->updated_at->diffInDays() < 90) {
+        // Password / linked account strength
+        if ($user->is_google_account) {
+            // Google-linked accounts delegate password security to Google
+            $score += 15;
+        } elseif ($user->updated_at->diffInDays() < 90) {
             $score += 15;
         }
 
