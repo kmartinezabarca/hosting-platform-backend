@@ -15,14 +15,15 @@ class GoogleLoginController extends Controller
     {
         // 1. Validar la información que llega desde React
         $validator = Validator::make($request->all(), [
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'string|max:255',
-            'email' => 'required|email|max:255',
-            'google_id' => 'required|string',
+            'first_name'  => 'required|string|max:255',
+            'last_name'   => 'nullable|string|max:255',
+            'email'       => 'required|email|max:255',
+            'google_id'   => 'required|string',
+            'avatar_url'  => 'nullable|url|max:2048',
         ]);
 
         if ($validator->fails()) {
-             ActivityLog::record(
+            ActivityLog::record(
                 'Intento de inicio de sesión fallido',
                 'Email: ' . $request->email,
                 'authentication',
@@ -34,22 +35,36 @@ class GoogleLoginController extends Controller
 
         // 2. Buscar o crear el usuario
         try {
-            $user = User::updateOrCreate(
-                ['email' => $request->email],
-                [
-                    'first_name' => $request->first_name,
-                    'last_name' => $request->last_name,
-                    'google_id' => $request->google_id,
-                    'last_login_at' => now(),
-                    'email_verified_at' => now(),
-                    'password' => Hash::make(uniqid()),
-                    'status' => 'active',
-                ]
-            );
+            $existing = User::where('email', $request->email)->first();
 
-            if ($user->wasRecentlyCreated === false && is_null($user->google_id)) {
-                $user->google_id = $request->google_id;
-                $user->save();
+            if ($existing) {
+                // Cuenta existente: solo actualizar campos seguros
+                $updates = [
+                    'google_id'        => $request->google_id,
+                    'last_login_at'    => now(),
+                    'email_verified_at' => $existing->email_verified_at ?? now(),
+                    'status'           => $existing->status === 'pending_verification' ? 'active' : $existing->status,
+                ];
+                // Guardar foto de Google solo si el usuario no tiene avatar propio
+                if ($request->avatar_url && empty($existing->avatar_url)) {
+                    $updates['avatar_url'] = $request->avatar_url;
+                }
+                $existing->update($updates);
+                $user = $existing->fresh();
+            } else {
+                // Cuenta nueva vía Google
+                $user = User::create([
+                    'first_name'        => $request->first_name,
+                    'last_name'         => $request->last_name ?? '',
+                    'email'             => $request->email,
+                    'google_id'         => $request->google_id,
+                    'avatar_url'        => $request->avatar_url,
+                    'password'          => Hash::make(\Illuminate\Support\Str::random(32)),
+                    'last_login_at'     => now(),
+                    'email_verified_at' => now(),
+                    'status'            => 'active',
+                    'role'              => 'client',
+                ]);
             }
 
             $statusMessages = [
@@ -94,16 +109,18 @@ class GoogleLoginController extends Controller
 
             // 4. Devolver el token y los datos del usuario
             return response()->json([
-                'message' => 'Logged in successfully',
+                'message'             => 'Logged in successfully',
                 'two_factor_required' => $user->two_factor_enabled,
                 'user' => [
-                    'uuid' => $user->uuid,
-                    'email' => $user->email,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'phone' => $user->phone,
-                    'role' => $user->role,
-                    'status' => $user->status,
+                    'uuid'              => $user->uuid,
+                    'email'             => $user->email,
+                    'first_name'        => $user->first_name,
+                    'last_name'         => $user->last_name,
+                    'phone'             => $user->phone,
+                    'role'              => $user->role,
+                    'status'            => $user->status,
+                    'avatar_url'        => $user->avatar_full_url ?: null,
+                    'is_google_account' => $user->is_google_account,
                 ],
                 'redirect_to' => $this->getRedirectPath($user->role)
             ]);

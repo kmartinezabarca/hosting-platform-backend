@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
-    protected $appends = ['avatar_full_url'];
+    protected $appends = ['avatar_full_url', 'is_google_account'];
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     /**
@@ -82,10 +82,23 @@ class User extends Authenticatable
     public function getAvatarFullUrlAttribute(): string
     {
         if ($this->avatar_url) {
+            // External URLs (e.g. Google profile pictures) are returned as-is
+            if (filter_var($this->avatar_url, FILTER_VALIDATE_URL)) {
+                return $this->avatar_url;
+            }
             return asset('storage/' . $this->avatar_url);
         }
 
         return '';
+    }
+
+    /**
+     * Whether this account was created / linked via Google OAuth.
+     * Safe to expose in API responses (google_id itself remains hidden).
+     */
+    public function getIsGoogleAccountAttribute(): bool
+    {
+        return !empty($this->google_id);
     }
 
     /**
