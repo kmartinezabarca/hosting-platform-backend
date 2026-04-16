@@ -3,22 +3,22 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Services\DashboardStatsService;
-
-use App\Models\User;
-use App\Models\Service;
+use App\Http\Requests\Admin\StoreUserRequest;
+use App\Http\Requests\Admin\UpdateUserRequest;
+use App\Http\Resources\TicketResource;
+use App\Http\Resources\UserResource;
 use App\Models\Invoice;
+use App\Models\Service;
 use App\Models\Ticket;
 use App\Models\TicketReply;
-use App\Models\Transaction;
-use App\Models\ServicePlan;
-use App\Models\AddOn;
+use App\Models\User;
+use App\Notifications\InvoiceReady;
+use App\Services\DashboardStatsService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Carbon\Carbon;
 
 class AdminController extends Controller
 {
@@ -26,10 +26,11 @@ class AdminController extends Controller
     {
     }
 
-    /**
-     * Get comprehensive admin dashboard statistics
-     */
-    public function getDashboardStats()
+    // ──────────────────────────────────────────────
+    // Dashboard
+    // ──────────────────────────────────────────────
+
+    public function getDashboardStats(): JsonResponse
     {
         try {
             return response()->json([
@@ -39,957 +40,436 @@ class AdminController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching dashboard statistics',
+                'message' => 'Error al obtener estadísticas del dashboard.',
                 'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
 
-    /**
-     * Get all users with advanced filtering and pagination
-     */
-    public function getUsers(Request $request)
+    // ──────────────────────────────────────────────
+    // Users
+    // ──────────────────────────────────────────────
+
+    public function getUsers(Request $request): JsonResponse
     {
-        try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
-            $search = $request->get('search');
-            $status = $request->get('status');
-            $role = $request->get('role');
+        $perPage = min((int) $request->get('per_page', 15), 100);
+        $search  = $request->get('search');
 
-            $allowedSortColumns = ['created_at', 'first_name', 'last_name', 'email', 'status', 'role', 'last_login_at'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+        $allowedSort = ['created_at', 'first_name', 'last_name', 'email', 'status', 'role', 'last_login_at'];
+        $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
+        $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
 
-            $query = User::query();
+        $users = User::query()
+            ->when($search, fn($q) => $q->where(fn($q) =>
+                $q->where('first_name', 'like', "%{$search}%")
+                  ->orWhere('last_name',  'like', "%{$search}%")
+                  ->orWhere('email',      'like', "%{$search}%")
+                  ->orWhere('phone',      'like', "%{$search}%")
+            ))
+            ->when($request->get('status'), fn($q, $v) => $q->where('status', $v))
+            ->when($request->get('role'),   fn($q, $v) => $q->where('role', $v))
+            ->withCount(['services', 'invoices', 'tickets'])
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
 
-            // Search filter
-            if ($search) {
-                $query->where(function($q) use ($search) {
-                    $q->where('first_name', 'like', "%{$search}%")
-                      ->orWhere('last_name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%");
-                });
-            }
+        return response()->json(['success' => true, 'data' => $users]);
+    }
 
-            // Status filter
-            if ($status) {
-                $query->where('status', $status);
-            }
+    public function createUser(StoreUserRequest $request): JsonResponse
+    {
+        $data             = $request->validated();
+        $data['password'] = Hash::make($data['password']);
 
-            // Role filter
-            if ($role) {
-                $query->where('role', $role);
-            }
+        $user = User::create($data);
 
-            // Include related data
-            $query->withCount(['services', 'invoices', 'tickets']);
+        return response()->json([
+            'success' => true,
+            'message' => 'Usuario creado exitosamente.',
+            'data'    => new UserResource($user),
+        ], 201);
+    }
 
-            $users = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
+    public function updateUser(UpdateUserRequest $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
 
-            return response()->json([
-                'success' => true,
-                'data' => $users
-            ]);
+        $this->authorize('update', $user);
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching users',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
+        $data = $request->validated();
+        if (isset($data['password'])) {
+            $data['password'] = Hash::make($data['password']);
         }
+
+        $user->update($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Usuario actualizado.',
+            'data'    => new UserResource($user->fresh()),
+        ]);
+    }
+
+    public function deleteUser(int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $this->authorize('delete', $user);
+
+        $user->delete();
+
+        return response()->json(['success' => true, 'message' => 'Usuario eliminado.']);
+    }
+
+    public function updateUserStatus(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $this->authorize('updateStatus', $user);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(['active', 'suspended', 'pending_verification', 'banned'])],
+        ]);
+
+        $user->update(['status' => $validated['status']]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Estado del usuario actualizado.',
+            'data'    => new UserResource($user->fresh()),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Services
+    // ──────────────────────────────────────────────
+
+    public function getServices(Request $request): JsonResponse
+    {
+        $perPage = min((int) $request->get('per_page', 15), 100);
+        $search  = $request->get('search');
+
+        $allowedSort = ['created_at', 'name', 'domain', 'status', 'next_due_date'];
+        $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
+        $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+
+        $services = Service::with(['user', 'plan'])
+            ->when($search, fn($q) => $q->where(fn($q) =>
+                $q->where('name',   'like', "%{$search}%")
+                  ->orWhere('domain', 'like', "%{$search}%")
+                  ->orWhereHas('user', fn($u) =>
+                      $u->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name',  'like', "%{$search}%")
+                        ->orWhere('email',      'like', "%{$search}%")
+                  )
+            ))
+            ->when($request->get('status'),  fn($q, $v) => $q->where('status', $v))
+            ->when($request->get('plan_id'), fn($q, $v) => $q->where('plan_id', $v))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+
+        return response()->json(['success' => true, 'data' => $services]);
+    }
+
+    public function getService(int $id): JsonResponse
+    {
+        $service = Service::with(['user', 'plan.category', 'plan.features', 'plan.pricing.billingCycle'])->findOrFail($id);
+
+        return response()->json(['success' => true, 'data' => $service]);
+    }
+
+    public function updateServiceStatus(Request $request, int $serviceId): JsonResponse
+    {
+        $service = Service::findOrFail($serviceId);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(['active', 'suspended', 'maintenance', 'cancelled'])],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $service->update([
+            'status'      => $validated['status'],
+            'admin_notes' => $validated['reason'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Estado del servicio actualizado.',
+            'data'    => $service->fresh(),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Invoices
+    // ──────────────────────────────────────────────
+
+    public function getInvoices(Request $request): JsonResponse
+    {
+        $perPage = min((int) $request->get('per_page', 15), 100);
+        $search  = $request->get('search');
+
+        $allowedSort = ['created_at', 'invoice_number', 'total', 'due_date', 'paid_at', 'status'];
+        $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
+        $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+
+        $invoices = Invoice::with(['user', 'items'])
+            ->when($search, fn($q) => $q->where(fn($q) =>
+                $q->where('invoice_number', 'like', "%{$search}%")
+                  ->orWhereHas('user', fn($u) =>
+                      $u->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name',  'like', "%{$search}%")
+                        ->orWhere('email',      'like', "%{$search}%")
+                  )
+            ))
+            ->when($request->get('status'), fn($q, $v) => $q->where('status', $v))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+
+        return response()->json(['success' => true, 'data' => $invoices]);
+    }
+
+    public function updateInvoiceStatus(Request $request, int $invoiceId): JsonResponse
+    {
+        $invoice = Invoice::findOrFail($invoiceId);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(['pending', 'paid', 'overdue', 'cancelled'])],
+            'notes'  => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $invoice->update([
+            'status'  => $validated['status'],
+            'notes'   => $validated['notes'] ?? $invoice->notes,
+            'paid_at' => $validated['status'] === 'paid' ? now() : null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Estado de factura actualizado.',
+            'data'    => $invoice->fresh(),
+        ]);
+    }
+
+    public function markInvoiceAsPaid(Request $request, int $id): JsonResponse
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        $invoice->update([
+            'status'         => 'paid',
+            'paid_at'        => now(),
+            'payment_method' => $request->input('payment_method', 'manual'),
+            'notes'          => $request->input('notes', 'Marcado como pagado por administrador.'),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Factura marcada como pagada.',
+            'data'    => $invoice->fresh(),
+        ]);
+    }
+
+    public function sendInvoiceReminder(int $id): JsonResponse
+    {
+        $invoice = Invoice::with('user')->findOrFail($id);
+
+        if (!$invoice->user) {
+            return response()->json(['success' => false, 'message' => 'Usuario no encontrado.'], 404);
+        }
+
+        $invoice->user->notify(new InvoiceReady($invoice));
+
+        return response()->json(['success' => true, 'message' => 'Recordatorio de factura enviado.']);
+    }
+
+    public function cancelInvoice(Request $request, int $id): JsonResponse
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        $invoice->update([
+            'status' => 'cancelled',
+            'notes'  => $request->input('reason', 'Cancelada por administrador.'),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Factura cancelada.',
+            'data'    => $invoice->fresh(),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Tickets
+    // ──────────────────────────────────────────────
+
+    public function getTickets(Request $request): JsonResponse
+    {
+        $perPage = min((int) $request->get('per_page', 15), 100);
+        $search  = $request->get('search');
+
+        $allowedSort = ['created_at', 'subject', 'status', 'priority', 'updated_at'];
+        $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
+        $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
+
+        $tickets = Ticket::with(['user', 'assignedTo', 'service'])
+            ->when($search, fn($q) => $q->where(fn($q) =>
+                $q->where('subject',       'like', "%{$search}%")
+                  ->orWhere('ticket_number', 'like', "%{$search}%")
+                  ->orWhereHas('user', fn($u) =>
+                      $u->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name',  'like', "%{$search}%")
+                        ->orWhere('email',      'like', "%{$search}%")
+                  )
+            ))
+            ->when($request->get('status'),     fn($q, $v) => $q->where('status', $v))
+            ->when($request->get('priority'),   fn($q, $v) => $q->where('priority', $v))
+            ->when($request->get('department'), fn($q, $v) => $q->where('department', $v))
+            ->orderBy($sortBy, $sortOrder)
+            ->paginate($perPage);
+
+        return response()->json(['success' => true, 'data' => $tickets]);
+    }
+
+    public function assignTicket(Request $request, int $ticketId): JsonResponse
+    {
+        $ticket = Ticket::findOrFail($ticketId);
+
+        $validated = $request->validate([
+            'assigned_to' => ['nullable', 'exists:users,id'],
+            'status'      => ['sometimes', Rule::in(['open', 'in_progress', 'resolved', 'closed'])],
+        ]);
+
+        $ticket->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ticket asignado.',
+            'data'    => new TicketResource($ticket->load('assignedTo')),
+        ]);
+    }
+
+    public function updateTicketStatus(Request $request, int $id): JsonResponse
+    {
+        $ticket = Ticket::findOrFail($id);
+
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(['open', 'in_progress', 'resolved', 'closed', 'pending'])],
+        ]);
+
+        $updates = ['status' => $validated['status']];
+        if ($validated['status'] === 'closed') {
+            $updates['closed_at'] = now();
+        }
+
+        $ticket->update($updates);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Estado del ticket actualizado.',
+            'data'    => new TicketResource($ticket->fresh()),
+        ]);
+    }
+
+    public function updateTicketPriority(Request $request, int $id): JsonResponse
+    {
+        $ticket = Ticket::findOrFail($id);
+
+        $validated = $request->validate([
+            'priority' => ['required', Rule::in(['low', 'medium', 'high', 'urgent'])],
+        ]);
+
+        $ticket->update(['priority' => $validated['priority']]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Prioridad del ticket actualizada.',
+            'data'    => new TicketResource($ticket->fresh()),
+        ]);
+    }
+
+    public function addTicketReply(Request $request, int $id): JsonResponse
+    {
+        $ticket = Ticket::findOrFail($id);
+
+        $validated = $request->validate([
+            'message'     => ['required', 'string'],
+            'is_internal' => ['sometimes', 'boolean'],
+        ]);
+
+        $reply = TicketReply::create([
+            'ticket_id'   => $ticket->id,
+            'user_id'     => auth()->id(),
+            'message'     => $validated['message'],
+            'is_internal' => (bool) ($validated['is_internal'] ?? false),
+        ]);
+
+        // Update ticket status to in_progress when staff replies
+        if ($ticket->status === 'open') {
+            $ticket->update(['status' => 'in_progress']);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Respuesta agregada.',
+            'data'    => $reply->load('user'),
+        ], 201);
+    }
+
+    public function createTicket(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'user_id'     => ['required', 'exists:users,id'],
+            'subject'     => ['required', 'string', 'max:255'],
+            'description' => ['required', 'string'],
+            'priority'    => ['sometimes', Rule::in(['low', 'medium', 'high', 'urgent'])],
+            'status'      => ['sometimes', Rule::in(['open', 'in_progress', 'resolved', 'closed', 'pending'])],
+            'assigned_to' => ['nullable', 'exists:users,id'],
+        ]);
+
+        $ticket = Ticket::create(array_merge($validated, [
+            'priority'      => $validated['priority']  ?? 'medium',
+            'status'        => $validated['status']    ?? 'open',
+            'ticket_number' => 'TKT-' . strtoupper(Str::random(8)),
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ticket creado.',
+            'data'    => new TicketResource($ticket->load(['user', 'assignedTo'])),
+        ], 201);
+    }
+
+    public function deleteTicket(int $id): JsonResponse
+    {
+        Ticket::findOrFail($id)->delete();
+
+        return response()->json(['success' => true, 'message' => 'Ticket eliminado.']);
+    }
+
+    // ──────────────────────────────────────────────
+    // Support helpers
+    // ──────────────────────────────────────────────
+
+    public function getSupportAgents(): JsonResponse
+    {
+        $agents = User::whereIn('role', ['admin', 'support'])
+            ->select('id', 'uuid', 'first_name', 'last_name', 'email')
+            ->orderBy('first_name')
+            ->get();
+
+        return response()->json(['success' => true, 'data' => $agents]);
     }
 
     /**
-     * Get all services with advanced filtering
+     * Ticket departments — driven by config so they can be extended without code changes.
      */
-    public function getServices(Request $request)
+    public function getTicketCategories(): JsonResponse
     {
-        try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
-            $search = $request->get('search');
-            $status = $request->get('status');
-            $planId = $request->get('plan_id');
-
-            $allowedSortColumns = ['created_at', 'name', 'domain', 'status', 'next_due_date'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
-
-            $query = Service::with(['user', 'plan']);
-
-            // Search filter
-            if ($search) {
-                $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('domain', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($userQuery) use ($search) {
-                          $userQuery->where('first_name', 'like', "%{$search}%")
-                                   ->orWhere('last_name', 'like', "%{$search}%")
-                                   ->orWhere('email', 'like', "%{$search}%");
-                      });
-                });
-            }
-
-            // Status filter
-            if ($status) {
-                $query->where('status', $status);
-            }
-
-            // Plan filter
-            if ($planId) {
-                $query->where('plan_id', $planId);
-            }
-
-            $services = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
-
-            return response()->json([
-                'success' => true,
-                'data' => $services
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching services',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Get all invoices with admin privileges
-     */
-    public function getInvoices(Request $request)
-    {
-        try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
-            $search = $request->get('search');
-            $status = $request->get('status');
-
-            $allowedSortColumns = ['created_at', 'invoice_number', 'total', 'due_date', 'paid_at', 'status'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
-
-            $query = Invoice::with(['user', 'items']);
-
-            // Search filter
-            if ($search) {
-                $query->where(function($q) use ($search) {
-                    $q->where('invoice_number', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($userQuery) use ($search) {
-                          $userQuery->where('first_name', 'like', "%{$search}%")
-                                   ->orWhere('last_name', 'like', "%{$search}%")
-                                   ->orWhere('email', 'like', "%{$search}%");
-                      });
-                });
-            }
-
-            // Status filter
-            if ($status) {
-                $query->where('status', $status);
-            }
-
-            $invoices = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
-
-            return response()->json([
-                'success' => true,
-                'data' => $invoices
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching invoices',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Get all tickets with admin privileges
-     */
-    public function getTickets(Request $request)
-    {
-        try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
-            $search = $request->get('search');
-            $status = $request->get('status');
-            $priority = $request->get('priority');
-            $department = $request->get('department');
-
-            $allowedSortColumns = ['created_at', 'subject', 'status', 'priority', 'updated_at'];
-            $sortBy = in_array($request->get('sort_by'), $allowedSortColumns) ? $request->get('sort_by') : 'created_at';
-            $sortOrder = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
-
-            $query = Ticket::with(['user', 'assignedTo', 'service']);
-
-            // Search filter
-            if ($search) {
-                $query->where(function($q) use ($search) {
-                    $q->where('subject', 'like', "%{$search}%")
-                      ->orWhere('ticket_number', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($userQuery) use ($search) {
-                          $userQuery->where('first_name', 'like', "%{$search}%")
-                                   ->orWhere('last_name', 'like', "%{$search}%")
-                                   ->orWhere('email', 'like', "%{$search}%");
-                      });
-                });
-            }
-
-            // Status filter
-            if ($status) {
-                $query->where('status', $status);
-            }
-
-            // Priority filter
-            if ($priority) {
-                $query->where('priority', $priority);
-            }
-
-            // Department filter
-            if ($department) {
-                $query->where('department', $department);
-            }
-
-            $tickets = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
-
-            return response()->json([
-                'success' => true,
-                'data' => $tickets
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching tickets',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update service status (Admin action)
-     */
-    public function updateServiceStatus(Request $request, $serviceId)
-    {
-        try {
-            $service = Service::findOrFail($serviceId);
-            
-            $validated = $request->validate([
-                'status' => 'required|in:active,suspended,maintenance,cancelled',
-                'reason' => 'nullable|string|max:500'
-            ]);
-
-            $service->update([
-                'status' => $validated['status'],
-                'admin_notes' => $validated['reason'] ?? null
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Service status updated successfully',
-                'data' => $service->fresh()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating service status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update invoice status (Admin action)
-     */
-    public function updateInvoiceStatus(Request $request, $invoiceId)
-    {
-        try {
-            $invoice = Invoice::findOrFail($invoiceId);
-            
-            $validated = $request->validate([
-                'status' => 'required|in:pending,paid,overdue,cancelled',
-                'notes' => 'nullable|string|max:500'
-            ]);
-
-            $invoice->update([
-                'status' => $validated['status'],
-                'admin_notes' => $validated['notes'] ?? null,
-                'paid_at' => $validated['status'] === 'paid' ? now() : null
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice status updated successfully',
-                'data' => $invoice->fresh()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating invoice status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Assign ticket to admin user
-     */
-    public function assignTicket(Request $request, $ticketId)
-    {
-        try {
-            $ticket = Ticket::findOrFail($ticketId);
-            
-            $validated = $request->validate([
-                'assigned_to' => 'nullable|exists:users,id',
-                'status' => 'sometimes|in:open,in_progress,resolved,closed'
-            ]);
-
-            $ticket->update($validated);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket assigned successfully',
-                'data' => $ticket->fresh(['assignedTo'])
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error assigning ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    // ... (rest of the existing methods remain the same)
-
-    /**
-     * Create a new user
-     */
-    public function createUser(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'first_name' => 'required|string|max:100',
-                'last_name' => 'required|string|max:100',
-                'email' => 'required|email|unique:users,email',
-                'password' => 'required|string|min:8',
-                'role' => ['required', Rule::in(['admin', 'support', 'client'])],
-                'status' => ['required', Rule::in(['active', 'suspended', 'pending_verification'])],
-                'phone' => 'nullable|string|max:20',
-                'address' => 'nullable|string',
-                'city' => 'nullable|string|max:100',
-                'state' => 'nullable|string|max:100',
-                'country' => 'nullable|string|size:2',
-                'postal_code' => 'nullable|string|max:20',
-            ]);
-
-            $validated['password'] = Hash::make($validated['password']);
-            $validated['uuid'] = \Str::uuid();
-
-            $user = User::create($validated);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'User created successfully',
-                'data' => $user
-            ], 201);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error creating user',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update user
-     */
-    public function updateUser(Request $request, $id)
-    {
-        try {
-            $user = User::findOrFail($id);
-
-            $validated = $request->validate([
-                'first_name' => 'sometimes|string|max:100',
-                'last_name' => 'sometimes|string|max:100',
-                'email' => ['sometimes', 'email', Rule::unique('users')->ignore($user->id)],
-                'password' => 'sometimes|string|min:8',
-                'role' => ['sometimes', Rule::in(['admin', 'support', 'client'])],
-                'status' => ['sometimes', Rule::in(['active', 'suspended', 'pending_verification', 'banned'])],
-                'phone' => 'nullable|string|max:20',
-                'address' => 'nullable|string',
-                'city' => 'nullable|string|max:100',
-                'state' => 'nullable|string|max:100',
-                'country' => 'nullable|string|size:2',
-                'postal_code' => 'nullable|string|max:20',
-            ]);
-
-            if (isset($validated['password'])) {
-                $validated['password'] = Hash::make($validated['password']);
-            }
-
-            $user->update($validated);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'User updated successfully',
-                'data' => $user->fresh()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating user',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Delete user (soft delete)
-     */
-    public function deleteUser($id)
-    {
-        try {
-            $user = User::findOrFail($id);
-            
-            // Prevent deletion of super_admin users
-            if ($user->role === 'super_admin') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot delete super admin users'
-                ], 403);
-            }
-
-            $user->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'User deleted successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error deleting user',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-
-    /**
-     * Update user status (activate, suspend, etc.)
-     */
-    public function updateUserStatus(Request $request, $id)
-    {
-        try {
-            $user = User::findOrFail($id);
-            $status = $request->input('status');
-
-            $validStatuses = ['active', 'suspended', 'pending_verification', 'inactive'];
-            if (!in_array($status, $validStatuses)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid status'
-                ], 400);
-            }
-
-            $user->status = $status;
-            $user->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'User status updated successfully',
-                'data' => $user
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating user status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Mark invoice as paid
-     */
-    public function markInvoiceAsPaid(Request $request, $id)
-    {
-        try {
-            $invoice = Invoice::findOrFail($id);
-            
-            $invoice->status = 'paid';
-            $invoice->paid_at = now();
-            $invoice->payment_method = $request->input('payment_method', 'manual');
-            $invoice->notes = $request->input('notes', 'Marked as paid by administrator');
-            $invoice->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice marked as paid successfully',
-                'data' => $invoice
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error marking invoice as paid',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Send invoice reminder
-     */
-    public function sendInvoiceReminder($id)
-    {
-        try {
-            $invoice = Invoice::with('user')->findOrFail($id);
-            
-            // Here you would implement the actual email sending logic
-            // For now, we'll just return success
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice reminder sent successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error sending invoice reminder',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Cancel invoice
-     */
-    public function cancelInvoice(Request $request, $id)
-    {
-        try {
-            $invoice = Invoice::findOrFail($id);
-            
-            $invoice->status = 'cancelled';
-            $invoice->notes = $request->input('reason', 'Cancelled by administrator');
-            $invoice->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice cancelled successfully',
-                'data' => $invoice
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error cancelling invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update ticket status
-     */
-    public function updateTicketStatus(Request $request, $id)
-    {
-        try {
-            $ticket = Ticket::findOrFail($id);
-            $status = $request->input('status');
-
-            $validStatuses = ['open', 'in_progress', 'resolved', 'closed', 'pending'];
-            if (!in_array($status, $validStatuses)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid status'
-                ], 400);
-            }
-
-            $ticket->status = $status;
-            if ($status === 'closed') {
-                $ticket->closed_at = now();
-            }
-            $ticket->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket status updated successfully',
-                'data' => $ticket
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating ticket status',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update ticket priority
-     */
-    public function updateTicketPriority(Request $request, $id)
-    {
-        try {
-            $ticket = Ticket::findOrFail($id);
-            $priority = $request->input('priority');
-
-            $validPriorities = ['low', 'medium', 'high', 'urgent'];
-            if (!in_array($priority, $validPriorities)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid priority'
-                ], 400);
-            }
-
-            $ticket->priority = $priority;
-            $ticket->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket priority updated successfully',
-                'data' => $ticket
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating ticket priority',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Add reply to ticket
-     */
-    public function addTicketReply(Request $request, $id)
-    {
-        try {
-            $ticket = Ticket::findOrFail($id);
-            
-            $request->validate([
-                'message' => 'required|string',
-                'is_internal' => 'boolean'
-            ]);
-
-            $reply = new TicketReply([
-                'ticket_id' => $ticket->id,
-                'user_id' => auth()->id(),
-                'message' => $request->input('message'),
-                'is_internal' => $request->input('is_internal', false)
-            ]);
-            
-            $reply->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Reply added successfully',
-                'data' => $reply->load('user')
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error adding reply',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Get ticket categories
-     */
-    public function getTicketCategories()
-    {
-        try {
-            // This would typically come from a categories table
-            // For now, return hardcoded categories
-            $categories = [
-                ['id' => 1, 'name' => 'Soporte Técnico'],
-                ['id' => 2, 'name' => 'Facturación'],
-                ['id' => 3, 'name' => 'Ventas'],
-                ['id' => 4, 'name' => 'General']
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data' => $categories
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching categories',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Get support agents
-     */
-    public function getSupportAgents()
-    {
-        try {
-            // Get users with admin or support role
-            $agents = User::where('role', 'admin')
-                         ->orWhere('role', 'support')
-                         ->select('id', 'first_name', 'last_name', 'email')
-                         ->get();
-
-            return response()->json([
-                'success' => true,
-                'data' => $agents
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error fetching agents',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Create new invoice
-     */
-    public function createInvoice(Request $request)
-    {
-        try {
-            $request->validate([
-                'user_id' => 'required|exists:users,id',
-                'invoice_number' => 'required|string|unique:invoices',
-                'amount' => 'required|numeric|min:0',
-                'tax_amount' => 'numeric|min:0',
-                'total_amount' => 'required|numeric|min:0',
-                'due_date' => 'required|date',
-                'description' => 'required|string',
-                'status' => 'in:pending,paid,overdue,cancelled,draft'
-            ]);
-
-            $invoice = Invoice::create([
-                'user_id' => $request->user_id,
-                'invoice_number' => $request->invoice_number,
-                'amount' => $request->amount,
-                'tax_amount' => $request->tax_amount ?? 0,
-                'total_amount' => $request->total_amount,
-                'due_date' => $request->due_date,
-                'description' => $request->description,
-                'status' => $request->status ?? 'pending',
-                'notes' => $request->notes
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice created successfully',
-                'data' => $invoice->load('user')
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error creating invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update invoice
-     */
-    public function updateInvoice(Request $request, $id)
-    {
-        try {
-            $invoice = Invoice::findOrFail($id);
-            
-            $request->validate([
-                'user_id' => 'exists:users,id',
-                'invoice_number' => 'string|unique:invoices,invoice_number,' . $id,
-                'amount' => 'numeric|min:0',
-                'tax_amount' => 'numeric|min:0',
-                'total_amount' => 'numeric|min:0',
-                'due_date' => 'date',
-                'description' => 'string',
-                'status' => 'in:pending,paid,overdue,cancelled,draft'
-            ]);
-
-            $invoice->update($request->only([
-                'user_id', 'invoice_number', 'amount', 'tax_amount', 
-                'total_amount', 'due_date', 'description', 'status', 'notes'
-            ]));
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice updated successfully',
-                'data' => $invoice->load('user')
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Delete invoice
-     */
-    public function deleteInvoice($id)
-    {
-        try {
-            $invoice = Invoice::findOrFail($id);
-            $invoice->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Invoice deleted successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error deleting invoice',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Create new ticket
-     */
-    public function createTicket(Request $request)
-    {
-        try {
-            $request->validate([
-                'user_id' => 'required|exists:users,id',
-                'subject' => 'required|string',
-                'description' => 'required|string',
-                'priority' => 'in:low,medium,high,urgent',
-                'status' => 'in:open,in_progress,resolved,closed,pending',
-                'assigned_to' => 'nullable|exists:users,id'
-            ]);
-
-            $ticket = Ticket::create([
-                'user_id' => $request->user_id,
-                'subject' => $request->subject,
-                'description' => $request->description,
-                'priority' => $request->priority ?? 'medium',
-                'status' => $request->status ?? 'open',
-                'assigned_to' => $request->assigned_to,
-                'ticket_number' => 'TKT-' . strtoupper(Str::random(8))
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket created successfully',
-                'data' => $ticket->load(['user', 'assignedTo'])
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error creating ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Update ticket
-     */
-    public function updateTicket(Request $request, $id)
-    {
-        try {
-            $ticket = Ticket::findOrFail($id);
-            
-            $request->validate([
-                'user_id' => 'exists:users,id',
-                'subject' => 'string',
-                'description' => 'string',
-                'priority' => 'in:low,medium,high,urgent',
-                'status' => 'in:open,in_progress,resolved,closed,pending',
-                'assigned_to' => 'nullable|exists:users,id'
-            ]);
-
-            $ticket->update($request->only([
-                'user_id', 'subject', 'description', 'priority', 'status', 'assigned_to'
-            ]));
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket updated successfully',
-                'data' => $ticket->load(['user', 'assignedTo'])
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error updating ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-    /**
-     * Delete ticket
-     */
-    public function deleteTicket($id)
-    {
-        try {
-            $ticket = Ticket::findOrFail($id);
-            $ticket->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Ticket deleted successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error deleting ticket',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-
-     /**
-     * Get a single service with details (Admin)
-     */
-    public function getService($id)
-    {
-        try {
-            $service = Service::with(["user", "plan.category", "plan.features", "plan.pricing.billingCycle", "invoices", "tickets"])->findOrFail($id);
-
-            return response()->json([
-                "success" => true,
-                "data" => $service
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                "success" => false,
-                "message" => "Service not found",
-                "error" => $e->getMessage()
-            ], 404);
-        }
+        $categories = config('support.departments', [
+            ['id' => 'technical',  'name' => 'Soporte Técnico'],
+            ['id' => 'billing',    'name' => 'Facturación'],
+            ['id' => 'sales',      'name' => 'Ventas'],
+            ['id' => 'general',    'name' => 'General'],
+        ]);
+
+        return response()->json(['success' => true, 'data' => $categories]);
     }
 }

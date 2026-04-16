@@ -188,6 +188,9 @@ class PaymentController extends Controller
                 'success' => true,
                 'message' => 'Método de pago eliminado exitosamente.',
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            // Let the global handler translate this to 404 — do NOT catch it as a 500
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Error deleting payment method: ' . $e->getMessage());
 

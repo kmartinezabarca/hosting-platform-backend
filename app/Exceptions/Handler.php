@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Http\Request;
 use Illuminate\Auth\AuthenticationException;
@@ -55,6 +56,10 @@ class Handler extends ExceptionHandler
      */
     protected function handleApiException(Request $request, Throwable $e)
     {
+        // Let the framework normalize AuthorizationException → HttpException(403)
+        // and ModelNotFoundException → HttpException(404) before our handling
+        $e = $this->prepareException($e);
+
         // Autenticación requerida
         if ($e instanceof AuthenticationException) {
             return response()->json([
