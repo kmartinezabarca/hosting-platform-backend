@@ -65,14 +65,16 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
-            // Registrar intento de login fallido
-            ActivityLog::record(
-                'Intento de inicio de sesión fallido',
-                'Email: ' . $request->email,
-                'authentication',
-                ['email' => $request->email, 'status' => 'failed'],
-                $user ? $user->id : null
-            );
+            // Only log when a real account exists — user_id is NOT NULL in activity_logs
+            if ($user) {
+                ActivityLog::record(
+                    'Intento de inicio de sesión fallido',
+                    'Email: ' . $request->email,
+                    'authentication',
+                    ['email' => $request->email, 'status' => 'failed'],
+                    $user->id
+                );
+            }
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials do not match our records.'],
             ]);

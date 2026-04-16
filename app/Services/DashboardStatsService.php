@@ -189,7 +189,7 @@ class DashboardStatsService
     {
         $avg = Ticket::join('ticket_replies', 'tickets.id', '=', 'ticket_replies.ticket_id')
             ->whereColumn('ticket_replies.created_at', '>', 'tickets.created_at')
-            ->where('ticket_replies.is_from_staff', true)
+            ->where('ticket_replies.is_internal', false) // is_internal=false means it's a public (staff) reply
             ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, tickets.created_at, ticket_replies.created_at)) as avg_minutes')
             ->value('avg_minutes');
 
