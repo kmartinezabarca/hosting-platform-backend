@@ -3,207 +3,311 @@
 namespace App\Http\Controllers\Common;
 
 use App\Http\Controllers\Controller;
-
-use Illuminate\Http\Request;
+use App\Models\Invoice;
+use App\Models\Service;
+use App\Models\Subscription;
+use App\Models\Transaction;
+use App\Models\User;
+use App\Notifications\PaymentNotification;
+use App\Notifications\ServiceNotification;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Stripe\Stripe;
-use Stripe\Webhook;
 use Stripe\Exception\SignatureVerificationException;
+use Stripe\Webhook;
 
 class StripeWebhookController extends Controller
 {
     public function __construct()
     {
-        // Set Stripe API key
-        Stripe::setApiKey(config('services.stripe.secret'));
+        \Stripe\Stripe::setApiKey(config('services.stripe.secret'));
     }
 
-    /**
-     * Handle Stripe webhook events
-     */
+    // ──────────────────────────────────────────────
+    // Entry point
+    // ──────────────────────────────────────────────
+
     public function handleWebhook(Request $request): JsonResponse
     {
-        $payload = $request->getContent();
-        $sig_header = $request->header('Stripe-Signature');
-        $endpoint_secret = config('services.stripe.webhook_secret');
+        $payload   = $request->getContent();
+        $sigHeader = $request->header('Stripe-Signature');
+        $secret    = config('services.stripe.webhook_secret');
 
         try {
-            $event = Webhook::constructEvent($payload, $sig_header, $endpoint_secret);
+            $event = Webhook::constructEvent($payload, $sigHeader, $secret);
         } catch (\UnexpectedValueException $e) {
-            // Invalid payload
-            Log::error('Invalid payload in Stripe webhook: ' . $e->getMessage());
+            Log::error('Stripe webhook — invalid payload: ' . $e->getMessage());
             return response()->json(['error' => 'Invalid payload'], 400);
         } catch (SignatureVerificationException $e) {
-            // Invalid signature
-            Log::error('Invalid signature in Stripe webhook: ' . $e->getMessage());
+            Log::error('Stripe webhook — invalid signature: ' . $e->getMessage());
             return response()->json(['error' => 'Invalid signature'], 400);
         }
 
-        // Handle the event
-        switch ($event['type']) {
-            case 'payment_intent.succeeded':
-                $this->handlePaymentIntentSucceeded($event['data']['object']);
-                break;
-            
-            case 'payment_intent.payment_failed':
-                $this->handlePaymentIntentFailed($event['data']['object']);
-                break;
-            
-            case 'invoice.payment_succeeded':
-                $this->handleInvoicePaymentSucceeded($event['data']['object']);
-                break;
-            
-            case 'invoice.payment_failed':
-                $this->handleInvoicePaymentFailed($event['data']['object']);
-                break;
-            
-            case 'customer.subscription.created':
-                $this->handleSubscriptionCreated($event['data']['object']);
-                break;
-            
-            case 'customer.subscription.updated':
-                $this->handleSubscriptionUpdated($event['data']['object']);
-                break;
-            
-            case 'customer.subscription.deleted':
-                $this->handleSubscriptionDeleted($event['data']['object']);
-                break;
-            
-            default:
-                Log::info('Unhandled Stripe webhook event type: ' . $event['type']);
+        $object = $event->data->object;
+
+        match ($event->type) {
+            'payment_intent.succeeded'         => $this->onPaymentIntentSucceeded($object),
+            'payment_intent.payment_failed'    => $this->onPaymentIntentFailed($object),
+            'invoice.payment_succeeded'        => $this->onInvoicePaymentSucceeded($object),
+            'invoice.payment_failed'           => $this->onInvoicePaymentFailed($object),
+            'customer.subscription.updated'    => $this->onSubscriptionUpdated($object),
+            'customer.subscription.deleted'    => $this->onSubscriptionDeleted($object),
+            default                            => Log::info("Stripe webhook ignored: {$event->type}"),
+        };
+
+        return response()->json(['status' => 'ok']);
+    }
+
+    // ──────────────────────────────────────────────
+    // PaymentIntent handlers
+    // ──────────────────────────────────────────────
+
+    /**
+     * payment_intent.succeeded
+     *
+     * Fired when a one-off charge is confirmed on Stripe's side.
+     * We mark the matching Transaction and Invoice as completed/paid.
+     */
+    private function onPaymentIntentSucceeded(object $pi): void
+    {
+        Log::info("Stripe: payment_intent.succeeded {$pi->id}");
+
+        DB::transaction(function () use ($pi) {
+            // Mark transaction completed
+            $transaction = Transaction::where('provider_transaction_id', $pi->id)->first();
+
+            if ($transaction) {
+                $transaction->update([
+                    'status'       => 'completed',
+                    'processed_at' => now(),
+                ]);
+
+                // Mark the linked invoice paid
+                $invoice = $transaction->invoice;
+                if ($invoice && $invoice->status !== Invoice::STATUS_PAID) {
+                    $invoice->update([
+                        'status'  => Invoice::STATUS_PAID,
+                        'paid_at' => now(),
+                    ]);
+                }
+            }
+
+            // Ensure the related service is active
+            $serviceId = $pi->metadata->service_id ?? null;
+            if ($serviceId) {
+                Service::where('id', $serviceId)
+                    ->where('status', '!=', 'active')
+                    ->update(['status' => 'active']);
+            }
+        });
+    }
+
+    /**
+     * payment_intent.payment_failed
+     *
+     * A charge attempt failed. Mark the Transaction as failed and
+     * notify the user so they can update their payment method.
+     */
+    private function onPaymentIntentFailed(object $pi): void
+    {
+        Log::warning("Stripe: payment_intent.payment_failed {$pi->id}");
+
+        DB::transaction(function () use ($pi) {
+            $transaction = Transaction::where('provider_transaction_id', $pi->id)->first();
+
+            if ($transaction) {
+                $failureMessage = $pi->last_payment_error->message ?? 'Payment failed';
+
+                $transaction->update([
+                    'status'         => 'failed',
+                    'failure_reason' => $failureMessage,
+                    'processed_at'   => now(),
+                ]);
+
+                // Notify the user
+                $user = $transaction->user;
+                if ($user) {
+                    $user->notify(new PaymentNotification([
+                        'title'   => 'Pago fallido',
+                        'message' => "Tu pago no pudo ser procesado: {$failureMessage}. Por favor actualiza tu método de pago.",
+                        'type'    => 'payment.failed',
+                        'data'    => ['transaction_id' => $transaction->uuid],
+                    ]));
+                }
+            }
+        });
+    }
+
+    // ──────────────────────────────────────────────
+    // Subscription invoice handlers
+    // ──────────────────────────────────────────────
+
+    /**
+     * invoice.payment_succeeded
+     *
+     * Stripe renews a subscription — extend the billing period and
+     * keep the service active.
+     */
+    private function onInvoicePaymentSucceeded(object $stripeInvoice): void
+    {
+        $subId = $stripeInvoice->subscription ?? null;
+        if (!$subId) {
+            return;
         }
 
-        return response()->json(['status' => 'success']);
+        Log::info("Stripe: invoice.payment_succeeded subscription={$subId}");
+
+        DB::transaction(function () use ($stripeInvoice, $subId) {
+            $subscription = Subscription::where('stripe_subscription_id', $subId)->first();
+
+            if (!$subscription) {
+                return;
+            }
+
+            $periodEnd = isset($stripeInvoice->lines->data[0]->period->end)
+                ? Carbon::createFromTimestamp($stripeInvoice->lines->data[0]->period->end)
+                : null;
+
+            $subscription->update([
+                'status'               => 'active',
+                'current_period_end'   => $periodEnd,
+                'ends_at'              => $periodEnd,
+            ]);
+
+            // Keep the service active and push next due date
+            $service = $subscription->service;
+            if ($service) {
+                $service->update([
+                    'status'        => 'active',
+                    'next_due_date' => $periodEnd,
+                ]);
+            }
+
+            // Notify user
+            $user = $subscription->user;
+            if ($user) {
+                $user->notify(new ServiceNotification([
+                    'title'   => 'Pago de suscripción exitoso',
+                    'message' => "Tu suscripción '{$subscription->name}' ha sido renovada exitosamente.",
+                    'type'    => 'subscription.renewed',
+                    'data'    => ['subscription_id' => $subscription->uuid],
+                ]));
+            }
+        });
     }
 
     /**
-     * Handle successful payment intent
+     * invoice.payment_failed
+     *
+     * Stripe failed to charge for a subscription renewal.
+     * Suspend the service and notify the user.
      */
-    private function handlePaymentIntentSucceeded($paymentIntent)
+    private function onInvoicePaymentFailed(object $stripeInvoice): void
     {
-        Log::info('Payment Intent succeeded: ' . $paymentIntent['id']);
-        
-        // Get metadata
-        $userId = $paymentIntent['metadata']['user_id'] ?? null;
-        $serviceId = $paymentIntent['metadata']['service_id'] ?? null;
-        
-        if ($userId && $serviceId) {
-            // Update service status to active
-            // In a real implementation, update the database
-            Log::info("Activating service {$serviceId} for user {$userId}");
-            
-            // Here you would:
-            // 1. Update service status in database
-            // 2. Provision the actual service (VPS, hosting, etc.)
-            // 3. Send confirmation email to user
-            // 4. Create invoice record
+        $subId = $stripeInvoice->subscription ?? null;
+        if (!$subId) {
+            return;
         }
+
+        Log::warning("Stripe: invoice.payment_failed subscription={$subId}");
+
+        DB::transaction(function () use ($stripeInvoice, $subId) {
+            $subscription = Subscription::where('stripe_subscription_id', $subId)->first();
+
+            if (!$subscription) {
+                return;
+            }
+
+            $subscription->update(['status' => 'past_due']);
+
+            // Suspend the service
+            $service = $subscription->service;
+            if ($service) {
+                $service->update(['status' => 'suspended']);
+            }
+
+            // Notify user
+            $user = $subscription->user;
+            if ($user) {
+                $user->notify(new ServiceNotification([
+                    'title'   => 'Fallo en el pago de suscripción',
+                    'message' => "No pudimos cobrar tu suscripción '{$subscription->name}'. Tu servicio ha sido suspendido. Por favor actualiza tu método de pago.",
+                    'type'    => 'subscription.payment_failed',
+                    'data'    => ['subscription_id' => $subscription->uuid],
+                ]));
+            }
+        });
     }
 
+    // ──────────────────────────────────────────────
+    // Subscription lifecycle handlers
+    // ──────────────────────────────────────────────
+
     /**
-     * Handle failed payment intent
+     * customer.subscription.updated
+     *
+     * Plan change, pause, trial end, etc.
      */
-    private function handlePaymentIntentFailed($paymentIntent)
+    private function onSubscriptionUpdated(object $stripeSub): void
     {
-        Log::warning('Payment Intent failed: ' . $paymentIntent['id']);
-        
-        $userId = $paymentIntent['metadata']['user_id'] ?? null;
-        $serviceId = $paymentIntent['metadata']['service_id'] ?? null;
-        
-        if ($userId && $serviceId) {
-            // Handle failed payment
-            Log::warning("Payment failed for service {$serviceId} for user {$userId}");
-            
-            // Here you would:
-            // 1. Update service status to payment_failed
-            // 2. Send notification to user
-            // 3. Potentially suspend service if it was active
+        Log::info("Stripe: customer.subscription.updated {$stripeSub->id}");
+
+        $subscription = Subscription::where('stripe_subscription_id', $stripeSub->id)->first();
+
+        if (!$subscription) {
+            return;
         }
+
+        $subscription->update([
+            'status'               => $stripeSub->status,
+            'current_period_start' => isset($stripeSub->current_period_start) ? Carbon::createFromTimestamp($stripeSub->current_period_start) : null,
+            'current_period_end'   => isset($stripeSub->current_period_end)   ? Carbon::createFromTimestamp($stripeSub->current_period_end)   : null,
+            'ends_at'              => isset($stripeSub->cancel_at)            ? Carbon::createFromTimestamp($stripeSub->cancel_at)            : null,
+            'canceled_at'          => isset($stripeSub->canceled_at)          ? Carbon::createFromTimestamp($stripeSub->canceled_at)          : null,
+        ]);
     }
 
     /**
-     * Handle successful invoice payment (for subscriptions)
+     * customer.subscription.deleted
+     *
+     * Subscription fully cancelled — cancel the local record and service.
      */
-    private function handleInvoicePaymentSucceeded($invoice)
+    private function onSubscriptionDeleted(object $stripeSub): void
     {
-        Log::info('Invoice payment succeeded: ' . $invoice['id']);
-        
-        $subscriptionId = $invoice['subscription'] ?? null;
-        
-        if ($subscriptionId) {
-            // Update subscription status and extend service
-            Log::info("Subscription payment succeeded: {$subscriptionId}");
-            
-            // Here you would:
-            // 1. Update subscription record in database
-            // 2. Extend service billing period
-            // 3. Update service status to active if suspended
-            // 4. Send payment confirmation email
-        }
-    }
+        Log::info("Stripe: customer.subscription.deleted {$stripeSub->id}");
 
-    /**
-     * Handle failed invoice payment (for subscriptions)
-     */
-    private function handleInvoicePaymentFailed($invoice)
-    {
-        Log::warning('Invoice payment failed: ' . $invoice['id']);
-        
-        $subscriptionId = $invoice['subscription'] ?? null;
-        
-        if ($subscriptionId) {
-            // Handle failed subscription payment
-            Log::warning("Subscription payment failed: {$subscriptionId}");
-            
-            // Here you would:
-            // 1. Update subscription status
-            // 2. Send payment failure notification
-            // 3. Implement retry logic or grace period
-            // 4. Suspend service after grace period
-        }
-    }
+        DB::transaction(function () use ($stripeSub) {
+            $subscription = Subscription::where('stripe_subscription_id', $stripeSub->id)->first();
 
-    /**
-     * Handle subscription creation
-     */
-    private function handleSubscriptionCreated($subscription)
-    {
-        Log::info('Subscription created: ' . $subscription['id']);
-        
-        // Here you would:
-        // 1. Create subscription record in database
-        // 2. Link to user and service
-        // 3. Set up billing schedule
-        // 4. Send welcome email
-    }
+            if (!$subscription) {
+                return;
+            }
 
-    /**
-     * Handle subscription update
-     */
-    private function handleSubscriptionUpdated($subscription)
-    {
-        Log::info('Subscription updated: ' . $subscription['id']);
-        
-        // Here you would:
-        // 1. Update subscription record in database
-        // 2. Handle plan changes
-        // 3. Prorate billing if necessary
-        // 4. Update service configuration
-    }
+            $subscription->update([
+                'status'      => 'cancelled',
+                'canceled_at' => now(),
+                'ends_at'     => now(),
+            ]);
 
-    /**
-     * Handle subscription deletion/cancellation
-     */
-    private function handleSubscriptionDeleted($subscription)
-    {
-        Log::info('Subscription deleted: ' . $subscription['id']);
-        
-        // Here you would:
-        // 1. Update subscription status in database
-        // 2. Schedule service termination
-        // 3. Send cancellation confirmation
-        // 4. Handle data backup/export
+            $service = $subscription->service;
+            if ($service) {
+                $service->update([
+                    'status'         => 'cancelled',
+                    'terminated_at'  => now(),
+                ]);
+            }
+
+            $user = $subscription->user;
+            if ($user) {
+                $user->notify(new ServiceNotification([
+                    'title'   => 'Suscripción cancelada',
+                    'message' => "Tu suscripción '{$subscription->name}' ha sido cancelada.",
+                    'type'    => 'subscription.cancelled',
+                    'data'    => ['subscription_id' => $subscription->uuid],
+                ]));
+            }
+        });
     }
 }
-

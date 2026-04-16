@@ -364,146 +364,100 @@ class ServiceController extends Controller
     }
 
     /**
-     * Get service usage statistics
+     * Get service resource usage.
+     * Returns data from the service's configuration/metadata if available.
+     * Integrate with your monitoring provider (Prometheus, Netdata, cPanel API, etc.) here.
      */
     public function getServiceUsage(string $serviceId): JsonResponse
     {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
+        $user    = Auth::user();
+        $service = Service::where("user_id", $user->id)
+            ->where("uuid", $serviceId)
+            ->firstOrFail();
 
-            // For now, return dummy data. In a real scenario, this would fetch from monitoring systems.
-            $usageData = [
-                "cpu_usage" => rand(10, 90),
-                "memory_usage" => rand(20, 80),
-                "disk_usage" => rand(5, 95),
-                "bandwidth_usage" => rand(100, 1000),
-                "last_updated" => now()->toDateTimeString(),
-            ];
+        // Pull usage from service configuration if the provisioning layer stores it there.
+        // Replace this block with a real monitoring API call when available.
+        $usage = $service->configuration['usage'] ?? null;
 
+        if (!$usage) {
             return response()->json([
-                "success" => true,
-                "data" => $usageData
+                'success' => true,
+                'data'    => null,
+                'message' => 'No hay datos de uso disponibles para este servicio.',
             ]);
-        } catch (\Exception $e) {
-            Log::error("Error fetching service usage: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error fetching service usage"
-            ], 500);
         }
+
+        return response()->json(['success' => true, 'data' => $usage]);
     }
 
     /**
-     * Get service backups
+     * List backups for a service.
+     * Integrate with your backup provider (Veeam, Acronis, cPanel, etc.) here.
      */
     public function getServiceBackups(string $serviceId): JsonResponse
     {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
+        $user    = Auth::user();
+        $service = Service::where("user_id", $user->id)
+            ->where("uuid", $serviceId)
+            ->firstOrFail();
 
-            // Dummy data for backups. In a real app, this would fetch from a backup system.
-            $backups = [
-                ["id" => Str::uuid(), "date" => now()->subDays(1)->toDateTimeString(), "size_mb" => 500, "type" => "full"],
-                ["id" => Str::uuid(), "date" => now()->subDays(3)->toDateTimeString(), "size_mb" => 200, "type" => "incremental"],
-                ["id" => Str::uuid(), "date" => now()->subDays(7)->toDateTimeString(), "size_mb" => 700, "type" => "full"],
-            ];
+        $backups = $service->configuration['backups'] ?? [];
 
-            return response()->json([
-                "success" => true,
-                "data" => $backups
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error fetching service backups: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error fetching service backups"
-            ], 500);
-        }
+        return response()->json(['success' => true, 'data' => $backups]);
     }
 
     /**
-     * Create a service backup
+     * Request a backup job for a service.
+     * Dispatches a queued job when a backup provider is integrated.
      */
     public function createServiceBackup(string $serviceId): JsonResponse
     {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
+        $user    = Auth::user();
+        $service = Service::where("user_id", $user->id)
+            ->where("uuid", $serviceId)
+            ->firstOrFail();
 
-            // Simulate backup creation process
-            sleep(2); // Simulate a delay
+        // TODO: dispatch(\App\Jobs\CreateServiceBackup::class)->onQueue('backups') when provisioning is integrated.
 
-            $newBackup = [
-                "id" => Str::uuid(),
-                "date" => now()->toDateTimeString(),
-                "size_mb" => rand(100, 1000),
-                "type" => "full",
-                "status" => "completed"
-            ];
+        ActivityLog::record(
+            "Solicitud de copia de seguridad",
+            "El usuario solicitó una copia de seguridad para el servicio {$service->name}.",
+            "service",
+            ["user_id" => $user->id, "service_id" => $service->id],
+            $user->id
+        );
 
-            ActivityLog::record(
-                "Copia de seguridad de servicio creada",
-                "Copia de seguridad para el servicio " . $service->name . " (" . $service->uuid . ") creada.",
-                "service",
-                ["user_id" => $user->id, "service_id" => $service->id, "backup_id" => $newBackup["id"]],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Backup created successfully",
-                "data" => $newBackup
-            ], 201);
-        } catch (\Exception $e) {
-            Log::error("Error creating service backup: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error creating service backup"
-            ], 500);
-        }
+        return response()->json([
+            "success" => true,
+            "message" => "Solicitud de copia de seguridad registrada. Se te notificará cuando esté lista.",
+        ], 202);
     }
 
     /**
-     * Restore a service backup
+     * Request a backup restore for a service.
+     * Dispatches a queued job when a backup provider is integrated.
      */
     public function restoreServiceBackup(string $serviceId, string $backupId): JsonResponse
     {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
+        $user    = Auth::user();
+        $service = Service::where("user_id", $user->id)
+            ->where("uuid", $serviceId)
+            ->firstOrFail();
 
-            // Simulate backup restoration process
-            sleep(3); // Simulate a delay
+        // TODO: dispatch(\App\Jobs\RestoreServiceBackup::class, $backupId)->onQueue('backups') when integrated.
 
-            ActivityLog::record(
-                "Restauración de servicio desde copia de seguridad",
-                "Servicio " . $service->name . " (" . $service->uuid . ") restaurado desde la copia de seguridad " . $backupId . ".",
-                "service",
-                ["user_id" => $user->id, "service_id" => $service->id, "backup_id" => $backupId],
-                $user->id
-            );
+        ActivityLog::record(
+            "Solicitud de restauración de servicio",
+            "El usuario solicitó restaurar el servicio {$service->name} desde la copia {$backupId}.",
+            "service",
+            ["user_id" => $user->id, "service_id" => $service->id, "backup_id" => $backupId],
+            $user->id
+        );
 
-            return response()->json([
-                "success" => true,
-                "message" => "Service restored successfully from backup " . $backupId
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error restoring service backup: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error restoring service backup"
-            ], 500);
-        }
+        return response()->json([
+            "success" => true,
+            "message" => "Solicitud de restauración registrada. Se te notificará cuando esté lista.",
+        ], 202);
     }
 
 }
