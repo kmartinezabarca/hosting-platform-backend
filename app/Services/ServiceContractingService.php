@@ -240,13 +240,15 @@ class ServiceContractingService
         // Aquí si falla simplemente lo logueamos: el pago ya fue procesado y el
         // servicio ya existe. La suscripción se puede configurar manualmente después.
         if (! empty($validated['create_subscription'])) {
-            if (empty($plan->stripe_price_id)) {
-                \Illuminate\Support\Facades\Log::warning('create_subscription ignorado: el plan no tiene stripe_price_id configurado.', [
+            // one_time billing cycles don't create recurring subscriptions
+            if (($validated['billing_cycle'] ?? '') === 'one_time') {
+                \Illuminate\Support\Facades\Log::info('create_subscription ignorado: ciclo one_time no genera suscripción recurrente.', [
                     'plan_id'    => $plan->id,
-                    'plan_slug'  => $plan->slug,
                     'service_id' => $result['service']->id,
                 ]);
             } else {
+                // createStripeSubscription resolves the correct stripe_price_id per cycle
+                // and auto-syncs the plan to Stripe if it has no price yet.
                 try {
                     $this->createStripeSubscription(
                         $user, $plan, $result['service'],
@@ -406,13 +408,26 @@ class ServiceContractingService
         User $user, ServicePlan $plan, Service $service,
         ?string $customerId, float $total, string $currency, string $billingCycle
     ): void {
-        if (!$plan->stripe_price_id) {
-            throw new \RuntimeException('El plan no tiene stripe_price_id configurado.');
+        // Resolve the Stripe Price for the selected billing cycle.
+        // Priority: plan_pricing.stripe_price_id → service_plans.stripe_price_id (fallback).
+        // If neither exists, auto-sync the plan to Stripe first.
+        $stripePriceId = app(\App\Services\StripeSyncService::class)->resolvePriceId($plan, $billingCycle);
+
+        if (! $stripePriceId) {
+            // Try to auto-sync the plan and pick up the price
+            \Illuminate\Support\Facades\Log::info("createStripeSubscription: no stripe_price_id for plan #{$plan->id}, attempting auto-sync.");
+            app(\App\Services\StripeSyncService::class)->syncPlan($plan->load('pricing.billingCycle'));
+            $plan->refresh();
+            $stripePriceId = app(\App\Services\StripeSyncService::class)->resolvePriceId($plan, $billingCycle);
+        }
+
+        if (! $stripePriceId) {
+            throw new \RuntimeException("El plan '{$plan->name}' no tiene stripe_price_id para el ciclo '{$billingCycle}'. Ejecuta: php artisan stripe:sync-plans");
         }
 
         $stripeSub = \Stripe\Subscription::create([
             'customer'         => $customerId,
-            'items'            => [['price' => $plan->stripe_price_id]],
+            'items'            => [['price' => $stripePriceId]],
             'payment_behavior' => 'default_incomplete',
             'expand'           => ['latest_invoice.payment_intent'],
         ]);
@@ -423,7 +438,7 @@ class ServiceContractingService
             'service_id'             => $service->id,
             'stripe_subscription_id' => $stripeSub->id,
             'stripe_customer_id'     => $customerId,
-            'stripe_price_id'        => $plan->stripe_price_id,
+            'stripe_price_id'        => $stripePriceId,
             'name'                   => $plan->name,
             'status'                 => $stripeSub->status,
             'amount'                 => $total,

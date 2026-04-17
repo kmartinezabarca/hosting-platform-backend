@@ -23,7 +23,8 @@ class ServicePlan extends Model
         'description',
         'base_price',
         'setup_fee',
-        'stripe_price_id',   // ID del Price de Stripe para suscripciones recurrentes (nullable)
+        'stripe_price_id',    // Stripe Price ID — default/monthly (fallback para suscripciones)
+        'stripe_product_id',  // Stripe Product ID — uno por plan
         'is_popular',
         'is_active',
         'sort_order',

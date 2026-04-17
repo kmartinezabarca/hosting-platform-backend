@@ -27,6 +27,7 @@ class PlanPricing extends Model
         'service_plan_id',
         'billing_cycle_id',
         'price',
+        'stripe_price_id',
     ];
 
     /**
