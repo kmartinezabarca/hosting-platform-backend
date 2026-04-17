@@ -66,7 +66,7 @@ class SupportChatController extends Controller
             ], 403);
         }
 
-        $messages = TicketReply::with('user:id,first_name,last_name,avatar')
+        $messages = TicketReply::with('user:id,first_name,last_name,avatar_url')
             ->where('ticket_id', $ticket->id)
             ->orderBy('created_at', 'asc')
             ->paginate(50);
@@ -117,7 +117,7 @@ class SupportChatController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $reply->load('user:id,first_name,last_name,avatar'),
+            'data'    => $reply->load('user:id,first_name,last_name,avatar_url'),
             'message' => 'Mensaje enviado.',
         ]);
     }
@@ -205,7 +205,7 @@ class SupportChatController extends Controller
         $tickets = Ticket::where('user_id', $user->id)
             ->with(['latestReply' => function ($q) {
                 $q->select('id', 'ticket_id', 'user_id', 'message', 'created_at')
-                  ->with('user:id,first_name,last_name,avatar');
+                  ->with('user:id,first_name,last_name,avatar_url');
             }])
             ->orderByDesc('last_reply_at')
             ->orderByDesc('created_at')

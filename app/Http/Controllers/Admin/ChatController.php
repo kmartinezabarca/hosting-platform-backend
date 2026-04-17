@@ -21,7 +21,7 @@ class ChatController extends Controller
     {
         $query = Ticket::query()
             ->with([
-                'user:id,first_name,last_name,email,avatar',
+                'user:id,first_name,last_name,email,avatar_url',
                 'latestReply' => function ($q) {
                     $q->select(
                         'ticket_replies.id',
@@ -29,7 +29,7 @@ class ChatController extends Controller
                         'ticket_replies.user_id',
                         'ticket_replies.message',
                         'ticket_replies.created_at'
-                    )->with('user:id,first_name,last_name,avatar');
+                    )->with('user:id,first_name,last_name,avatar_url');
                 },
             ])
             ->whereIn('status', ['open', 'in_progress', 'waiting_customer'])
@@ -69,7 +69,7 @@ class ChatController extends Controller
     {
         $query = Ticket::query()
             ->with([
-                'user:id,first_name,last_name,email,avatar',
+                'user:id,first_name,last_name,email,avatar_url',
                 'latestReply' => function ($q) {
                     $q->select(
                         'ticket_replies.id',
@@ -77,7 +77,7 @@ class ChatController extends Controller
                         'ticket_replies.user_id',
                         'ticket_replies.message',
                         'ticket_replies.created_at'
-                    )->with('user:id,first_name,last_name,avatar');
+                    )->with('user:id,first_name,last_name,avatar_url');
                 },
             ])
             ->when($request->filled('status'), function ($q) use ($request) {
@@ -126,7 +126,7 @@ class ChatController extends Controller
      */
     public function getMessages(Ticket $ticket): JsonResponse
     {
-        $messages = TicketReply::with('user:id,first_name,last_name,avatar')
+        $messages = TicketReply::with('user:id,first_name,last_name,avatar_url')
             ->where('ticket_id', $ticket->id)
             ->orderBy('created_at', 'asc')
             ->paginate(50);
@@ -171,7 +171,7 @@ class ChatController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $reply->load('user:id,first_name,last_name,avatar'),
+            'data'    => $reply->load('user:id,first_name,last_name,avatar_url'),
             'message' => 'Mensaje enviado.',
         ]);
     }
