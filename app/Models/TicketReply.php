@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -9,9 +10,10 @@ use Illuminate\Support\Facades\Storage;
 
 class TicketReply extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasUuidColumn;
 
     protected $fillable = [
+        'uuid',
         'ticket_id',
         'user_id',
         'message',

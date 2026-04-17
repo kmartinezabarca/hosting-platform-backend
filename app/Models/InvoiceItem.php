@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InvoiceItem extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuidColumn;
 
     protected $fillable = [
+        'uuid',
         'invoice_id',
         'service_id',
         'description',

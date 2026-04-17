@@ -151,6 +151,8 @@ class ServicePlan extends Model
     public function addOns()
     {
         return $this->belongsToMany(AddOn::class, 'add_on_plan')
-            ->withPivot('is_default')->withTimestamps();
+            ->using(AddOnPlan::class)
+            ->withPivot('uuid', 'is_default')
+            ->withTimestamps();
     }
 }

@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PlanFeature extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuidColumn;
 
     /**
      * The attributes that are mass assignable.
@@ -15,6 +16,7 @@ class PlanFeature extends Model
      * @var array<int, string>
      */
     protected $fillable = [
+        'uuid',
         'service_plan_id',
         'feature',
         'is_highlighted',

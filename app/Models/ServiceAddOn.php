@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Model;
 
 class ServiceAddOn extends Model
 {
+    use HasUuidColumn;
+
     protected $guarded = [];
 
     // protected $fillable = [

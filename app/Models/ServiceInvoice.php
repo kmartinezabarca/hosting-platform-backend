@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class ServiceInvoice extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuidColumn;
 
     // ── Estados CFDI ────────────────────────────────────────────────────────
     /** El cliente nunca proporcionó datos — esperando 72 h para timbrar como PG */
@@ -29,6 +30,7 @@ class ServiceInvoice extends Model
     public const PUBLICO_GENERAL_USO     = 'S01';     // Sin efectos fiscales
 
     protected $fillable = [
+        'uuid',
         'service_id',
         'rfc',
         'name',

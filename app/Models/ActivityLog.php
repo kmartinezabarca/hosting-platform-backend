@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Auth;
@@ -9,10 +10,10 @@ use Illuminate\Support\Str;
 
 class ActivityLog extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuidColumn;
 
     protected $fillable = [
-        'user_id', 'action', 'service', 'type', 'meta', 'occurred_at',
+        'uuid', 'user_id', 'action', 'service', 'type', 'meta', 'occurred_at',
     ];
 
     protected $casts = [

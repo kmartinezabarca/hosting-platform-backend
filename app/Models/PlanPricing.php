@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PlanPricing extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuidColumn;
 
     /**
      * The table associated with the model.
@@ -22,6 +23,7 @@ class PlanPricing extends Model
      * @var array<int, string>
      */
     protected $fillable = [
+        'uuid',
         'service_plan_id',
         'billing_cycle_id',
         'price',
