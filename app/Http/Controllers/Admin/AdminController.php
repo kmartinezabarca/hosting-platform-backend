@@ -3,27 +3,37 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\StoreInvoiceRequest;
+use App\Http\Requests\Admin\StoreServiceRequest;
+use App\Http\Resources\ServiceResource;
+use App\Models\ServicePlan;
 use App\Http\Requests\Admin\StoreUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
+use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\TicketResource;
 use App\Http\Resources\UserResource;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\Ticket;
 use App\Models\TicketReply;
 use App\Models\User;
 use App\Notifications\InvoiceReady;
 use App\Services\DashboardStatsService;
+use App\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class AdminController extends Controller
 {
-    public function __construct(private readonly DashboardStatsService $dashboardStats)
-    {
+    public function __construct(
+        private readonly DashboardStatsService $dashboardStats,
+        private readonly InvoiceService $invoiceService,
+    ) {
     }
 
     // ──────────────────────────────────────────────
@@ -177,6 +187,167 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $service]);
     }
 
+    public function createService(StoreServiceRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        // ── 1. Cargar plan con su categoría para determinar el tipo ──────────
+        $plan = ServicePlan::with('category')->findOrFail($data['service_plan_id']);
+        unset($data['service_plan_id']);
+
+        $categorySlug = $plan->category?->slug ?? '';
+        $isInfra      = in_array($categorySlug, Service::INFRA_SLUGS, true);
+        $isPro        = in_array($categorySlug, Service::PROFESSIONAL_SLUGS, true);
+
+        // ── 2. Validación específica por tipo ────────────────────────────────
+        if ($isInfra && ! empty($data['domain'])) {
+            // El dominio debe ser único entre servicios de infraestructura activos
+            $exists = Service::whereHas('plan.category', fn($q) => $q->whereIn('slug', Service::INFRA_SLUGS))
+                ->where('domain', $data['domain'])
+                ->whereNull('terminated_at')
+                ->exists();
+
+            if ($exists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validación fallida.',
+                    'errors'  => ['domain' => ['Este dominio ya está registrado en un servicio activo.']],
+                ], 422);
+            }
+        }
+
+        if ($isPro && $data['billing_cycle'] !== 'one_time' && $isInfra === false) {
+            // Para servicios profesionales one_time, next_due_date = fecha de entrega acordada
+            // Si no se envía y es one_time, calculamos 30 días por defecto
+        }
+
+        // ── 3. Precios desde el plan si no se sobreescriben ──────────────────
+        $data['price']     = $data['price']     ?? (float) $plan->base_price;
+        $data['setup_fee'] = $data['setup_fee'] ?? (float) $plan->setup_fee;
+
+        // ── 4. Nombre automático por tipo ────────────────────────────────────
+        if (empty($data['name'])) {
+            $user = User::find($data['user_id']);
+            $data['name'] = $isInfra && ! empty($data['domain'])
+                ? "{$plan->name} — {$data['domain']}"
+                : "{$plan->name} — " . ($user?->full_name ?? $user?->email ?? 'cliente');
+        }
+
+        // ── 5. next_due_date por billing_cycle ───────────────────────────────
+        if (empty($data['next_due_date'])) {
+            $data['next_due_date'] = match ($data['billing_cycle']) {
+                'monthly'       => now()->addMonth()->toDateString(),
+                'quarterly'     => now()->addMonths(3)->toDateString(),
+                'semi_annually' => now()->addMonths(6)->toDateString(),
+                'annually'      => now()->addYear()->toDateString(),
+                'one_time'      => now()->addDays(30)->toDateString(), // Entrega estimada en 30 días
+                default         => now()->addMonth()->toDateString(),
+            };
+        }
+
+        // ── 6. Defaults de configuración según tipo ──────────────────────────
+        $configDefaults = $this->configDefaults($categorySlug);
+        $data['configuration'] = array_merge(
+            $configDefaults,
+            $data['configuration'] ?? []
+        );
+
+        // ── 7. Crear servicio ────────────────────────────────────────────────
+        $service = Service::create(array_merge($data, ['plan_id' => $plan->id]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Servicio creado exitosamente.',
+            'data'    => new ServiceResource($service->load('plan.category', 'user')),
+        ], 201);
+    }
+
+    public function updateService(Request $request, int $id): JsonResponse
+    {
+        $service = Service::with('plan.category')->findOrFail($id);
+        $categorySlug = $service->plan?->category?->slug ?? '';
+        $isInfra      = in_array($categorySlug, Service::INFRA_SLUGS, true);
+
+        $validated = $request->validate([
+            'name'            => ['sometimes', 'string', 'max:255'],
+            'domain'          => ['sometimes', 'nullable', 'string', 'max:255'],
+            'status'          => ['sometimes', Rule::in(['pending', 'active', 'suspended', 'terminated', 'failed'])],
+            'billing_cycle'   => ['sometimes', Rule::in(['monthly', 'quarterly', 'semi_annually', 'annually', 'one_time'])],
+            'price'           => ['sometimes', 'numeric', 'min:0'],
+            'setup_fee'       => ['sometimes', 'numeric', 'min:0'],
+            'next_due_date'   => ['sometimes', 'date'],
+            'notes'           => ['nullable', 'string', 'max:2000'],
+            'external_id'     => ['nullable', 'string', 'max:255'],
+            'configuration'   => ['nullable', 'array'],
+            'server_node_id'  => ['nullable', 'integer', 'exists:server_nodes,id'],
+            'service_plan_id' => ['sometimes', 'integer', 'exists:service_plans,id'],
+        ]);
+
+        // Dominio único para infraestructura
+        if ($isInfra && isset($validated['domain']) && $validated['domain'] !== null) {
+            $exists = Service::whereHas('plan.category', fn($q) => $q->whereIn('slug', Service::INFRA_SLUGS))
+                ->where('domain', $validated['domain'])
+                ->where('id', '!=', $service->id)
+                ->whereNull('terminated_at')
+                ->exists();
+
+            if ($exists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validación fallida.',
+                    'errors'  => ['domain' => ['Este dominio ya está registrado en otro servicio activo.']],
+                ], 422);
+            }
+        }
+
+        // Cambio de plan
+        if (isset($validated['service_plan_id'])) {
+            $plan = ServicePlan::findOrFail($validated['service_plan_id']);
+            $validated['plan_id'] = $plan->id;
+            unset($validated['service_plan_id']);
+        }
+
+        // Marcar terminated_at cuando se termina
+        if (isset($validated['status']) && $validated['status'] === 'terminated' && ! $service->terminated_at) {
+            $validated['terminated_at'] = now();
+        }
+
+        // Merge de configuration — no reemplazar todo, solo sobreescribir claves enviadas
+        if (isset($validated['configuration'])) {
+            $validated['configuration'] = array_merge(
+                $service->configuration ?? [],
+                $validated['configuration']
+            );
+        }
+
+        $service->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Servicio actualizado.',
+            'data'    => new ServiceResource($service->fresh()->load('plan.category', 'user')),
+        ]);
+    }
+
+    public function deleteService(int $id): JsonResponse
+    {
+        $service = Service::findOrFail($id);
+
+        if ($service->status === 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede eliminar un servicio activo. Suspéndelo o termínalo primero.',
+            ], 422);
+        }
+
+        $service->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Servicio eliminado correctamente.',
+        ]);
+    }
+
     public function updateServiceStatus(Request $request, int $serviceId): JsonResponse
     {
         $service = Service::findOrFail($serviceId);
@@ -225,6 +396,130 @@ class AdminController extends Controller
             ->paginate($perPage);
 
         return response()->json(['success' => true, 'data' => $invoices]);
+    }
+
+    public function createInvoice(StoreInvoiceRequest $request): JsonResponse
+    {
+        $data  = $request->validated();
+        $items = $data['items'];
+        unset($data['items']);
+
+        // ── Cálculo fiscal México ─────────────────────────────────────────
+        // Subtotal = suma de (cantidad × precio unitario) por concepto
+        $subtotal = collect($items)->sum(fn($i) => round((float) $i['quantity'] * (float) $i['unit_price'], 2));
+
+        // IVA: 16 % estándar en México si no se especifica
+        $taxRate   = isset($data['tax_rate']) ? (float) $data['tax_rate'] : 16.0;
+        $taxAmount = round($subtotal * $taxRate / 100, 2);
+        $total     = round($subtotal + $taxAmount, 2);
+
+        $invoiceData = array_merge($data, [
+            'subtotal'   => $subtotal,
+            'tax_rate'   => $taxRate,
+            'tax_amount' => $taxAmount,
+            'total'      => $total,
+            'currency'   => $data['currency'] ?? config('billing.currency', 'MXN'),
+            'paid_at'    => ($data['status'] === Invoice::STATUS_PAID) ? now() : null,
+        ]);
+
+        $invoice = $this->invoiceService->createWithItems($invoiceData, $items);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Factura creada exitosamente.',
+            'data'    => new InvoiceResource($invoice->load('items', 'user')),
+        ], 201);
+    }
+
+    public function updateInvoice(Request $request, int $id): JsonResponse
+    {
+        $invoice = Invoice::with('items')->findOrFail($id);
+
+        $validated = $request->validate([
+            'status'            => ['sometimes', Rule::in([
+                                        Invoice::STATUS_DRAFT,
+                                        Invoice::STATUS_SENT,
+                                        Invoice::STATUS_PROCESS,
+                                        Invoice::STATUS_PAID,
+                                        Invoice::STATUS_OVERDUE,
+                                        Invoice::STATUS_CANCELLED,
+                                    ])],
+            'due_date'          => ['sometimes', 'date'],
+            'notes'             => ['nullable', 'string', 'max:1000'],
+            'payment_method'    => ['nullable', 'string', 'max:100'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+            // Reconceptos: si se envían se reemplaza el listado completo
+            'items'             => ['sometimes', 'array', 'min:1'],
+            'items.*.description' => ['required_with:items', 'string', 'max:500'],
+            'items.*.quantity'    => ['required_with:items', 'integer', 'min:1'],
+            'items.*.unit_price'  => ['required_with:items', 'numeric', 'min:0'],
+            'items.*.service_id'  => ['nullable', 'integer', 'exists:services,id'],
+        ]);
+
+        DB::transaction(function () use ($invoice, $validated) {
+            // Recalcular montos si vienen partidas nuevas
+            if (isset($validated['items'])) {
+                $subtotal  = collect($validated['items'])->sum(
+                    fn($i) => round((float) $i['quantity'] * (float) $i['unit_price'], 2)
+                );
+                $taxRate   = (float) $invoice->tax_rate;
+                $taxAmount = round($subtotal * $taxRate / 100, 2);
+                $total     = round($subtotal + $taxAmount, 2);
+
+                $invoice->items()->delete();
+
+                foreach ($validated['items'] as $item) {
+                    InvoiceItem::create([
+                        'invoice_id'  => $invoice->id,
+                        'service_id'  => $item['service_id'] ?? null,
+                        'description' => $item['description'],
+                        'quantity'    => (int) $item['quantity'],
+                        'unit_price'  => (float) $item['unit_price'],
+                        'total'       => round((float) $item['quantity'] * (float) $item['unit_price'], 2),
+                    ]);
+                }
+
+                $validated = array_merge($validated, [
+                    'subtotal'   => $subtotal,
+                    'tax_amount' => $taxAmount,
+                    'total'      => $total,
+                ]);
+                unset($validated['items']);
+            }
+
+            // Marcar paid_at cuando cambia estado a pagado
+            if (isset($validated['status']) && $validated['status'] === Invoice::STATUS_PAID && ! $invoice->paid_at) {
+                $validated['paid_at'] = now();
+            }
+
+            $invoice->update($validated);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Factura actualizada.',
+            'data'    => new InvoiceResource($invoice->fresh()->load('items', 'user')),
+        ]);
+    }
+
+    public function deleteInvoice(int $id): JsonResponse
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        if ($invoice->status === Invoice::STATUS_PAID) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede eliminar una factura que ya ha sido pagada. Usa cancelar en su lugar.',
+            ], 422);
+        }
+
+        $invoice->items()->delete();
+        $invoice->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Factura eliminada correctamente.',
+        ]);
     }
 
     public function updateInvoiceStatus(Request $request, int $invoiceId): JsonResponse
@@ -415,25 +710,53 @@ class AdminController extends Controller
 
     public function createTicket(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'user_id'     => ['required', 'exists:users,id'],
+        // Normalizar strings vacíos → null ANTES de validar
+        // El frontend envía "" para campos opcionales no completados
+        $input = $request->merge([
+            'assigned_to' => $request->input('assigned_to') ?: null,
+            'service_id'  => $request->input('service_id')  ?: null,
+            'category'    => $request->input('category')    ?: null,
+            'department'  => $request->input('department')  ?: null,
+        ])->all();
+
+        $validated = validator($input, [
+            'user_id'     => ['required', 'integer', 'exists:users,id'],
+            'service_id'  => ['nullable', 'integer', 'exists:services,id'],
             'subject'     => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
-            'priority'    => ['sometimes', Rule::in(['low', 'medium', 'high', 'urgent'])],
-            'status'      => ['sometimes', Rule::in(['open', 'in_progress', 'resolved', 'closed', 'pending'])],
-            'assigned_to' => ['nullable', 'exists:users,id'],
-        ]);
+            'priority'    => ['sometimes', 'nullable', Rule::in(['low', 'medium', 'high', 'urgent'])],
+            'status'      => ['sometimes', 'nullable', Rule::in(['open', 'in_progress', 'waiting_customer', 'resolved', 'closed'])],
+            'category'    => ['nullable', Rule::in(['technical', 'billing', 'general', 'feature_request', 'bug_report'])],
+            'department'  => ['nullable', Rule::in(['technical', 'billing', 'sales', 'abuse', 'general'])],
+            'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
+        ], [
+            'user_id.required'    => 'El cliente es obligatorio.',
+            'user_id.exists'      => 'El cliente seleccionado no existe.',
+            'subject.required'    => 'El asunto del ticket es obligatorio.',
+            'description.required'=> 'La descripción del ticket es obligatoria.',
+            'priority.in'         => 'Prioridad inválida. Use: low, medium, high o urgent.',
+            'status.in'           => 'Estado inválido. Use: open, in_progress, waiting_customer, resolved o closed.',
+            'category.in'         => 'Categoría inválida.',
+            'assigned_to.exists'  => 'El agente asignado no existe.',
+        ])->validate();
 
-        $ticket = Ticket::create(array_merge($validated, [
+        // Número secuencial: TKT-YYYYMM-NNNN
+        $prefix = 'TKT-' . now()->format('Ym') . '-';
+        $last   = \App\Models\Ticket::where('ticket_number', 'like', $prefix . '%')
+                    ->orderByDesc('ticket_number')->value('ticket_number');
+        $seq    = $last ? ((int) substr($last, -4)) + 1 : 1;
+
+        $ticket = \App\Models\Ticket::create(array_merge($validated, [
             'priority'      => $validated['priority']  ?? 'medium',
             'status'        => $validated['status']    ?? 'open',
-            'ticket_number' => 'TKT-' . strtoupper(Str::random(8)),
+            'department'    => $validated['department'] ?? 'technical',
+            'ticket_number' => $prefix . str_pad($seq, 4, '0', STR_PAD_LEFT),
         ]));
 
         return response()->json([
             'success' => true,
             'message' => 'Ticket creado.',
-            'data'    => new TicketResource($ticket->load(['user', 'assignedTo'])),
+            'data'    => new TicketResource($ticket->load(['user', 'assignedTo', 'service'])),
         ], 201);
     }
 
@@ -471,5 +794,106 @@ class AdminController extends Controller
         ]);
 
         return response()->json(['success' => true, 'data' => $categories]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Private helpers
+    // ──────────────────────────────────────────────
+
+    /**
+     * Devuelve la estructura de configuration por defecto según el slug de categoría.
+     * El frontend usa estas claves para saber qué campos mostrar en el formulario.
+     */
+    private function configDefaults(string $categorySlug): array
+    {
+        return match ($categorySlug) {
+            // ── Infraestructura ─────────────────────────────────────────────
+            'hosting' => [
+                'panel_url'     => null,   // https://cpanel.roke.mx/user
+                'ip_address'    => null,
+                'disk_gb'       => null,
+                'bandwidth_gb'  => null,
+                'email_accounts'=> null,
+                'subdomains'    => null,
+                'php_version'   => null,
+            ],
+            'vps' => [
+                'ip_address'    => null,
+                'ssh_port'      => 22,
+                'os'            => null,   // 'Ubuntu 22.04', 'AlmaLinux 9', etc.
+                'cpu_cores'     => null,
+                'ram_gb'        => null,
+                'disk_gb'       => null,
+                'proxmox_vmid'  => null,
+                'panel_url'     => null,
+            ],
+            'database' => [
+                'host'          => null,
+                'port'          => 3306,
+                'engine'        => null,   // 'MySQL 8.0', 'PostgreSQL 16', 'MongoDB 7'
+                'database_name' => null,
+                'storage_gb'    => null,
+                'backups'       => true,
+            ],
+            'gameserver' => [
+                'server_ip'     => null,
+                'server_port'   => null,
+                'game'          => null,   // 'Minecraft', 'Valheim', 'CS2', etc.
+                'pterodactyl_id'=> null,
+                'max_players'   => null,
+                'ram_mb'        => null,
+                'mod_pack'      => null,
+            ],
+
+            // ── Servicios Profesionales ─────────────────────────────────────
+            'database-architecture' => [
+                'start_date'         => null,
+                'end_date'           => null,
+                'deliverables'       => [],  // ['Diagrama ERD', 'Plan de indexación']
+                'hours_included'     => null,
+                'contract_reference' => null,
+                'project_manager'    => null,
+                'tech_stack'         => [],  // ['MySQL', 'PostgreSQL', 'Redis']
+            ],
+            'software-development' => [
+                'start_date'         => null,
+                'end_date'           => null,
+                'deliverables'       => [],
+                'hours_included'     => null,
+                'contract_reference' => null,
+                'project_manager'    => null,
+                'repository_url'     => null,
+                'tech_stack'         => [],
+                'methodology'        => null, // 'Scrum', 'Kanban', 'Waterfall'
+            ],
+            'security-devops' => [
+                'start_date'         => null,
+                'end_date'           => null,
+                'deliverables'       => [],  // ['Informe de vulnerabilidades', 'Pipeline CI/CD']
+                'hours_included'     => null,
+                'contract_reference' => null,
+                'project_manager'    => null,
+                'scope'              => null, // 'Auditoría', 'CI/CD', 'IaC', 'Full DevOps'
+            ],
+            'migration-modernization' => [
+                'start_date'         => null,
+                'end_date'           => null,
+                'deliverables'       => [],
+                'hours_included'     => null,
+                'contract_reference' => null,
+                'project_manager'    => null,
+                'source_environment' => null, // 'On-premise', 'AWS', 'cPanel legacy'
+                'target_environment' => null, // 'AWS', 'GCP', 'Kubernetes'
+            ],
+            'critical-support' => [
+                'sla_response_minutes' => 15,   // Tiempo máx. de respuesta en minutos
+                'sla_uptime_percent'   => 99.9,
+                'contact_channels'     => ['email', 'phone', 'slack'],
+                'escalation_contact'   => null,
+                'monitoring_tool'      => null,  // 'Datadog', 'Zabbix', 'custom'
+                'covered_systems'      => [],
+            ],
+            default => [],
+        };
     }
 }

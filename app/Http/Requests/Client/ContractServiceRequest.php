@@ -16,7 +16,7 @@ class ContractServiceRequest extends FormRequest
     {
         return [
             'plan_id'       => ['required', 'string', Rule::exists('service_plans', 'slug')],
-            'billing_cycle' => ['required', Rule::in(['monthly', 'quarterly', 'annually'])],
+            'billing_cycle' => ['required', Rule::in(['monthly', 'quarterly', 'semi_annually', 'annually'])],
             'domain'        => ['nullable', 'string', 'max:255'],
             'service_name'  => ['required', 'string', 'max:255'],
 
@@ -30,8 +30,10 @@ class ContractServiceRequest extends FormRequest
             'add_ons'   => ['sometimes', 'array'],
             'add_ons.*' => ['string', 'distinct', 'uuid'],
 
-            // Fiscal data (all-or-nothing via required_with)
-            'invoice'            => ['sometimes', 'array'],
+            // Datos fiscales para CFDI.
+            // null o ausente → se timbrará como Público en General pasadas 72 horas.
+            // Si se envía, debe ser un objeto con todos los campos requeridos.
+            'invoice'            => ['sometimes', 'nullable', 'array'],
             'invoice.rfc'        => ['required_with:invoice', 'string', 'max:13'],
             'invoice.name'       => ['required_with:invoice', 'string', 'max:255'],
             'invoice.zip'        => ['required_with:invoice', 'string', 'size:5'],

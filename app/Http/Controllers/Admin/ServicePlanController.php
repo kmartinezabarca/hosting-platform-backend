@@ -284,13 +284,28 @@ class ServicePlanController extends Controller
 
             // Update pricing if provided
             if ($request->has('pricing')) {
-                $servicePlan->pricing()->delete();
+                $incomingCycleIds = [];
+
                 foreach ($request->pricing as $pricing) {
-                    PlanPricing::create([
-                        'service_plan_id' => $servicePlan->id,
-                        'billing_cycle_id' => $pricing['billing_cycle_id'],
-                        'price' => $pricing['price']
-                    ]);
+                    $cycleId = (int) $pricing['billing_cycle_id'];
+
+                    // updateOrCreate evita violar la constraint única service_plan_id+billing_cycle_id
+                    PlanPricing::updateOrCreate(
+                        [
+                            'service_plan_id'  => $servicePlan->id,
+                            'billing_cycle_id' => $cycleId,
+                        ],
+                        ['price' => (float) $pricing['price']]
+                    );
+
+                    $incomingCycleIds[] = $cycleId;
+                }
+
+                // Eliminar ciclos que ya no están en la nueva lista
+                if (! empty($incomingCycleIds)) {
+                    $servicePlan->pricing()
+                        ->whereNotIn('billing_cycle_id', $incomingCycleIds)
+                        ->delete();
                 }
             }
 

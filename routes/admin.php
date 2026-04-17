@@ -41,8 +41,12 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     Route::put("/users/{id}/status", [AdminController::class, "updateUserStatus"]);
 
     // Services management
-    Route::get("/services", [AdminController::class, "getServices"]);
-    Route::put("/services/{id}/status", [AdminController::class, "updateServiceStatus"]);
+    Route::get("/services",              [AdminController::class, "getServices"]);
+    Route::post("/services",             [AdminController::class, "createService"]);
+    Route::get("/services/{id}",         [AdminController::class, "getService"]);
+    Route::put("/services/{id}",         [AdminController::class, "updateService"]);
+    Route::delete("/services/{id}",      [AdminController::class, "deleteService"]);
+    Route::put("/services/{id}/status",  [AdminController::class, "updateServiceStatus"]);
 
     // Invoices management
     Route::get("/invoices", [AdminController::class, "getInvoices"]);
@@ -55,13 +59,15 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     Route::post("/invoices/{id}/cancel", [AdminController::class, "cancelInvoice"]);
 
     // Tickets management
-    Route::get("/tickets", [AdminController::class, "getTickets"]);
-    Route::put("/tickets/{id}/status", [AdminController::class, "updateTicketStatus"]);
-    Route::put("/tickets/{id}/priority", [AdminController::class, "updateTicketPriority"]);
-    Route::post("/tickets/{id}/assign", [AdminController::class, "assignTicket"]);
-    Route::post("/tickets/{id}/reply", [AdminController::class, "addTicketReply"]);
-    Route::get("/tickets/categories", [AdminController::class, "getTicketCategories"]);
-    Route::get("/support-agents", [AdminController::class, "getSupportAgents"]);
+    Route::get("/tickets",                  [AdminController::class, "getTickets"]);
+    Route::post("/tickets",                 [AdminController::class, "createTicket"]);
+    Route::delete("/tickets/{id}",          [AdminController::class, "deleteTicket"]);
+    Route::put("/tickets/{id}/status",      [AdminController::class, "updateTicketStatus"]);
+    Route::put("/tickets/{id}/priority",    [AdminController::class, "updateTicketPriority"]);
+    Route::post("/tickets/{id}/assign",     [AdminController::class, "assignTicket"]);
+    Route::post("/tickets/{id}/reply",      [AdminController::class, "addTicketReply"]);
+    Route::get("/tickets/categories",       [AdminController::class, "getTicketCategories"]);
+    Route::get("/support-agents",           [AdminController::class, "getSupportAgents"]);
 
     // Agents management - API completa para agentes
     Route::prefix("tickets/agents")->group(function () {

@@ -10,6 +10,25 @@ class Service extends Model
 {
     use HasFactory;
 
+    // ── Clasificación de categorías ───────────────────────────────────────
+    /**
+     * Servicios de infraestructura: tienen IP, dominio, nodo de servidor.
+     * Facturación recurrente.
+     */
+    public const INFRA_SLUGS = ['hosting', 'vps', 'database', 'gameserver'];
+
+    /**
+     * Servicios profesionales: consultoría, desarrollo, soporte.
+     * Facturación puede ser recurrente (retainer) o pago único (proyecto).
+     */
+    public const PROFESSIONAL_SLUGS = [
+        'database-architecture',
+        'software-development',
+        'security-devops',
+        'migration-modernization',
+        'critical-support',
+    ];
+
     /**
      * The attributes that are mass assignable.
      *
@@ -21,6 +40,7 @@ class Service extends Model
         'plan_id',
         'server_node_id',
         'name',
+        'domain',
         'status',
         'external_id',
         'connection_details',
@@ -67,6 +87,29 @@ class Service extends Model
     public function getRouteKeyName()
     {
         return 'uuid';
+    }
+
+    // ── Helpers de tipo ───────────────────────────────────────────────────
+
+    /**
+     * 'infrastructure' | 'professional' | 'other'
+     */
+    public function getServiceTypeAttribute(): string
+    {
+        $slug = $this->plan?->category?->slug;
+        if (in_array($slug, self::INFRA_SLUGS, true))         return 'infrastructure';
+        if (in_array($slug, self::PROFESSIONAL_SLUGS, true))  return 'professional';
+        return 'other';
+    }
+
+    public function isInfrastructure(): bool
+    {
+        return in_array($this->plan?->category?->slug, self::INFRA_SLUGS, true);
+    }
+
+    public function isProfessional(): bool
+    {
+        return in_array($this->plan?->category?->slug, self::PROFESSIONAL_SLUGS, true);
     }
 
     /**

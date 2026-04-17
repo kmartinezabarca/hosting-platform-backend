@@ -44,9 +44,11 @@ class ServiceContractingService
     {
         // ── Pricing ─────────────────────────────────────────────────────
         $multiplier = match ($validated['billing_cycle']) {
-            'monthly'   => 1,
-            'quarterly' => 3,
-            'annually'  => 12,
+            'monthly'       => 1,
+            'quarterly'     => 3,
+            'semi_annually' => 6,
+            'annually'      => 12,
+            default         => 1,
         };
 
         $selectedAddOns = $this->resolveAddOns($plan, $validated['add_ons'] ?? []);
@@ -82,7 +84,10 @@ class ServiceContractingService
         $cardMeta = $this->extractCardMeta($pmObject);
 
         // ── Persistence (all-or-nothing) ─────────────────────────────────
-        return DB::transaction(function () use (
+        // IMPORTANTE: ninguna llamada a Stripe debe ir dentro de este transaction.
+        // Si una API externa falla dentro de un transaction, el rollback borraría
+        // el servicio y la factura aunque el cobro ya se realizó.
+        $result = DB::transaction(function () use (
             $user, $plan, $validated, $selectedAddOns,
             $multiplier, $planNet, $addonsNet, $subtotal,
             $taxRatePct, $taxAmount, $total, $currency,
@@ -117,17 +122,27 @@ class ServiceContractingService
                 ]);
             }
 
-            // 2) Fiscal data (optional)
+            // 2) Datos fiscales / CFDI
+            // Si el cliente proporciona sus datos → cfdi_status = pending_stamp (listo para timbrar)
+            // Si NO los proporciona        → cfdi_status = scheduled con stamp_scheduled_at = +72 h
+            //                                Se timbrará automáticamente como "Público en General"
             if (!empty($validated['invoice'])) {
                 ServiceInvoice::create([
-                    'service_id' => $service->id,
-                    'rfc'        => $validated['invoice']['rfc'],
-                    'name'       => $validated['invoice']['name'],
-                    'zip'        => $validated['invoice']['zip'],
-                    'regimen'    => $validated['invoice']['regimen'],
-                    'uso_cfdi'   => $validated['invoice']['uso_cfdi'],
-                    'constancia' => $validated['invoice']['constancia'] ?? null,
+                    'service_id'         => $service->id,
+                    'rfc'                => strtoupper(trim($validated['invoice']['rfc'])),
+                    'name'               => strtoupper(trim($validated['invoice']['name'])),
+                    'zip'                => $validated['invoice']['zip'],
+                    'regimen'            => $validated['invoice']['regimen'],
+                    'uso_cfdi'           => $validated['invoice']['uso_cfdi'],
+                    'constancia'         => $validated['invoice']['constancia'] ?? null,
+                    'cfdi_status'        => \App\Models\ServiceInvoice::CFDI_PENDING_STAMP,
+                    'is_publico_general' => false,
                 ]);
+            } else {
+                // Público en General: se timbrará en 72 horas si el cliente no actualiza sus datos
+                ServiceInvoice::create(
+                    \App\Models\ServiceInvoice::publicoGeneralDefaults($service->id)
+                );
             }
 
             // 3) Invoice
@@ -201,12 +216,8 @@ class ServiceContractingService
                 $user->id
             );
 
-            // 5) Optional Stripe subscription
-            if (!empty($validated['create_subscription'])) {
-                $this->createStripeSubscription($user, $plan, $service, $customerId, $total, $currency, $validated['billing_cycle']);
-            }
-
-            // 6) Post-commit events
+            // 5) Post-commit: broadcasts y notificaciones
+            // La suscripción de Stripe se maneja FUERA del transaction (ver abajo)
             DB::afterCommit(function () use ($user, $invoice, $service, $total) {
                 broadcast(new \App\Events\ServicePurchased($service->fresh('user'), (float) $total));
                 broadcast(new \App\Events\InvoiceGenerated($invoice));
@@ -220,6 +231,41 @@ class ServiceContractingService
 
             return compact('service', 'invoice');
         });
+
+        // ── 6) Suscripción Stripe — FUERA del transaction ────────────────────
+        // CRÍTICO: las llamadas a APIs externas nunca deben estar dentro de un
+        // DB::transaction(). Si fallan, el rollback borraría el servicio y la
+        // factura aunque el cobro ya se realizó → el cliente pagaría sin recibir nada.
+        //
+        // Aquí si falla simplemente lo logueamos: el pago ya fue procesado y el
+        // servicio ya existe. La suscripción se puede configurar manualmente después.
+        if (! empty($validated['create_subscription'])) {
+            if (empty($plan->stripe_price_id)) {
+                \Illuminate\Support\Facades\Log::warning('create_subscription ignorado: el plan no tiene stripe_price_id configurado.', [
+                    'plan_id'    => $plan->id,
+                    'plan_slug'  => $plan->slug,
+                    'service_id' => $result['service']->id,
+                ]);
+            } else {
+                try {
+                    $this->createStripeSubscription(
+                        $user, $plan, $result['service'],
+                        $customerId, $total, $currency,
+                        $validated['billing_cycle']
+                    );
+                } catch (\Throwable $e) {
+                    // No relanzamos: el servicio y la factura ya están persistidos.
+                    // El administrador puede crear la suscripción manualmente.
+                    \Illuminate\Support\Facades\Log::error('Error al crear suscripción Stripe (no fatal)', [
+                        'plan_id'    => $plan->id,
+                        'service_id' => $result['service']->id,
+                        'error'      => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return $result;
     }
 
     // ──────────────────────────────────────────────
