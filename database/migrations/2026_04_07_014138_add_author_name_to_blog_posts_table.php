@@ -8,12 +8,16 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
+     * NOTE: author_name is already included in the create_blog_posts_table migration.
+     * This migration is kept for backwards compatibility and is a safe no-op.
      */
     public function up(): void
     {
-        Schema::table("blog_posts", function (Blueprint $table) {
-            $table->string("author_name")->nullable()->after("user_id");
-        });
+        if (! Schema::hasColumn('blog_posts', 'author_name')) {
+            Schema::table("blog_posts", function (Blueprint $table) {
+                $table->string("author_name")->nullable()->after("user_id");
+            });
+        }
     }
 
     /**
@@ -21,8 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table("blog_posts", function (Blueprint $table) {
-            $table->dropColumn("author_name");
-        });
+        // Column is now part of the base migration; nothing to roll back here.
     }
 };

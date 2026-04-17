@@ -23,7 +23,7 @@ class BlogPostRequest extends FormRequest
     {
         return [
             'title' => ['required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', 'unique:blog_posts,slug,' . ($this->route('blog_post') ? $this->route('blog_post')->uuid : null) . ',uuid'],
+            'slug' => ['nullable', 'string', 'max:255', \Illuminate\Validation\Rule::unique('blog_posts', 'slug')->ignore($this->route('blog_post'), 'uuid')],
             'excerpt' => ['required', 'string', 'max:500'],
             'content' => ['required', 'string'],
             'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],

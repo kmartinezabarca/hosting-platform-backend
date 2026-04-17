@@ -12,21 +12,31 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('blog_posts', function (Blueprint $table) {
-            $table->uuid("id")->primary();
-            $table->uuid('user_id')->nullable();
-            $table->uuid("category_id");
+            $table->id();
+            $table->uuid('uuid')->unique();
+
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('blog_category_id');
+            $table->string('author_name')->nullable();
+
             $table->string("title");
             $table->string("slug")->unique();
+            $table->string('excerpt', 500)->nullable();
             $table->text("content");
             $table->string("image")->nullable();
+            $table->unsignedInteger('read_time')->nullable();
+            $table->boolean('is_featured')->default(false);
             $table->boolean("is_published")->default(false);
             $table->timestamp("published_at")->nullable();
             $table->timestamps();
             $table->softDeletes();
 
-            $table->foreign("category_id")->references("id")->on("blog_categories")->onDelete("cascade");
+            $table->foreign('blog_category_id')->references('id')->on('blog_categories')->onDelete('cascade');
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('set null');
 
-            $table->foreign("user_id")->references("uuid")->on("users")->onDelete("cascade");
+            $table->index(['blog_category_id']);
+            $table->index(['user_id']);
+            $table->index(['is_published', 'published_at']);
         });
     }
 

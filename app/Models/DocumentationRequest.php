@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class DocumentationRequest extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+
+    // Standard integer auto-increment primary key.
+    // The `uuid` column is the public-facing identifier.
 
     /**
      * The attributes that are mass assignable.
@@ -16,6 +19,7 @@ class DocumentationRequest extends Model
      * @var array<int, string>
      */
     protected $fillable = [
+        'uuid',
         'name',
         'email',
         'topic',
@@ -32,4 +36,23 @@ class DocumentationRequest extends Model
     protected $casts = [
         'is_resolved' => 'boolean',
     ];
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->uuid)) {
+                $model->uuid = (string) Str::uuid();
+            }
+        });
+    }
+
+    /**
+     * Route model binding resolves by `uuid`.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
 }

@@ -193,4 +193,24 @@ class User extends Authenticatable
     {
         return 'user.' . $this->uuid; // => private-user.{uuid}
     }
+
+    /**
+     * Override to use our custom DatabaseNotification model which has an
+     * integer primary key + separate uuid column.
+     */
+    public function notifications()
+    {
+        return $this->morphMany(DatabaseNotification::class, 'notifiable')
+                    ->orderBy('created_at', 'desc');
+    }
+
+    public function readNotifications()
+    {
+        return $this->notifications()->whereNotNull('read_at');
+    }
+
+    public function unreadNotifications()
+    {
+        return $this->notifications()->whereNull('read_at');
+    }
 }

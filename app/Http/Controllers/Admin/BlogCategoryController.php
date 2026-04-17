@@ -62,7 +62,7 @@ class BlogCategoryController extends Controller
      */
     public function show(string $uuid): JsonResponse
     {
-        $category = BlogCategory::where("uuid", $uuid)->firstOrFail();
+        $category = BlogCategory::where('uuid', $uuid)->firstOrFail();
 
         return response()->json([
             "success" => true,
@@ -75,7 +75,7 @@ class BlogCategoryController extends Controller
      */
     public function update(BlogCategoryRequest $request, string $uuid): JsonResponse
     {
-        $category = BlogCategory::where("uuid", $uuid)->firstOrFail();
+        $category = BlogCategory::where('uuid', $uuid)->firstOrFail();
         $data = $request->validated();
         if (empty($data["slug"])) {
             $data["slug"] = Str::slug($request->name);
@@ -94,7 +94,7 @@ class BlogCategoryController extends Controller
      */
     public function destroy(string $uuid): JsonResponse
     {
-        $category = BlogCategory::where("uuid", $uuid)->firstOrFail();
+        $category = BlogCategory::where('uuid', $uuid)->firstOrFail();
         $category->delete();
 
         return response()->json([

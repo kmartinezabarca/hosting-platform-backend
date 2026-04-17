@@ -29,7 +29,11 @@ class BlogPostController extends Controller
         }
 
         if ($request->has('category_id')) {
-            $query->where('blog_category_id', $request->category_id);
+            // category_id is sent as a UUID; resolve to integer FK
+            $cat = \App\Models\BlogCategory::where('uuid', $request->category_id)->first();
+            if ($cat) {
+                $query->where('blog_category_id', $cat->id);
+            }
         }
 
         $posts = $query->orderBy('created_at', 'desc')->paginate(10);

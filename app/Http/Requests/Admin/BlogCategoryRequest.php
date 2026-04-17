@@ -23,7 +23,7 @@ class BlogCategoryRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', 'unique:blog_categories,slug,' . ($this->route('blog_category') ? $this->route('blog_category')->uuid : null) . ',uuid'],
+            'slug' => ['nullable', 'string', 'max:255', 'unique:blog_categories,slug,' . ($this->route('blog_category')?->uuid) . ',uuid'],
             'description' => ['nullable', 'string'],
             'is_active' => ['boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],

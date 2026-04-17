@@ -13,6 +13,9 @@ class BlogCategory extends Model
 
     protected $table = 'blog_categories';
 
+    // Standard integer auto-increment primary key (default Laravel behaviour).
+    // The separate `uuid` column is the public-facing identifier.
+
     protected $fillable = [
         'uuid',
         'name',
@@ -40,7 +43,7 @@ class BlogCategory extends Model
         });
     }
 
-    public function getRouteKeyName()
+    public function getRouteKeyName(): string
     {
         return 'uuid';
     }
