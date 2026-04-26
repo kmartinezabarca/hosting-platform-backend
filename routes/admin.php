@@ -134,7 +134,7 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     });
 
     // Rutas de Notificaciones para Admin
-    Route::prefix('notifications')->name('notifications.')->group(function () {
+    Route::prefix('notifications')->name('admin.notifications.')->group(function () {
         Route::get('/dashboard', [NotificationController::class, 'dashboard'])->name('dashboard');
         Route::get('/', [NotificationController::class, 'index'])->name('index');
         Route::get('/stats', [NotificationController::class, 'getStats'])->name('stats');
@@ -146,7 +146,7 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     });
 
     // Rutas de Chat para Admin
-    Route::prefix('chat')->name('chat.')->group(function () {
+    Route::prefix('chat')->name('admin.chat.')->group(function () {
         Route::get('/active-rooms', [ChatController::class, 'getActiveRooms'])->name('active-rooms');
         Route::get('/all-rooms', [ChatController::class, 'getAllRooms'])->name('all-rooms');
         Route::get('/stats', [ChatController::class, 'getStats'])->name('stats');

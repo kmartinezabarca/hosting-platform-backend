@@ -127,7 +127,7 @@ Route::middleware("auth")->group(function () {
     });
 
     // Rutas de Notificaciones para Cliente
-    Route::prefix('notifications')->name('notifications.')->group(function () {
+    Route::prefix('notifications')->name('client.notifications.')->group(function () {
         Route::get('/', [NotificationController::class, 'index'])->name('index');
         Route::get('/unread-count', [NotificationController::class, 'getUnreadCount'])->name('unread-count');
         Route::get('/preferences', [NotificationController::class, 'getPreferences'])->name('preferences');
@@ -153,7 +153,7 @@ Route::middleware("auth")->group(function () {
     });
 
     // Rutas de Chat para Cliente
-    Route::prefix('chat')->name('chat.')->group(function () {
+    Route::prefix('chat')->name('client.chat.')->group(function () {
         Route::get('/support-room', [SupportChatController::class, 'getSupportRoom'])->name('support-room');
         Route::get('/unread-count', [SupportChatController::class, 'getUnreadCount'])->name('unread-count');
         Route::get('/history', [SupportChatController::class, 'getHistory'])->name('history');
