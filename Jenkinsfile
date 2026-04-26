@@ -4,12 +4,12 @@
 
 pipeline {
     agent {
-        docker {
-            image 'roke-jenkins-agent:latest'
-            args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer'
-            reuseNode true
-        }
+    docker {
+        image 'roke-jenkins-agent-php:latest'
+        args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer'
+        reuseNode true
     }
+}
 
     environment {
         // ── Servidor destino ──────────────────────────────────
@@ -91,25 +91,22 @@ pipeline {
 
         // ── STAGE 3: Composer install ─────────────────────────
         stage('Composer Install') {
-            steps {
-                echo "📥 Instalando dependencias PHP..."
-                sh '''
-                    # Verificar PHP y composer disponibles
-                    php --version | head -1
-                    composer --version 2>/dev/null || curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-                    composer --version
+    steps {
+        echo "📥 Instalando dependencias PHP..."
+        sh '''
+            php --version | head -1
+            composer --version
 
-                    # Install (sin dev en producción)
-                    if [ "${DEPLOY_ENV}" = "production" ]; then
-                        composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
-                    else
-                        composer install --optimize-autoloader --prefer-dist --no-interaction
-                    fi
+            if [ "${DEPLOY_ENV}" = "production" ]; then
+                composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
+            else
+                composer install --optimize-autoloader --prefer-dist --no-interaction
+            fi
 
-                    echo "✅ Composer install completado"
-                '''
-            }
-        }
+            echo "✅ Composer install completado"
+        '''
+    }
+}
 
         // ── STAGE 4: Tests (opcional) ─────────────────────────
         stage('Tests') {
