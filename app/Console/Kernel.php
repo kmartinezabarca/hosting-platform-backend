@@ -12,7 +12,12 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Timbrado automático de CFDIs pendientes y Público en General vencidos
+        $schedule->command('cfdi:stamp-pending')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/cfdi-stamp.log'));
     }
 
     /**

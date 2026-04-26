@@ -8,12 +8,15 @@ use App\Models\PaymentMethod;
 use App\Models\Service;
 use App\Models\ServiceAddOn;
 use App\Models\ServiceInvoice;
+use App\Models\CustomerFiscalProfile;
 use App\Models\Subscription;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\ServicePlan;
 use App\Models\ActivityLog;
+use App\Services\Factura\CfdiService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 use Stripe\PaymentIntent as StripePaymentIntent;
@@ -123,25 +126,29 @@ class ServiceContractingService
             }
 
             // 2) Datos fiscales / CFDI
-            // Si el cliente proporciona sus datos → cfdi_status = pending_stamp (listo para timbrar)
-            // Si NO los proporciona        → cfdi_status = scheduled con stamp_scheduled_at = +72 h
-            //                                Se timbrará automáticamente como "Público en General"
-            if (!empty($validated['invoice'])) {
-                ServiceInvoice::create([
+            // Prioridad de fuente de datos fiscales:
+            //   a) fiscal_profile_uuid → perfil guardado del cliente
+            //   b) invoice{}           → datos ingresados directamente
+            //   c) ninguno             → Público en General (72 h para que el cliente actualice)
+            $fiscalData = $this->resolveFiscalData($user, $validated);
+
+            if ($fiscalData) {
+                $serviceInvoice = ServiceInvoice::create([
                     'service_id'         => $service->id,
-                    'rfc'                => strtoupper(trim($validated['invoice']['rfc'])),
-                    'name'               => strtoupper(trim($validated['invoice']['name'])),
-                    'zip'                => $validated['invoice']['zip'],
-                    'regimen'            => $validated['invoice']['regimen'],
-                    'uso_cfdi'           => $validated['invoice']['uso_cfdi'],
-                    'constancia'         => $validated['invoice']['constancia'] ?? null,
-                    'cfdi_status'        => \App\Models\ServiceInvoice::CFDI_PENDING_STAMP,
+                    'rfc'                => strtoupper(trim($fiscalData['rfc'])),
+                    'name'               => strtoupper(trim($fiscalData['name'])),
+                    'zip'                => $fiscalData['zip'],
+                    'regimen'            => $fiscalData['regimen'],
+                    'uso_cfdi'           => $fiscalData['uso_cfdi'],
+                    'constancia'         => $fiscalData['constancia'] ?? null,
+                    'cfdi_status'        => ServiceInvoice::CFDI_PENDING_STAMP,
                     'is_publico_general' => false,
                 ]);
             } else {
-                // Público en General: se timbrará en 72 horas si el cliente no actualiza sus datos
-                ServiceInvoice::create(
-                    \App\Models\ServiceInvoice::publicoGeneralDefaults($service->id)
+                // Sin datos fiscales → Público en General, se timbra automáticamente a las 72 h
+                // Mientras tanto, notificamos al usuario para que ingrese sus datos
+                $serviceInvoice = ServiceInvoice::create(
+                    ServiceInvoice::publicoGeneralDefaults($service->id)
                 );
             }
 
@@ -216,9 +223,8 @@ class ServiceContractingService
                 $user->id
             );
 
-            // 5) Post-commit: broadcasts y notificaciones
-            // La suscripción de Stripe se maneja FUERA del transaction (ver abajo)
-            DB::afterCommit(function () use ($user, $invoice, $service, $total) {
+            // 5) Post-commit: broadcasts, notificaciones y timbrado CFDI
+            DB::afterCommit(function () use ($user, $invoice, $service, $serviceInvoice, $total, $fiscalData) {
                 broadcast(new \App\Events\ServicePurchased($service->fresh('user'), (float) $total));
                 broadcast(new \App\Events\InvoiceGenerated($invoice));
                 \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\ServiceNotification([
@@ -227,12 +233,56 @@ class ServiceContractingService
                     'type'    => 'service.purchased',
                     'data'    => ['service_id' => $service->uuid ?? $service->id, 'amount' => $total],
                 ]));
+
+                // ── CFDI ────────────────────────────────────────────────────
+                // Vinculamos el ServiceInvoice con la Invoice interna
+                $serviceInvoice->update(['invoice_id' => $invoice->id]);
+
+                if ($fiscalData) {
+                    // Datos fiscales disponibles → timbrar inmediatamente
+                    try {
+                        app(CfdiService::class)->stamp($serviceInvoice->fresh());
+                    } catch (\Throwable $e) {
+                        // No fatal: el CFDI queda en 'failed' y el admin puede reintentarlo
+                        Log::error('Timbrado inmediato fallido (no fatal)', [
+                            'service_invoice_id' => $serviceInvoice->id,
+                            'error'              => $e->getMessage(),
+                        ]);
+                    }
+                } else {
+                    // Sin datos → notificar al cliente que tiene 72 h para ingresar RFC
+                    \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\ServiceNotification([
+                        'title'   => 'Completa tus datos de facturación',
+                        'message' => 'Tu compra fue exitosa. Tienes 72 horas para ingresar tus datos fiscales; de lo contrario, tu factura se emitirá a nombre de "Público en General".',
+                        'type'    => 'invoice.needs_fiscal_data',
+                        'data'    => [
+                            'service_id'          => $service->uuid ?? $service->id,
+                            'service_invoice_id'  => $serviceInvoice->id,
+                            'deadline'            => $serviceInvoice->stamp_scheduled_at,
+                        ],
+                    ]));
+                }
             });
 
-            return compact('service', 'invoice');
+            return compact('service', 'invoice', 'serviceInvoice');
         });
 
-        // ── 6) Suscripción Stripe — FUERA del transaction ────────────────────
+        // ── 6) Pterodactyl — FUERA del transaction ───────────────────────────
+        // Si el plan tiene provisioner = pterodactyl, crear el servidor automáticamente.
+        // Igual que Stripe: nunca dentro del transaction, fallo no es fatal.
+        if ($result['service']->plan->isPterodactylManaged()) {
+            try {
+                app(\App\Services\Pterodactyl\GameServerProvisioningService::class)
+                    ->provision($result['service']->fresh(['plan', 'user']));
+            } catch (\Throwable $e) {
+                Log::error('Aprovisionamiento Pterodactyl fallido (no fatal)', [
+                    'service_id' => $result['service']->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // ── 7) Suscripción Stripe — FUERA del transaction ────────────────────
         // CRÍTICO: las llamadas a APIs externas nunca deben estar dentro de un
         // DB::transaction(). Si fallan, el rollback borraría el servicio y la
         // factura aunque el cobro ya se realizó → el cliente pagaría sin recibir nada.
@@ -295,6 +345,47 @@ class ServiceContractingService
     /**
      * Resolve the local PaymentMethod ID from the request value (numeric ID or pm_... string).
      */
+    /**
+     * Resuelve los datos fiscales desde 3 fuentes con prioridad:
+     *  1. fiscal_profile_uuid  → perfil guardado del usuario
+     *  2. invoice{}            → datos crudos del request
+     *  3. null                 → sin datos (Público en General)
+     *
+     * @return array{rfc,name,zip,regimen,uso_cfdi,constancia}|null
+     */
+    private function resolveFiscalData(User $user, array $validated): ?array
+    {
+        // Prioridad 1: perfil guardado
+        if (!empty($validated['fiscal_profile_uuid'])) {
+            $profile = CustomerFiscalProfile::where('uuid', $validated['fiscal_profile_uuid'])
+                ->where('user_id', $user->id)
+                ->first();
+
+            if ($profile) {
+                return $profile->toServiceInvoiceData();
+            }
+        }
+
+        // Prioridad 2: datos crudos en el request
+        if (!empty($validated['invoice']['rfc'])) {
+            return [
+                'rfc'        => $validated['invoice']['rfc'],
+                'name'       => $validated['invoice']['name'],
+                'zip'        => $validated['invoice']['zip'],
+                'regimen'    => $validated['invoice']['regimen'],
+                'uso_cfdi'   => $validated['invoice']['uso_cfdi'],
+                'constancia' => $validated['invoice']['constancia'] ?? null,
+            ];
+        }
+
+        // Prioridad 3: buscar el perfil predeterminado del usuario
+        $defaultProfile = CustomerFiscalProfile::where('user_id', $user->id)
+            ->where('is_default', true)
+            ->first();
+
+        return $defaultProfile?->toServiceInvoiceData();
+    }
+
     private function resolveLocalPaymentMethodId(User $user, array $validated): ?int
     {
         $provided = $validated['payment_method_id'] ?? null;

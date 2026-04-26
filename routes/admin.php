@@ -17,6 +17,9 @@ use App\Http\Controllers\Admin\DocumentationController;
 use App\Http\Controllers\Admin\ApiDocumentationController;
 use App\Http\Controllers\Admin\SystemStatusController;
 use App\Http\Controllers\Admin\DocumentationRequestController;
+use App\Http\Controllers\Admin\FiscalController;
+use App\Http\Controllers\Admin\CfdiController;
+use App\Http\Controllers\Admin\GameServerController;
 
 /*
 |--------------------------------------------------------------------------
@@ -59,14 +62,18 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     Route::post("/invoices/{id}/cancel", [AdminController::class, "cancelInvoice"]);
 
     // Tickets management
+    // NOTE: static routes (/tickets/categories) must be declared BEFORE dynamic
+    // routes (/tickets/{id}) so Laravel doesn't swallow them as an {id} value.
     Route::get("/tickets",                  [AdminController::class, "getTickets"]);
     Route::post("/tickets",                 [AdminController::class, "createTicket"]);
+    Route::get("/tickets/categories",       [AdminController::class, "getTicketCategories"]);
+    Route::get("/tickets/{id}",             [AdminController::class, "showTicket"]);
+    Route::put("/tickets/{id}",             [AdminController::class, "updateTicket"]);
     Route::delete("/tickets/{id}",          [AdminController::class, "deleteTicket"]);
     Route::put("/tickets/{id}/status",      [AdminController::class, "updateTicketStatus"]);
     Route::put("/tickets/{id}/priority",    [AdminController::class, "updateTicketPriority"]);
     Route::post("/tickets/{id}/assign",     [AdminController::class, "assignTicket"]);
     Route::post("/tickets/{id}/reply",      [AdminController::class, "addTicketReply"]);
-    Route::get("/tickets/categories",       [AdminController::class, "getTicketCategories"]);
     Route::get("/support-agents",           [AdminController::class, "getSupportAgents"]);
 
     // Agents management - API completa para agentes
@@ -191,6 +198,40 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     // Blog Posts Routes
     Route::post("blog/upload-image", [BlogPostController::class, "uploadImage"]);
     Route::apiResource("blog-posts", BlogPostController::class);
+
+    // ── Servidores de Juego (Pterodactyl) ────────────────────────────────────
+    Route::prefix('game-servers')->group(function () {
+        Route::get('/',                   [GameServerController::class, 'index']);
+        Route::get('/{id}',               [GameServerController::class, 'show']);
+        Route::post('/{id}/provision',    [GameServerController::class, 'provision']);
+        Route::post('/{id}/suspend',      [GameServerController::class, 'suspend']);
+        Route::post('/{id}/unsuspend',    [GameServerController::class, 'unsuspend']);
+        Route::post('/{id}/reinstall',    [GameServerController::class, 'reinstall']);
+        Route::delete('/{id}',            [GameServerController::class, 'terminate']);
+    });
+
+    // ── Gestión de CFDIs ──────────────────────────────────────────────────────
+    Route::prefix('cfdi')->group(function () {
+        Route::get('/',                            [CfdiController::class, 'index']);
+        Route::get('/stats',                       [CfdiController::class, 'stats']);
+        Route::get('/{id}',                        [CfdiController::class, 'show']);
+        Route::post('/{id}/retry',                 [CfdiController::class, 'retry']);
+        Route::post('/{id}/cancel',                [CfdiController::class, 'cancel']);
+        Route::get('/{id}/download/{format}',      [CfdiController::class, 'download']);
+    });
+
+    // ── Fiscal / CFDI ─────────────────────────────────────────────────────────
+    Route::prefix('fiscal')->group(function () {
+        // Catálogos SAT
+        Route::get('/regimes',                     [FiscalController::class, 'regimes']);
+        Route::put('/regimes/{code}/toggle',       [FiscalController::class, 'toggleRegime']);
+        Route::get('/cfdi-uses',                   [FiscalController::class, 'cfdiUses']);
+        Route::put('/cfdi-uses/{code}/toggle',     [FiscalController::class, 'toggleCfdiUse']);
+
+        // Perfiles fiscales de clientes (solo lectura)
+        Route::get('/profiles',                    [FiscalController::class, 'profiles']);
+        Route::get('/profiles/{uuid}',             [FiscalController::class, 'showProfile']);
+    });
 
     // Documentation Requests Routes
     Route::prefix("documentation-requests")->group(function () {

@@ -3,43 +3,45 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-
-use App\Models\ServicePlan;
+use App\Http\Resources\ServicePlanResource;
 use App\Models\PlanFeature;
 use App\Models\PlanPricing;
-use Illuminate\Http\Request;
+use App\Models\ServicePlan;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class ServicePlanController extends Controller
 {
+    private const CACHE_TTL = 900;
+
     /**
      * Get all active service plans
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = ServicePlan::active()->with(['category', 'features', 'pricing.billingCycle']);
+            $categoryId = $request->get('category_id');
 
-            // Filter by category if provided
-            if ($request->has('category_id')) {
-                $query->where('category_id', $request->category_id);
-            }
-
-            // Check if this is an admin request (has page parameter or is from admin route)
             if ($request->has('page') || $request->is('api/admin/*')) {
-                // Admin version with pagination
+                $query = ServicePlan::active()->with(['category', 'features', 'pricing.billingCycle']);
+
+                if ($categoryId) {
+                    $query->where('category_id', $categoryId);
+                }
+
                 $perPage = $request->get('per_page', 15);
-                $perPage = min($perPage, 100); // Limit max per page
-                
+                $perPage = min($perPage, 100);
+
                 $servicePlans = $query->orderBy('sort_order')
-                                    ->orderBy('name')
-                                    ->paginate($perPage);
+                    ->orderBy('name')
+                    ->paginate($perPage);
 
                 return response()->json([
                     'success' => true,
-                    'data' => $servicePlans->items(),
+                    'data' => ServicePlanResource::collection($servicePlans),
                     'pagination' => [
                         'current_page' => $servicePlans->currentPage(),
                         'per_page' => $servicePlans->perPage(),
@@ -47,25 +49,37 @@ class ServicePlanController extends Controller
                         'last_page' => $servicePlans->lastPage(),
                         'from' => $servicePlans->firstItem(),
                         'to' => $servicePlans->lastItem(),
-                        'has_more_pages' => $servicePlans->hasMorePages()
-                    ]
+                        'has_more_pages' => $servicePlans->hasMorePages(),
+                    ],
                 ]);
             } else {
-                // Public version without pagination
-                $servicePlans = $query->orderBy('sort_order')
-                                    ->orderBy('name')
-                                    ->get();
+                $cacheKey = $categoryId
+                    ? "service_plans:active:category:{$categoryId}"
+                    : 'service_plans:active:all';
+
+                $servicePlans = Cache::remember($cacheKey, self::CACHE_TTL, function () use ($categoryId) {
+                    $query = ServicePlan::active()
+                        ->with(['category', 'features', 'pricing.billingCycle']);
+
+                    if ($categoryId) {
+                        $query->where('category_id', $categoryId);
+                    }
+
+                    return $query->orderBy('sort_order')
+                        ->orderBy('name')
+                        ->get();
+                });
 
                 return response()->json([
                     'success' => true,
-                    'data' => $servicePlans
+                    'data' => ServicePlanResource::collection($servicePlans),
                 ]);
             }
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plans',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -75,9 +89,9 @@ class ServicePlanController extends Controller
         $plan = ServicePlan::where('slug', $AddSlug)->firstOrFail();
 
         $addOns = $plan->addOns()
-        ->where('is_active', true)
-        ->orderBy('name')
-        ->get(['add_ons.uuid', 'add_ons.slug', 'add_ons.name', 'add_ons.description', 'add_ons.price', 'add_ons.currency', 'add_on_plan.is_default']);
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['add_ons.uuid', 'add_ons.slug', 'add_ons.name', 'add_ons.description', 'add_ons.price', 'add_ons.currency', 'add_on_plan.is_default']);
 
         return response()->json(['success' => true, 'data' => $addOns]);
     }
@@ -88,24 +102,28 @@ class ServicePlanController extends Controller
     public function getByCategorySlug(string $categorySlug): JsonResponse
     {
         try {
-            $servicePlans = ServicePlan::active()
-                                     ->whereHas('category', function ($query) use ($categorySlug) {
-                                         $query->where('slug', $categorySlug);
-                                     })
-                                     ->with(['category', 'features', 'pricing.billingCycle'])
-                                     ->orderBy('sort_order')
-                                     ->orderBy('name')
-                                     ->get();
+            $cacheKey = "service_plans:active:category_slug:{$categorySlug}";
+
+            $servicePlans = Cache::remember($cacheKey, self::CACHE_TTL, function () use ($categorySlug) {
+                return ServicePlan::active()
+                    ->whereHas('category', function ($query) use ($categorySlug) {
+                        $query->where('slug', $categorySlug);
+                    })
+                    ->with(['category', 'features', 'pricing.billingCycle'])
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get();
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $servicePlans
+                'data' => ServicePlanResource::collection($servicePlans),
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plans',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -117,25 +135,25 @@ class ServicePlanController extends Controller
     {
         try {
             $servicePlan = ServicePlan::where('uuid', $uuid)
-                                    ->with(['category', 'features', 'pricing.billingCycle'])
-                                    ->first();
+                ->with(['category', 'features', 'pricing.billingCycle'])
+                ->first();
 
-            if (!$servicePlan) {
+            if (! $servicePlan) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Service plan not found'
+                    'message' => 'Service plan not found',
                 ], 404);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $servicePlan
+                'data' => new ServicePlanResource($servicePlan),
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -161,14 +179,14 @@ class ServicePlanController extends Controller
                 'features.*' => 'string|max:500',
                 'pricing' => 'nullable|array',
                 'pricing.*.billing_cycle_id' => 'required|exists:billing_cycles,id',
-                'pricing.*.price' => 'required|numeric|min:0'
+                'pricing.*.price' => 'required|numeric|min:0',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
@@ -177,7 +195,7 @@ class ServicePlanController extends Controller
             // Create service plan
             $servicePlan = ServicePlan::create($request->only([
                 'category_id', 'slug', 'name', 'description', 'base_price',
-                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications'
+                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
             ]));
 
             // Create features if provided
@@ -186,7 +204,7 @@ class ServicePlanController extends Controller
                     PlanFeature::create([
                         'service_plan_id' => $servicePlan->id,
                         'feature' => $feature,
-                        'sort_order' => $index
+                        'sort_order' => $index,
                     ]);
                 }
             }
@@ -197,7 +215,7 @@ class ServicePlanController extends Controller
                     PlanPricing::create([
                         'service_plan_id' => $servicePlan->id,
                         'billing_cycle_id' => $pricing['billing_cycle_id'],
-                        'price' => $pricing['price']
+                        'price' => $pricing['price'],
                     ]);
                 }
             }
@@ -206,17 +224,20 @@ class ServicePlanController extends Controller
 
             $servicePlan->load(['category', 'features', 'pricing.billingCycle']);
 
+            $this->clearServicePlanCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan created successfully',
-                'data' => $servicePlan
+                'data' => new ServicePlanResource($servicePlan),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -229,16 +250,16 @@ class ServicePlanController extends Controller
         try {
             $servicePlan = ServicePlan::where('uuid', $uuid)->first();
 
-            if (!$servicePlan) {
+            if (! $servicePlan) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Service plan not found'
+                    'message' => 'Service plan not found',
                 ], 404);
             }
 
             $validator = Validator::make($request->all(), [
                 'category_id' => 'sometimes|required|exists:categories,id',
-                'slug' => 'sometimes|required|string|max:100|unique:service_plans,slug,' . $servicePlan->id,
+                'slug' => 'sometimes|required|string|max:100|unique:service_plans,slug,'.$servicePlan->id,
                 'name' => 'sometimes|required|string|max:200',
                 'description' => 'nullable|string',
                 'base_price' => 'sometimes|required|numeric|min:0',
@@ -251,14 +272,14 @@ class ServicePlanController extends Controller
                 'features.*' => 'string|max:500',
                 'pricing' => 'nullable|array',
                 'pricing.*.billing_cycle_id' => 'required|exists:billing_cycles,id',
-                'pricing.*.price' => 'required|numeric|min:0'
+                'pricing.*.price' => 'required|numeric|min:0',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
@@ -267,7 +288,7 @@ class ServicePlanController extends Controller
             // Update service plan
             $servicePlan->update($request->only([
                 'category_id', 'slug', 'name', 'description', 'base_price',
-                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications'
+                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
             ]));
 
             // Update features if provided
@@ -277,7 +298,7 @@ class ServicePlanController extends Controller
                     PlanFeature::create([
                         'service_plan_id' => $servicePlan->id,
                         'feature' => $feature,
-                        'sort_order' => $index
+                        'sort_order' => $index,
                     ]);
                 }
             }
@@ -289,7 +310,7 @@ class ServicePlanController extends Controller
                     PlanPricing::create([
                         'service_plan_id' => $servicePlan->id,
                         'billing_cycle_id' => $pricing['billing_cycle_id'],
-                        'price' => $pricing['price']
+                        'price' => $pricing['price'],
                     ]);
                 }
             }
@@ -298,17 +319,20 @@ class ServicePlanController extends Controller
 
             $servicePlan->load(['category', 'features', 'pricing.billingCycle']);
 
+            $this->clearServicePlanCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan updated successfully',
-                'data' => $servicePlan
+                'data' => new ServicePlanResource($servicePlan),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -321,10 +345,10 @@ class ServicePlanController extends Controller
         try {
             $servicePlan = ServicePlan::where('uuid', $uuid)->first();
 
-            if (!$servicePlan) {
+            if (! $servicePlan) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Service plan not found'
+                    'message' => 'Service plan not found',
                 ], 404);
             }
 
@@ -332,23 +356,40 @@ class ServicePlanController extends Controller
             if ($servicePlan->services()->count() > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete service plan with existing services'
+                    'message' => 'Cannot delete service plan with existing services',
                 ], 400);
             }
 
             $servicePlan->delete();
 
+            $this->clearServicePlanCache();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Service plan deleted successfully'
+                'message' => 'Service plan deleted successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting service plan',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
-}
 
+    private function clearServicePlanCache(): void
+    {
+        Cache::forget('service_plans:active:all');
+        Cache::forget('service_plans:with_plans');
+
+        $categories = \App\Models\Category::pluck('slug');
+        foreach ($categories as $slug) {
+            Cache::forget("service_plans:active:category_slug:{$slug}");
+        }
+
+        $categoryIds = \App\Models\Category::pluck('id');
+        foreach ($categoryIds as $id) {
+            Cache::forget("service_plans:active:category:{$id}");
+        }
+    }
+}

@@ -3,35 +3,41 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-
+use App\Http\Resources\CategoryResource;
 use App\Models\Category;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 
 class CategoryController extends Controller
 {
+    private const CACHE_TTL = 900;
+
     /**
      * Get all active categories
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Category::active();
+            $cacheKey = 'categories:active:all';
 
-            $categories = $query->orderBy('sort_order')
-                              ->orderBy('name')
-                              ->get();
+            $categories = Cache::remember($cacheKey, self::CACHE_TTL, function () {
+                return Category::active()
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get();
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $categories
+                'data' => CategoryResource::collection($categories),
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving categories',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -42,21 +48,25 @@ class CategoryController extends Controller
     public function withPlans(Request $request): JsonResponse
     {
         try {
-            $categories = Category::active()
-                                ->with(['activeServicePlans.features', 'activeServicePlans.pricing.billingCycle'])
-                                ->orderBy('sort_order')
-                                ->orderBy('name')
-                                ->get();
+            $cacheKey = 'categories:with_plans';
+
+            $categories = Cache::remember($cacheKey, self::CACHE_TTL, function () {
+                return Category::active()
+                    ->with(['activeServicePlans.features', 'activeServicePlans.pricing.billingCycle'])
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get();
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $categories
+                'data' => CategoryResource::collection($categories),
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving categories with plans',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -69,22 +79,22 @@ class CategoryController extends Controller
         try {
             $category = Category::where('uuid', $uuid)->first();
 
-            if (!$category) {
+            if (! $category) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Category not found'
+                    'message' => 'Category not found',
                 ], 404);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $category
+                'data' => $category,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving category',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -96,25 +106,25 @@ class CategoryController extends Controller
     {
         try {
             $category = Category::where('slug', $slug)
-                              ->with(['activeServicePlans.features', 'activeServicePlans.pricing.billingCycle'])
-                              ->first();
+                ->with(['activeServicePlans.features', 'activeServicePlans.pricing.billingCycle'])
+                ->first();
 
-            if (!$category) {
+            if (! $category) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Category not found'
+                    'message' => 'Category not found',
                 ], 404);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $category
+                'data' => $category,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving category',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -133,29 +143,31 @@ class CategoryController extends Controller
                 'color' => 'nullable|string|max:50',
                 'bg_color' => 'nullable|string|max:50',
                 'is_active' => 'boolean',
-                'sort_order' => 'nullable|integer'
+                'sort_order' => 'nullable|integer',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
             $category = Category::create($request->all());
 
+            $this->clearCategoryCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Category created successfully',
-                'data' => $category
+                'data' => $category,
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating category',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -168,44 +180,46 @@ class CategoryController extends Controller
         try {
             $category = Category::where('uuid', $uuid)->first();
 
-            if (!$category) {
+            if (! $category) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Category not found'
+                    'message' => 'Category not found',
                 ], 404);
             }
 
             $validator = Validator::make($request->all(), [
-                'slug' => 'sometimes|required|string|max:50|unique:categories,slug,' . $category->id,
+                'slug' => 'sometimes|required|string|max:50|unique:categories,slug,'.$category->id,
                 'name' => 'sometimes|required|string|max:100',
                 'description' => 'nullable|string',
                 'icon' => 'nullable|string|max:50',
                 'color' => 'nullable|string|max:50',
                 'bg_color' => 'nullable|string|max:50',
                 'is_active' => 'boolean',
-                'sort_order' => 'nullable|integer'
+                'sort_order' => 'nullable|integer',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
             $category->update($request->all());
 
+            $this->clearCategoryCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Category updated successfully',
-                'data' => $category
+                'data' => $category,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating category',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -218,10 +232,10 @@ class CategoryController extends Controller
         try {
             $category = Category::where('uuid', $uuid)->first();
 
-            if (!$category) {
+            if (! $category) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Category not found'
+                    'message' => 'Category not found',
                 ], 404);
             }
 
@@ -229,23 +243,30 @@ class CategoryController extends Controller
             if ($category->servicePlans()->count() > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete category with existing service plans'
+                    'message' => 'Cannot delete category with existing service plans',
                 ], 400);
             }
 
             $category->delete();
 
+            $this->clearCategoryCache();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Category deleted successfully'
+                'message' => 'Category deleted successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting category',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
-}
 
+    private function clearCategoryCache(): void
+    {
+        Cache::forget('categories:active:all');
+        Cache::forget('categories:with_plans');
+    }
+}

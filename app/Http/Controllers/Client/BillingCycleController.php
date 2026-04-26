@@ -3,34 +3,41 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-
+use App\Http\Resources\BillingCycleResource;
 use App\Models\BillingCycle;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 
 class BillingCycleController extends Controller
 {
+    private const CACHE_TTL = 900;
+
     /**
      * Get all active billing cycles
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $billingCycles = BillingCycle::active()
-                                       ->orderBy('sort_order')
-                                       ->orderBy('months')
-                                       ->get();
+            $cacheKey = 'billing_cycles:active:all';
+
+            $billingCycles = Cache::remember($cacheKey, self::CACHE_TTL, function () {
+                return BillingCycle::active()
+                    ->orderBy('sort_order')
+                    ->orderBy('months')
+                    ->get();
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $billingCycles
+                'data' => BillingCycleResource::collection($billingCycles),
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving billing cycles',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -43,22 +50,22 @@ class BillingCycleController extends Controller
         try {
             $billingCycle = BillingCycle::where('uuid', $uuid)->first();
 
-            if (!$billingCycle) {
+            if (! $billingCycle) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Billing cycle not found'
+                    'message' => 'Billing cycle not found',
                 ], 404);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $billingCycle
+                'data' => $billingCycle,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving billing cycle',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -75,29 +82,31 @@ class BillingCycleController extends Controller
                 'months' => 'required|integer|min:1|max:60',
                 'discount_percentage' => 'nullable|numeric|min:0|max:100',
                 'is_active' => 'boolean',
-                'sort_order' => 'nullable|integer'
+                'sort_order' => 'nullable|integer',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
             $billingCycle = BillingCycle::create($request->all());
 
+            $this->clearBillingCycleCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Billing cycle created successfully',
-                'data' => $billingCycle
+                'data' => $billingCycle,
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error creating billing cycle',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -110,42 +119,44 @@ class BillingCycleController extends Controller
         try {
             $billingCycle = BillingCycle::where('uuid', $uuid)->first();
 
-            if (!$billingCycle) {
+            if (! $billingCycle) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Billing cycle not found'
+                    'message' => 'Billing cycle not found',
                 ], 404);
             }
 
             $validator = Validator::make($request->all(), [
-                'slug' => 'sometimes|required|string|max:50|unique:billing_cycles,slug,' . $billingCycle->id,
+                'slug' => 'sometimes|required|string|max:50|unique:billing_cycles,slug,'.$billingCycle->id,
                 'name' => 'sometimes|required|string|max:100',
                 'months' => 'sometimes|required|integer|min:1|max:60',
                 'discount_percentage' => 'nullable|numeric|min:0|max:100',
                 'is_active' => 'boolean',
-                'sort_order' => 'nullable|integer'
+                'sort_order' => 'nullable|integer',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
 
             $billingCycle->update($request->all());
 
+            $this->clearBillingCycleCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Billing cycle updated successfully',
-                'data' => $billingCycle
+                'data' => $billingCycle,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating billing cycle',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -158,10 +169,10 @@ class BillingCycleController extends Controller
         try {
             $billingCycle = BillingCycle::where('uuid', $uuid)->first();
 
-            if (!$billingCycle) {
+            if (! $billingCycle) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Billing cycle not found'
+                    'message' => 'Billing cycle not found',
                 ], 404);
             }
 
@@ -169,23 +180,29 @@ class BillingCycleController extends Controller
             if ($billingCycle->planPricing()->count() > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot delete billing cycle with existing plan pricing'
+                    'message' => 'Cannot delete billing cycle with existing plan pricing',
                 ], 400);
             }
 
             $billingCycle->delete();
 
+            $this->clearBillingCycleCache();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Billing cycle deleted successfully'
+                'message' => 'Billing cycle deleted successfully',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error deleting billing cycle',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
-}
 
+    private function clearBillingCycleCache(): void
+    {
+        Cache::forget('billing_cycles:active:all');
+    }
+}

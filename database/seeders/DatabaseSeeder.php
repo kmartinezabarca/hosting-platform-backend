@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             BillingCycleSeeder::class,
             ServicePlanSeeder::class,
             MarketingServiceSeeder::class,
+            SatCatalogSeeder::class,
         ]);
 
         // \App\Models\User::factory(10)->create();

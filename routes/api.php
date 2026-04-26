@@ -1,6 +1,21 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\DocumentationRequestController;
+use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Auth\GoogleLoginController;
+use App\Http\Controllers\Auth\TwoFactorController;
+use App\Http\Controllers\Client\ApiDocsController;
+use App\Http\Controllers\Client\ApiDocumentationController;
+use App\Http\Controllers\Client\BillingCycleController;
+use App\Http\Controllers\Client\BlogController;
+use App\Http\Controllers\Client\BlogSubscriptionController;
+use App\Http\Controllers\Client\CategoryController;
+use App\Http\Controllers\Client\DocumentationController;
+use App\Http\Controllers\Client\MarketingServiceController;
+use App\Http\Controllers\Client\ProductController;
+use App\Http\Controllers\Client\ServicePlanController;
+use App\Http\Controllers\Client\SystemStatusController;
+use App\Http\Controllers\Common\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -8,94 +23,79 @@ use Illuminate\Support\Facades\Route;
 | API Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
-| ESTE ARCHIVO CONTIENE ÚNICAMENTE RUTAS PÚBLICAS QUE NO REQUIEREN AUTENTICACIÓN.
-| Las rutas que requieren autenticación (stateful, con cookies) están en web.php.
+| Here is where you can register API routes for your application.
 |
 */
 
-// Public authentication routes (initial login/registration, no session required yet)
+// Public authentication routes
 Route::middleware('throttle:10,1')->group(function () {
-    Route::post("auth/register", [App\Http\Controllers\Auth\AuthController::class, "register"]);
-    Route::post("auth/google/callback", [App\Http\Controllers\Auth\GoogleLoginController::class, "handleGoogleCallback"]);
+    Route::post('auth/register', [AuthController::class, 'register']);
+    Route::post('auth/google/callback', [GoogleLoginController::class, 'handleGoogleCallback']);
 });
 
 Route::middleware('throttle:5,1')->group(function () {
-    Route::post("auth/login", [App\Http\Controllers\Auth\AuthController::class, "login"]);
-    Route::post("auth/2fa/verify", [App\Http\Controllers\Auth\TwoFactorController::class, "verifyLogin"]);
+    Route::post('auth/login', [AuthController::class, 'login']);
+    Route::post('auth/2fa/verify', [TwoFactorController::class, 'verifyLogin']);
 });
 
 // Stripe webhook (no authentication required)
-Route::post("/stripe/webhook", [App\Http\Controllers\Common\StripeWebhookController::class, "handleWebhook"]);
+Route::post('/stripe/webhook', [StripeWebhookController::class, 'handleWebhook']);
+
+// Swagger/OpenAPI Documentation
+Route::get('/docs', [ApiDocsController::class, 'json']);
 
 // Product routes (public)
-Route::get("/products", [App\Http\Controllers\Client\ProductController::class, "index"]);
-Route::get("/products/{uuid}", [App\Http\Controllers\Client\ProductController::class, "show"]);
-Route::get("/products/service-type/{serviceType}", [App\Http\Controllers\Client\ProductController::class, "getByServiceType"]);
+Route::get('/products', [ProductController::class, 'index']);
+Route::get('/products/{uuid}', [ProductController::class, 'show']);
+Route::get('/products/service-type/{serviceType}', [ProductController::class, 'getByServiceType']);
 
-// Public routes for Categories, Billing Cycles, and Service Plans
-Route::prefix("categories")->group(function () {
-    Route::get("/", [App\Http\Controllers\Client\CategoryController::class, "index"]);
-    Route::get("/with-plans", [App\Http\Controllers\Client\CategoryController::class, "indexWithPlans"]);
-    Route::get("/slug/{slug}", [App\Http\Controllers\Client\CategoryController::class, "showBySlug"]);
+// Categories, Billing Cycles, and Service Plans
+Route::prefix('categories')->group(function () {
+    Route::get('/', [CategoryController::class, 'index']);
+    Route::get('/with-plans', [CategoryController::class, 'withPlans']);
+    Route::get('/slug/{slug}', [CategoryController::class, 'getBySlug']);
 });
 
-Route::prefix("billing-cycles")->group(function () {
-    Route::get("/", [App\Http\Controllers\Client\BillingCycleController::class, "index"]);
+Route::prefix('billing-cycles')->group(function () {
+    Route::get('/', [BillingCycleController::class, 'index']);
+    Route::get('/{uuid}', [BillingCycleController::class, 'show']);
 });
 
-Route::prefix("service-plans")->group(function () {
-    Route::get("/", [App\Http\Controllers\Client\ServicePlanController::class, "index"]);
-    Route::get("/add-ons/{AddSlug}", [App\Http\Controllers\Client\ServicePlanController::class, "listAddOns"]);
-    Route::get("/category/{categorySlug}", [App\Http\Controllers\Client\ServicePlanController::class, "indexByCategorySlug"]);
-    Route::get("/{uuid}", [App\Http\Controllers\Client\ServicePlanController::class, "show"]);
+Route::prefix('service-plans')->group(function () {
+    Route::get('/', [ServicePlanController::class, 'index']);
+    Route::get('/add-ons/{AddSlug}', [ServicePlanController::class, 'listAddOns']);
+    Route::get('/category/{categorySlug}', [ServicePlanController::class, 'getByCategorySlug']);
+    Route::get('/{uuid}', [ServicePlanController::class, 'show']);
 });
 
-// Temporary routes for testing (without authentication) - Consider removing in production
-// Route::get("/test/dashboard/stats", [App\Http\Controllers\DashboardController::class, "getStats"]);
-// Route::get("/test/dashboard/services", [App\Http\Controllers\DashboardController::class, "getServices"]);
-// Route::get("/test/dashboard/activity", [App\Http\Controllers\DashboardController::class, "getActivity"]);
+// Marketing Services
+Route::get('/marketing-services', [MarketingServiceController::class, 'index']);
 
-
-
-
-// Marketing Services (public)
-Route::get("/marketing-services", [App\Http\Controllers\Client\MarketingServiceController::class, "index"]);
-
-
-use App\Http\Controllers\Client\BlogSubscriptionController;
-
-Route::post("/blog/subscribe", [BlogSubscriptionController::class, "subscribe"]);
-Route::post("/blog/unsubscribe/{uuid}", [BlogSubscriptionController::class, "unsubscribe"]);
-
-use App\Http\Controllers\Client\DocumentationController;
-use App\Http\Controllers\Client\ApiDocumentationController;
-use App\Http\Controllers\Client\SystemStatusController;
-
-Route::prefix("documentation")->group(function () {
-    Route::get("/", [DocumentationController::class, "index"]);
-    Route::get("/{slug}", [DocumentationController::class, "show"]);
+// Blog
+Route::prefix('blog')->group(function () {
+    Route::get('/posts', [BlogController::class, 'index']);
+    Route::get('/posts/featured', [BlogController::class, 'featuredPosts']);
+    Route::get('/posts/{slug}', [BlogController::class, 'show']);
+    Route::get('/categories', [BlogController::class, 'categories']);
+    Route::get('/categories/{categorySlug}/posts', [BlogController::class, 'postsByCategory']);
 });
 
-Route::prefix("api-documentation")->group(function () {
-    Route::get("/", [ApiDocumentationController::class, "index"]);
-    Route::get("/{slug}", [ApiDocumentationController::class, "show"]);
+Route::post('/blog/subscribe', [BlogSubscriptionController::class, 'subscribe']);
+Route::post('/blog/unsubscribe/{uuid}', [BlogSubscriptionController::class, 'unsubscribe']);
+
+// Documentation
+Route::prefix('documentation')->group(function () {
+    Route::get('/', [DocumentationController::class, 'index']);
+    Route::get('/{slug}', [DocumentationController::class, 'show']);
 });
 
-Route::prefix("system-status")->group(function () {
-    Route::get("/", [SystemStatusController::class, "index"]);
+Route::prefix('api-documentation')->group(function () {
+    Route::get('/', [ApiDocumentationController::class, 'index']);
+    Route::get('/{slug}', [ApiDocumentationController::class, 'show']);
 });
 
-Route::post("/documentation-requests", [App\Http\Controllers\Api\DocumentationRequestController::class, "store"]);
-
-// Blog routes (public)
-Route::prefix("blog")->group(function () {
-    Route::get("/posts", [App\Http\Controllers\Client\BlogController::class, "index"]);
-    Route::get("/posts/featured", [App\Http\Controllers\Client\BlogController::class, "featuredPosts"]);
-    Route::get("/posts/{slug}", [App\Http\Controllers\Client\BlogController::class, "show"]);
-    Route::get("/categories", [App\Http\Controllers\Client\BlogController::class, "categories"]);
-    Route::get("/categories/{categorySlug}/posts", [App\Http\Controllers\Client\BlogController::class, "postsByCategory"]);
+Route::prefix('system-status')->group(function () {
+    Route::get('/', [SystemStatusController::class, 'index']);
 });
+
+Route::post('/documentation-requests', [DocumentationRequestController::class, 'store']);

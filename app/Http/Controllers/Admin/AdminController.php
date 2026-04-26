@@ -623,6 +623,60 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $tickets]);
     }
 
+    public function showTicket(int $id): JsonResponse
+    {
+        $ticket = Ticket::with([
+            'user',
+            'assignedTo',
+            'service',
+            'replies' => fn($q) => $q->with('user')->orderBy('created_at', 'asc'),
+        ])->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data'    => new TicketResource($ticket),
+        ]);
+    }
+
+    public function updateTicket(Request $request, int $id): JsonResponse
+    {
+        $ticket = Ticket::findOrFail($id);
+
+        // Normalise empty strings sent by the frontend
+        $request->merge([
+            'assigned_to' => $request->input('assigned_to') ?: null,
+            'service_id'  => $request->input('service_id')  ?: null,
+            'category'    => $request->input('category')    ?: null,
+            'department'  => $request->input('department')  ?: null,
+        ]);
+
+        $validated = $request->validate([
+            'subject'     => ['sometimes', 'string', 'max:255'],
+            'description' => ['sometimes', 'string'],
+            'status'      => ['sometimes', Rule::in(['open', 'in_progress', 'waiting_customer', 'resolved', 'closed'])],
+            'priority'    => ['sometimes', Rule::in(['low', 'medium', 'high', 'urgent'])],
+            'category'    => ['nullable', Rule::in(['technical', 'billing', 'general', 'feature_request', 'bug_report'])],
+            'department'  => ['nullable', Rule::in(['technical', 'billing', 'sales', 'abuse', 'general'])],
+            'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
+            'service_id'  => ['nullable', 'integer', 'exists:services,id'],
+        ]);
+
+        // Auto-set closed_at when status changes to closed
+        if (isset($validated['status']) && $validated['status'] === 'closed' && $ticket->status !== 'closed') {
+            $validated['closed_at'] = now();
+        } elseif (isset($validated['status']) && $validated['status'] !== 'closed') {
+            $validated['closed_at'] = null;
+        }
+
+        $ticket->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ticket actualizado.',
+            'data'    => new TicketResource($ticket->fresh()->load(['user', 'assignedTo', 'service'])),
+        ]);
+    }
+
     public function assignTicket(Request $request, int $ticketId): JsonResponse
     {
         $ticket = Ticket::findOrFail($ticketId);

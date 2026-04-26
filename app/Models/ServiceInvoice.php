@@ -31,6 +31,9 @@ class ServiceInvoice extends Model
 
     protected $fillable = [
         'uuid',
+        'facturama_id',
+        'folio',
+        'invoice_id',
         'service_id',
         'rfc',
         'name',
@@ -59,6 +62,11 @@ class ServiceInvoice extends Model
     public function service()
     {
         return $this->belongsTo(Service::class);
+    }
+
+    public function invoice()
+    {
+        return $this->belongsTo(\App\Models\Invoice::class);
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────

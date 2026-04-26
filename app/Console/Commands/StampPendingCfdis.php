@@ -3,42 +3,55 @@
 namespace App\Console\Commands;
 
 use App\Models\ServiceInvoice;
+use App\Services\Factura\CfdiService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 
 /**
- * Procesa los registros de service_invoices cuyo plazo de 72 horas ya venció
- * y cuyo cfdi_status es 'scheduled' (Público en General).
+ * Timbra como "Público en General" las facturas cuyo plazo de 72 h ya venció
+ * y timbra también cualquier CFDI en estado pending_stamp.
  *
- * Programar en app/Console/Kernel.php:
- *   $schedule->command('cfdi:stamp-pending')->hourly();
+ * Programado en app/Console/Kernel.php → hourly.
  */
 class StampPendingCfdis extends Command
 {
-    protected $signature   = 'cfdi:stamp-pending {--dry-run : Mostrar registros sin timbrar}';
-    protected $description = 'Timbra como Público en General las facturas cuyo plazo de 72 h ya venció';
+    protected $signature   = 'cfdi:stamp-pending {--dry-run : Mostrar registros sin ejecutar}';
+    protected $description = 'Timbra los CFDIs pendientes o cuyo plazo de 72 h ya venció';
+
+    public function __construct(private readonly CfdiService $cfdi)
+    {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
-        $due = ServiceInvoice::dueForStamping()
+        // ── 1) Scheduled (Público en General cuyo plazo ya venció) ──────────
+        $scheduled = ServiceInvoice::dueForStamping()->with('service.user')->get();
+
+        // ── 2) pending_stamp (datos reales aún no timbrados) ────────────────
+        $pending = ServiceInvoice::where('cfdi_status', ServiceInvoice::CFDI_PENDING_STAMP)
             ->with('service.user')
             ->get();
 
-        if ($due->isEmpty()) {
-            $this->info('No hay facturas pendientes de timbrado.');
+        $all = $scheduled->merge($pending)->unique('id');
+
+        if ($all->isEmpty()) {
+            $this->info('No hay CFDIs pendientes de timbrado.');
             return self::SUCCESS;
         }
 
-        $this->info("Facturas por timbrar: {$due->count()}");
+        $this->info("CFDIs por timbrar: {$all->count()} ({$scheduled->count()} programados, {$pending->count()} pendientes)");
 
         if ($this->option('dry-run')) {
             $this->table(
-                ['ID', 'Servicio', 'RFC', 'Programado para'],
-                $due->map(fn($si) => [
+                ['ID', 'Estado', 'RFC', 'Scheduled at', 'Servicio'],
+                $all->map(fn($si) => [
                     $si->id,
-                    $si->service_id,
+                    $si->cfdi_status,
                     $si->rfc,
-                    $si->stamp_scheduled_at?->toDateTimeString(),
+                    $si->stamp_scheduled_at?->toDateTimeString() ?? '—',
+                    $si->service_id,
                 ])->toArray()
             );
             return self::SUCCESS;
@@ -47,51 +60,19 @@ class StampPendingCfdis extends Command
         $stamped = 0;
         $failed  = 0;
 
-        foreach ($due as $si) {
+        foreach ($all as $si) {
             try {
-                // ──────────────────────────────────────────────────────────
-                // INTEGRACIÓN CON PAC (Facturama, SW Sapien, etc.)
-                // Aquí iría la llamada al servicio de timbrado real.
-                //
-                // Ejemplo cuando se integre el PAC:
-                // $cfdi = app(CfdiService::class)->stamp($si);
-                // $si->update([
-                //     'cfdi_status'   => ServiceInvoice::CFDI_STAMPED,
-                //     'cfdi_uuid'     => $cfdi->uuid,
-                //     'cfdi_xml'      => $cfdi->xml,
-                //     'cfdi_pdf_path' => $cfdi->pdfPath,
-                //     'stamped_at'    => now(),
-                // ]);
-                // ──────────────────────────────────────────────────────────
-
-                // Mientras no haya PAC: mover a pending_stamp para proceso manual
-                $si->update([
-                    'cfdi_status' => ServiceInvoice::CFDI_PENDING_STAMP,
-                    'cfdi_error'  => null,
-                ]);
-
+                $this->cfdi->stamp($si);
                 $stamped++;
-
-                Log::info('CFDI listo para timbrado (Público en General)', [
-                    'service_invoice_id' => $si->id,
-                    'service_id'         => $si->service_id,
-                    'rfc'                => $si->rfc,
-                    'user_id'            => $si->service?->user_id,
-                ]);
+                $this->line("  ✓ ServiceInvoice #{$si->id} timbrado (UUID: {$si->fresh()->cfdi_uuid})");
             } catch (\Throwable $e) {
                 $failed++;
-                $si->update([
-                    'cfdi_status' => ServiceInvoice::CFDI_FAILED,
-                    'cfdi_error'  => $e->getMessage(),
-                ]);
-                Log::error('Error al procesar CFDI pendiente', [
-                    'service_invoice_id' => $si->id,
-                    'error'              => $e->getMessage(),
-                ]);
+                $this->error("  ✗ ServiceInvoice #{$si->id}: {$e->getMessage()}");
             }
         }
 
-        $this->info("Procesados: {$stamped} exitosos, {$failed} con error.");
-        return self::SUCCESS;
+        $this->info("Resultado: {$stamped} timbrados, {$failed} con error.");
+
+        return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

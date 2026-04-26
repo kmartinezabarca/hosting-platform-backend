@@ -18,6 +18,7 @@ use App\Models\Service;
 use App\Models\ServicePlan;
 use App\Models\Invoice;
 use App\Models\ActivityLog;
+use App\Services\Pterodactyl\PterodactylService;
 
 class ServiceController extends Controller
 {
@@ -155,21 +156,21 @@ class ServiceController extends Controller
     public function getServiceDetails(string $serviceId): JsonResponse
     {
         try {
-            $user = Auth::user();
+            $user    = Auth::user();
             $service = Service::where("user_id", $user->id)
                 ->where("uuid", $serviceId)
-                ->with(["plan", "plan.category", "plan.features"])
+                ->with(["plan.category", "plan.features", "selectedAddOns"])
                 ->firstOrFail();
 
             return response()->json([
                 "success" => true,
-                "data" => $service
+                "data"    => new ServiceResource($service),
             ]);
         } catch (\Exception $e) {
             Log::error("Error fetching service details: " . $e->getMessage());
             return response()->json([
                 "success" => false,
-                "message" => "Service not found or not authorized"
+                "message" => "Service not found or not authorized",
             ], 404);
         }
     }
@@ -365,8 +366,8 @@ class ServiceController extends Controller
 
     /**
      * Get service resource usage.
-     * Returns data from the service's configuration/metadata if available.
-     * Integrate with your monitoring provider (Prometheus, Netdata, cPanel API, etc.) here.
+     * For Pterodactyl game servers: returns real-time CPU/RAM/disk from the panel.
+     * For other services: returns data stored in configuration.
      */
     public function getServiceUsage(string $serviceId): JsonResponse
     {
@@ -375,19 +376,53 @@ class ServiceController extends Controller
             ->where("uuid", $serviceId)
             ->firstOrFail();
 
-        // Pull usage from service configuration if the provisioning layer stores it there.
-        // Replace this block with a real monitoring API call when available.
-        $usage = $service->configuration['usage'] ?? null;
+        // ── Pterodactyl game server ──────────────────────────────────────
+        if ($service->isPterodactylManaged()) {
+            $identifier = $service->connection_details['identifier'] ?? null;
 
-        if (!$usage) {
-            return response()->json([
-                'success' => true,
-                'data'    => null,
-                'message' => 'No hay datos de uso disponibles para este servicio.',
-            ]);
+            if (!$identifier) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El servidor aún no tiene un identificador asignado.',
+                ], 404);
+            }
+
+            try {
+                $resources = app(PterodactylService::class)->getServerResources($identifier);
+
+                return response()->json([
+                    'success' => true,
+                    'data'    => [
+                        'state'       => $resources['current_state'] ?? 'offline',
+                        'is_suspended'=> $resources['is_suspended']  ?? false,
+                        'cpu'         => $resources['resources']['cpu_absolute']      ?? 0,
+                        'memory_bytes'=> $resources['resources']['memory_bytes']      ?? 0,
+                        'disk_bytes'  => $resources['resources']['disk_bytes']        ?? 0,
+                        'network_rx'  => $resources['resources']['network_rx_bytes']  ?? 0,
+                        'network_tx'  => $resources['resources']['network_tx_bytes']  ?? 0,
+                        'uptime_ms'   => $resources['resources']['uptime']            ?? 0,
+                    ],
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('No se pudieron obtener métricas de Pterodactyl', [
+                    'service_id' => $service->id,
+                    'error'      => $e->getMessage(),
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo conectar al panel. Intenta de nuevo.',
+                ], 503);
+            }
         }
 
-        return response()->json(['success' => true, 'data' => $usage]);
+        // ── Otros tipos de servicio ──────────────────────────────────────
+        $usage = $service->configuration['usage'] ?? null;
+
+        return response()->json([
+            'success' => true,
+            'data'    => $usage,
+            'message' => $usage ? null : 'No hay datos de uso disponibles para este servicio.',
+        ]);
     }
 
     /**
@@ -404,6 +439,83 @@ class ServiceController extends Controller
         $backups = $service->configuration['backups'] ?? [];
 
         return response()->json(['success' => true, 'data' => $backups]);
+    }
+
+    /**
+     * POST /api/services/{uuid}/game-server/power
+     * Envía una señal de poder al servidor de juego: start | stop | restart | kill
+     *
+     * Solo disponible para servicios administrados por Pterodactyl.
+     */
+    public function gameServerPower(Request $request, string $serviceId): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where("user_id", $user->id)
+            ->where("uuid", $serviceId)
+            ->firstOrFail();
+
+        if (!$service->isPterodactylManaged()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este servicio no es un servidor de juego administrado.',
+            ], 422);
+        }
+
+        if ($service->status === 'suspended') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tu servidor está suspendido. Contacta a soporte.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'signal' => ['required', \Illuminate\Validation\Rule::in(['start', 'stop', 'restart', 'kill'])],
+        ], [
+            'signal.in' => 'Señal inválida. Usa: start, stop, restart o kill.',
+        ]);
+
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El servidor no tiene un identificador asignado. Contacta a soporte.',
+            ], 500);
+        }
+
+        try {
+            app(PterodactylService::class)->sendPowerSignal($identifier, $validated['signal']);
+
+            $labels = [
+                'start'   => 'Servidor iniciando...',
+                'stop'    => 'Servidor deteniéndose...',
+                'restart' => 'Servidor reiniciando...',
+                'kill'    => 'Servidor detenido forzosamente.',
+            ];
+
+            ActivityLog::record(
+                "Power action: {$validated['signal']}",
+                "El cliente ejecutó '{$validated['signal']}' en el servicio {$service->name}.",
+                'service',
+                ['service_id' => $service->id, 'signal' => $validated['signal']],
+                $user->id
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $labels[$validated['signal']],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Power action fallida', [
+                'service_id' => $service->id,
+                'signal'     => $validated['signal'],
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo enviar la señal al servidor. Intenta de nuevo.',
+            ], 503);
+        }
     }
 
     /**

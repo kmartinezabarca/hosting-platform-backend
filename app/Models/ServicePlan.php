@@ -29,6 +29,16 @@ class ServicePlan extends Model
         'is_active',
         'sort_order',
         'specifications',
+        // Aprovisionamiento automático
+        'provisioner',
+        'pterodactyl_nest_id',
+        'pterodactyl_egg_id',
+        'pterodactyl_node_id',
+        'pterodactyl_limits',
+        'pterodactyl_feature_limits',
+        'pterodactyl_environment',
+        'pterodactyl_docker_image',
+        'pterodactyl_startup',
     ];
 
     /**
@@ -37,11 +47,14 @@ class ServicePlan extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'base_price' => 'decimal:2',
-        'setup_fee' => 'decimal:2',
-        'is_popular' => 'boolean',
-        'is_active' => 'boolean',
-        'specifications' => 'array',
+        'base_price'                 => 'decimal:2',
+        'setup_fee'                  => 'decimal:2',
+        'is_popular'                 => 'boolean',
+        'is_active'                  => 'boolean',
+        'specifications'             => 'array',
+        'pterodactyl_limits'         => 'array',
+        'pterodactyl_feature_limits' => 'array',
+        'pterodactyl_environment'    => 'array',
     ];
 
     /**
@@ -147,6 +160,11 @@ class ServicePlan extends Model
         }
 
         return $formatted;
+    }
+
+    public function isPterodactylManaged(): bool
+    {
+        return $this->provisioner === 'pterodactyl';
     }
 
     public function addOns()

@@ -43,6 +43,9 @@ class Service extends Model
         'domain',
         'status',
         'external_id',
+        'pterodactyl_server_id',
+        'pterodactyl_server_uuid',
+        'pterodactyl_user_id',
         'connection_details',
         'configuration',
         'next_due_date',
@@ -247,6 +250,16 @@ class Service extends Model
     {
         return $this->plan->category->name ?? 'Unknown'; // O 'slug', 'type', etc.
     }
+    public function isPterodactylManaged(): bool
+    {
+        return !is_null($this->pterodactyl_server_id);
+    }
+
+    public function getPanelUrl(): ?string
+    {
+        return $this->connection_details['panel_url'] ?? null;
+    }
+
     /**
      * Check if this is a game server service.
      */

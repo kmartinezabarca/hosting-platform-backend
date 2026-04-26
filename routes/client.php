@@ -12,6 +12,7 @@ use App\Http\Controllers\Client\TransactionController;
 use App\Http\Controllers\Client\DomainController;
 use App\Http\Controllers\Client\NotificationController;
 use App\Http\Controllers\Client\SupportChatController;
+use App\Http\Controllers\Client\FiscalController;
 
 /*
 |--------------------------------------------------------------------------
@@ -57,6 +58,8 @@ Route::middleware("auth")->group(function () {
         Route::post("/{serviceId}/suspend", [ServiceController::class, "suspendService"]);
         Route::post("/{serviceId}/reactivate", [ServiceController::class, "reactivateService"]);
         Route::get("/{serviceId}/usage", [ServiceController::class, "getServiceUsage"]);
+        // Game server — power control y estado en tiempo real
+        Route::post("/{serviceId}/game-server/power", [ServiceController::class, "gameServerPower"]);
         Route::get("/{serviceId}/backups", [ServiceController::class, "getServiceBackups"]);
         Route::post("/{serviceId}/backups", [ServiceController::class, "createServiceBackup"]);
         Route::post("/{serviceId}/backups/{backupId}/restore", [ServiceController::class, "restoreServiceBackup"]);
@@ -101,6 +104,7 @@ Route::middleware("auth")->group(function () {
         Route::get("/{uuid}", [InvoiceController::class, "show"]);
         Route::get("/{uuid}/pdf", [InvoiceController::class, "downloadPdf"]);
         Route::get("/{uuid}/xml", [InvoiceController::class, "downloadXml"]);
+        Route::put("/{uuid}/fiscal-data", [InvoiceController::class, "updateFiscalData"]);
     });
 
     // Transaction management
@@ -131,6 +135,21 @@ Route::middleware("auth")->group(function () {
         Route::put('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('mark-as-read');
         Route::put('/mark-all-read', [NotificationController::class, 'markAllAsRead'])->name('mark-all-read');
         Route::delete('/{notification}', [NotificationController::class, 'destroy'])->name('destroy');
+    });
+
+    // ── Fiscal / CFDI ─────────────────────────────────────────────────────────
+    Route::prefix('fiscal')->group(function () {
+        // Catálogos SAT (solo lectura)
+        Route::get('/regimes',   [FiscalController::class, 'regimes']);
+        Route::get('/cfdi-uses', [FiscalController::class, 'cfdiUses']);
+
+        // Perfiles fiscales guardados del usuario
+        Route::get('/profiles',                    [FiscalController::class, 'index']);
+        Route::post('/profiles',                   [FiscalController::class, 'store']);
+        Route::get('/profiles/{uuid}',             [FiscalController::class, 'show']);
+        Route::put('/profiles/{uuid}',             [FiscalController::class, 'update']);
+        Route::delete('/profiles/{uuid}',          [FiscalController::class, 'destroy']);
+        Route::put('/profiles/{uuid}/set-default', [FiscalController::class, 'setDefault']);
     });
 
     // Rutas de Chat para Cliente
