@@ -1,186 +1,569 @@
 <?php
-
+// database/seeders/ServicePlanSeeder.php
 namespace Database\Seeders;
 
+use Illuminate\Database\Seeder;
 use App\Models\BillingCycle;
 use App\Models\Category;
 use App\Models\PlanFeature;
 use App\Models\PlanPricing;
 use App\Models\ServicePlan;
-use Illuminate\Database\Seeder;
 
 class ServicePlanSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // 1. Definir todos los planes en una estructura de datos centralizada
-        $allPlansData = [
+        // Precios base en MXN (mensual).
+        // Trimestral = base * 0.90, Anual = base * 0.80
+        // Trial = $0.00 (30 días, después convierte al plan contratado)
+
+        $allPlans = [
+
+            // ═══════════════════════════════════════════
+            // WEB HOSTING
+            // ═══════════════════════════════════════════
             'hosting' => [
                 [
-                    "id" => "hosting-starter",
-                    "name" => "Hosting Starter",
-                    "description" => "Perfecto para sitios web personales y pequeños proyectos",
-                    "price" => ["monthly" => 9.99, "quarterly" => 8.99, "annually" => 7.99],
-                    "popular" => false,
-                    "features" => ["1 Sitio Web", "10 GB SSD", "Ancho de banda ilimitado", "5 Cuentas de email", "SSL gratuito", "Soporte 24/7"],
-                    "specs" => ["storage" => "10 GB SSD", "bandwidth" => "Ilimitado", "domains" => "1 Dominio", "email" => "5 Cuentas"],
+                    'id'          => 'hosting-trial',
+                    'name'        => 'Hosting Trial',
+                    'description' => '30 días gratuitos para que pruebes nuestro hosting sin compromiso. Sin tarjeta de crédito.',
+                    'base_price'  => 0.00,
+                    'popular'     => false,
+                    'trial'       => true,
+                    'features'    => [
+                        '1 Sitio Web',
+                        '2 GB SSD NVMe',
+                        'Ancho de banda 10 GB',
+                        '1 Cuenta de email',
+                        'SSL gratuito',
+                        'Soporte por ticket',
+                        'Válido 30 días',
+                    ],
+                    'specs'       => [
+                        'storage'   => '2 GB SSD',
+                        'bandwidth' => '10 GB',
+                        'domains'   => '1 Dominio',
+                        'email'     => '1 Cuenta',
+                        'duration'  => '30 días',
+                    ],
+                    'cycles'      => ['trial' => 0.00],
                 ],
                 [
-                    "id" => "hosting-pro",
-                    "name" => "Hosting Pro",
-                    "description" => "Ideal para empresas y sitios web con tráfico medio",
-                    "price" => ["monthly" => 19.99, "quarterly" => 17.99, "annually" => 15.99],
-                    "popular" => true,
-                    "features" => ["5 Sitios Web", "50 GB SSD", "Ancho de banda ilimitado", "Cuentas de email ilimitadas", "SSL gratuito", "Backup diario", "CDN incluido", "Soporte prioritario"],
-                    "specs" => ["storage" => "50 GB SSD", "bandwidth" => "Ilimitado", "domains" => "5 Dominios", "email" => "Ilimitado"],
+                    'id'          => 'hosting-starter',
+                    'name'        => 'Hosting Starter',
+                    'description' => 'Perfecto para sitios web personales, blogs y pequeños proyectos.',
+                    'base_price'  => 89.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        '1 Sitio Web',
+                        '10 GB SSD NVMe',
+                        'Ancho de banda ilimitado',
+                        '5 Cuentas de email',
+                        'SSL gratuito (Let\'s Encrypt)',
+                        'Panel de control cPanel',
+                        'Backup semanal',
+                        'Soporte 24/7 por ticket',
+                    ],
+                    'specs'       => [
+                        'storage'   => '10 GB SSD',
+                        'bandwidth' => 'Ilimitado',
+                        'domains'   => '1 Dominio',
+                        'email'     => '5 Cuentas',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 89.00,
+                        'quarterly' => 80.00,
+                        'annually'  => 71.00,
+                    ],
                 ],
                 [
-                    "id" => "hosting-enterprise",
-                    "name" => "Hosting Enterprise",
-                    "description" => "Máximo rendimiento para sitios web de alto tráfico",
-                    "price" => ["monthly" => 39.99, "quarterly" => 35.99, "annually" => 31.99],
-                    "popular" => false,
-                    "features" => ["Sitios web ilimitados", "200 GB SSD", "Ancho de banda ilimitado", "Cuentas de email ilimitadas", "SSL gratuito", "Backup diario", "CDN premium", "Soporte dedicado", "Staging environment"],
-                    "specs" => ["storage" => "200 GB SSD", "bandwidth" => "Ilimitado", "domains" => "Ilimitado", "email" => "Ilimitado"],
+                    'id'          => 'hosting-pro',
+                    'name'        => 'Hosting Pro',
+                    'description' => 'Ideal para negocios y sitios web con tráfico moderado que necesitan más recursos.',
+                    'base_price'  => 189.00,
+                    'popular'     => true,
+                    'trial'       => false,
+                    'features'    => [
+                        '5 Sitios Web',
+                        '50 GB SSD NVMe',
+                        'Ancho de banda ilimitado',
+                        'Cuentas de email ilimitadas',
+                        'SSL gratuito',
+                        'Panel de control cPanel',
+                        'Backup diario automatizado',
+                        'CDN básico incluido',
+                        'Soporte prioritario 24/7',
+                        'WordPress pre-instalado',
+                    ],
+                    'specs'       => [
+                        'storage'   => '50 GB SSD',
+                        'bandwidth' => 'Ilimitado',
+                        'domains'   => '5 Dominios',
+                        'email'     => 'Ilimitado',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 189.00,
+                        'quarterly' => 170.00,
+                        'annually'  => 151.00,
+                    ],
+                ],
+                [
+                    'id'          => 'hosting-enterprise',
+                    'name'        => 'Hosting Enterprise',
+                    'description' => 'Máximo rendimiento para sitios de alto tráfico y tiendas en línea exigentes.',
+                    'base_price'  => 389.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        'Sitios web ilimitados',
+                        '200 GB SSD NVMe',
+                        'Ancho de banda ilimitado',
+                        'Cuentas de email ilimitadas',
+                        'SSL premium (Wildcard)',
+                        'Panel de control cPanel',
+                        'Backup diario + retención 30 días',
+                        'CDN premium con Cloudflare',
+                        'Soporte dedicado con SLA',
+                        'Ambiente de staging incluido',
+                        'Cache avanzado (Redis + OPcache)',
+                    ],
+                    'specs'       => [
+                        'storage'   => '200 GB SSD',
+                        'bandwidth' => 'Ilimitado',
+                        'domains'   => 'Ilimitado',
+                        'email'     => 'Ilimitado',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 389.00,
+                        'quarterly' => 350.00,
+                        'annually'  => 311.00,
+                    ],
                 ],
             ],
+
+            // ═══════════════════════════════════════════
+            // GAME SERVERS
+            // ═══════════════════════════════════════════
             'gameserver' => [
                 [
-                    "id" => "minecraft-basic",
-                    "name" => "Minecraft Basic",
-                    "description" => "Servidor Minecraft para jugar con amigos",
-                    "price" => ["monthly" => 12.99, "quarterly" => 11.99, "annually" => 9.99],
-                    "popular" => false,
-                    "features" => ["Hasta 10 jugadores", "2 GB RAM", "1 vCPU", "25 GB SSD", "Panel de control", "Mods y plugins", "Backup automático", "Soporte 24/7"],
-                    "specs" => ["players" => "10 Jugadores", "ram" => "2 GB RAM", "cpu" => "1 vCPU", "storage" => "25 GB SSD"],
+                    'id'          => 'gameserver-trial',
+                    'name'        => 'Game Server Trial',
+                    'description' => '30 días gratuitos para probar tu servidor de juegos. Hasta 5 jugadores, sin tarjeta.',
+                    'base_price'  => 0.00,
+                    'popular'     => false,
+                    'trial'       => true,
+                    'features'    => [
+                        'Hasta 5 jugadores',
+                        '1 GB RAM',
+                        '1 vCPU',
+                        '10 GB SSD',
+                        'Panel Pterodactyl',
+                        'Soporte por ticket',
+                        'Válido 30 días',
+                    ],
+                    'specs'       => [
+                        'players' => '5 Jugadores',
+                        'ram'     => '1 GB RAM',
+                        'cpu'     => '1 vCPU',
+                        'storage' => '10 GB SSD',
+                    ],
+                    'cycles'      => ['trial' => 0.00],
                 ],
                 [
-                    "id" => "minecraft-pro",
-                    "name" => "Minecraft Pro",
-                    "description" => "Servidor Minecraft para comunidades medianas",
-                    "price" => ["monthly" => 24.99, "quarterly" => 22.99, "annually" => 19.99],
-                    "popular" => true,
-                    "features" => ["Hasta 25 jugadores", "4 GB RAM", "2 vCPU", "50 GB SSD", "Panel de control avanzado", "Mods y plugins ilimitados", "Backup automático", "DDoS protection", "Soporte prioritario"],
-                    "specs" => ["players" => "25 Jugadores", "ram" => "4 GB RAM", "cpu" => "2 vCPU", "storage" => "50 GB SSD"],
+                    'id'          => 'minecraft-basic',
+                    'name'        => 'Game Server Basic',
+                    'description' => 'Servidor para jugar con amigos. Minecraft, Terraria, Valheim y más.',
+                    'base_price'  => 129.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        'Hasta 10 jugadores',
+                        '2 GB RAM',
+                        '1 vCPU',
+                        '25 GB SSD',
+                        'Panel Pterodactyl incluido',
+                        'Instalador de mods 1-Click',
+                        'Backup automático semanal',
+                        'Protección Anti-DDoS básica',
+                        'Soporte 24/7',
+                    ],
+                    'specs'       => [
+                        'players' => '10 Jugadores',
+                        'ram'     => '2 GB RAM',
+                        'cpu'     => '1 vCPU',
+                        'storage' => '25 GB SSD',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 129.00,
+                        'quarterly' => 116.00,
+                        'annually'  => 103.00,
+                    ],
                 ],
                 [
-                    "id" => "minecraft-enterprise",
-                    "name" => "Minecraft Enterprise",
-                    "description" => "Servidor Minecraft para grandes comunidades",
-                    "price" => ["monthly" => 49.99, "quarterly" => 44.99, "annually" => 39.99],
-                    "popular" => false,
-                    "features" => ["Hasta 100 jugadores", "8 GB RAM", "4 vCPU", "100 GB SSD", "Panel de control premium", "Mods y plugins ilimitados", "Backup automático", "DDoS protection", "Soporte dedicado", "Servidor de desarrollo"],
-                    "specs" => ["players" => "100 Jugadores", "ram" => "8 GB RAM", "cpu" => "4 vCPU", "storage" => "100 GB SSD"],
+                    'id'          => 'minecraft-pro',
+                    'name'        => 'Game Server Pro',
+                    'description' => 'Para comunidades medianas. Minecraft, Rust, ARK y servidores más exigentes.',
+                    'base_price'  => 249.00,
+                    'popular'     => true,
+                    'trial'       => false,
+                    'features'    => [
+                        'Hasta 30 jugadores',
+                        '4 GB RAM',
+                        '2 vCPU',
+                        '50 GB SSD',
+                        'Panel Pterodactyl avanzado',
+                        'Mods y plugins ilimitados',
+                        'Backup automático diario',
+                        'Protección Anti-DDoS avanzada',
+                        'Servidor de desarrollo incluido',
+                        'Soporte prioritario 24/7',
+                    ],
+                    'specs'       => [
+                        'players' => '30 Jugadores',
+                        'ram'     => '4 GB RAM',
+                        'cpu'     => '2 vCPU',
+                        'storage' => '50 GB SSD',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 249.00,
+                        'quarterly' => 224.00,
+                        'annually'  => 199.00,
+                    ],
+                ],
+                [
+                    'id'          => 'minecraft-enterprise',
+                    'name'        => 'Game Server Enterprise',
+                    'description' => 'Para grandes comunidades y servidores públicos con cientos de jugadores.',
+                    'base_price'  => 499.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        'Hasta 150 jugadores',
+                        '8 GB RAM',
+                        '4 vCPU',
+                        '100 GB SSD NVMe',
+                        'Panel Pterodactyl premium',
+                        'Mods y plugins ilimitados',
+                        'Backup automático diario + retención 15 días',
+                        'Protección Anti-DDoS enterprise',
+                        'Subdominio dedicado gratuito',
+                        'Soporte dedicado con SLA',
+                        'Consola de administración avanzada',
+                    ],
+                    'specs'       => [
+                        'players' => '150 Jugadores',
+                        'ram'     => '8 GB RAM',
+                        'cpu'     => '4 vCPU',
+                        'storage' => '100 GB SSD',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 499.00,
+                        'quarterly' => 449.00,
+                        'annually'  => 399.00,
+                    ],
                 ],
             ],
+
+            // ═══════════════════════════════════════════
+            // VPS CLOUD
+            // ═══════════════════════════════════════════
             'vps' => [
                 [
-                    "id" => "vps-basic",
-                    "name" => "VPS Basic",
-                    "description" => "Servidor virtual para proyectos pequeños",
-                    "price" => ["monthly" => 19.99, "quarterly" => 17.99, "annually" => 15.99],
-                    "popular" => false,
-                    "features" => ["2 GB RAM", "2 vCPU", "50 GB SSD", "2 TB Transferencia", "Ubuntu/CentOS/Debian", "Acceso root completo", "IPv4 dedicada", "Soporte 24/7"],
-                    "specs" => ["ram" => "2 GB RAM", "cpu" => "2 vCPU", "storage" => "50 GB SSD", "bandwidth" => "2 TB"],
+                    'id'          => 'vps-trial',
+                    'name'        => 'VPS Trial',
+                    'description' => '30 días gratuitos para explorar tu VPS. Acceso root completo, sin tarjeta.',
+                    'base_price'  => 0.00,
+                    'popular'     => false,
+                    'trial'       => true,
+                    'features'    => [
+                        '1 GB RAM',
+                        '1 vCPU',
+                        '20 GB SSD',
+                        '500 GB Transferencia',
+                        'Acceso root completo',
+                        'Ubuntu 22.04 / Debian 12',
+                        'IPv4 compartida',
+                        'Soporte por ticket',
+                        'Válido 30 días',
+                    ],
+                    'specs'       => [
+                        'ram'       => '1 GB RAM',
+                        'cpu'       => '1 vCPU',
+                        'storage'   => '20 GB SSD',
+                        'bandwidth' => '500 GB',
+                    ],
+                    'cycles'      => ['trial' => 0.00],
                 ],
                 [
-                    "id" => "vps-pro",
-                    "name" => "VPS Pro",
-                    "description" => "Servidor virtual para aplicaciones medianas",
-                    "price" => ["monthly" => 39.99, "quarterly" => 35.99, "annually" => 31.99],
-                    "popular" => true,
-                    "features" => ["4 GB RAM", "4 vCPU", "100 GB SSD", "4 TB Transferencia", "Ubuntu/CentOS/Debian/Windows", "Acceso root completo", "IPv4 dedicada", "Backup automático", "Monitoreo 24/7", "Soporte prioritario"],
-                    "specs" => ["ram" => "4 GB RAM", "cpu" => "4 vCPU", "storage" => "100 GB SSD", "bandwidth" => "4 TB"],
+                    'id'          => 'vps-basic',
+                    'name'        => 'VPS Basic',
+                    'description' => 'VPS ideal para proyectos en desarrollo, servidores de pruebas y aplicaciones ligeras.',
+                    'base_price'  => 199.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        '2 GB RAM',
+                        '2 vCPU',
+                        '50 GB SSD NVMe',
+                        '2 TB Transferencia mensual',
+                        'Ubuntu / Debian / CentOS',
+                        'Acceso root completo',
+                        'IPv4 dedicada',
+                        'Panel de control Webmin (opcional)',
+                        'Backup semanal',
+                        'Soporte 24/7',
+                    ],
+                    'specs'       => [
+                        'ram'       => '2 GB RAM',
+                        'cpu'       => '2 vCPU',
+                        'storage'   => '50 GB SSD',
+                        'bandwidth' => '2 TB',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 199.00,
+                        'quarterly' => 179.00,
+                        'annually'  => 159.00,
+                    ],
                 ],
                 [
-                    "id" => "vps-enterprise",
-                    "name" => "VPS Enterprise",
-                    "description" => "Servidor virtual para aplicaciones críticas",
-                    "price" => ["monthly" => 79.99, "quarterly" => 71.99, "annually" => 63.99],
-                    "popular" => false,
-                    "features" => ["8 GB RAM", "8 vCPU", "200 GB SSD", "8 TB Transferencia", "Ubuntu/CentOS/Debian/Windows", "Acceso root completo", "IPv4 dedicada", "Backup automático", "Monitoreo 24/7", "Soporte dedicado", "SLA 99.9%"],
-                    "specs" => ["ram" => "8 GB RAM", "cpu" => "8 vCPU", "storage" => "200 GB SSD", "bandwidth" => "8 TB"],
+                    'id'          => 'vps-pro',
+                    'name'        => 'VPS Pro',
+                    'description' => 'Para aplicaciones en producción, e-commerce y proyectos con tráfico real.',
+                    'base_price'  => 399.00,
+                    'popular'     => true,
+                    'trial'       => false,
+                    'features'    => [
+                        '4 GB RAM',
+                        '4 vCPU',
+                        '100 GB SSD NVMe',
+                        '4 TB Transferencia mensual',
+                        'Ubuntu / Debian / CentOS / Windows Server',
+                        'Acceso root completo',
+                        'IPv4 dedicada',
+                        'Backup automático diario',
+                        'Monitoreo de recursos 24/7',
+                        'Firewall gestionado incluido',
+                        'Soporte prioritario',
+                    ],
+                    'specs'       => [
+                        'ram'       => '4 GB RAM',
+                        'cpu'       => '4 vCPU',
+                        'storage'   => '100 GB SSD',
+                        'bandwidth' => '4 TB',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 399.00,
+                        'quarterly' => 359.00,
+                        'annually'  => 319.00,
+                    ],
+                ],
+                [
+                    'id'          => 'vps-enterprise',
+                    'name'        => 'VPS Enterprise',
+                    'description' => 'Para cargas críticas, alta disponibilidad y aplicaciones empresariales exigentes.',
+                    'base_price'  => 799.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        '8 GB RAM',
+                        '8 vCPU',
+                        '200 GB SSD NVMe',
+                        '8 TB Transferencia mensual',
+                        'Ubuntu / Debian / CentOS / Windows Server',
+                        'Acceso root completo',
+                        '2× IPv4 dedicadas',
+                        'Backup automático diario + retención 30 días',
+                        'Monitoreo avanzado con alertas',
+                        'Firewall gestionado + DDoS protection',
+                        'Soporte dedicado con SLA 99.9%',
+                        'Snapshots bajo demanda',
+                    ],
+                    'specs'       => [
+                        'ram'       => '8 GB RAM',
+                        'cpu'       => '8 vCPU',
+                        'storage'   => '200 GB SSD',
+                        'bandwidth' => '8 TB',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 799.00,
+                        'quarterly' => 719.00,
+                        'annually'  => 639.00,
+                    ],
                 ],
             ],
+
+            // ═══════════════════════════════════════════
+            // BASE DE DATOS
+            // ═══════════════════════════════════════════
             'database' => [
                 [
-                    "id" => "mysql-basic",
-                    "name" => "MySQL Basic",
-                    "description" => "Base de datos MySQL para aplicaciones pequeñas",
-                    "price" => ["monthly" => 14.99, "quarterly" => 13.49, "annually" => 11.99],
-                    "popular" => false,
-                    "features" => ["1 GB RAM", "20 GB SSD", "100 conexiones", "MySQL 8.0", "Backup diario", "SSL encryption", "Monitoreo básico", "Soporte 24/7"],
-                    "specs" => ["ram" => "1 GB RAM", "storage" => "20 GB SSD", "connections" => "100 Conexiones", "version" => "MySQL 8.0"],
+                    'id'          => 'database-trial',
+                    'name'        => 'Database Trial',
+                    'description' => '30 días gratuitos para probar nuestra plataforma de bases de datos gestionadas.',
+                    'base_price'  => 0.00,
+                    'popular'     => false,
+                    'trial'       => true,
+                    'features'    => [
+                        '512 MB RAM',
+                        '5 GB SSD',
+                        '10 conexiones simultáneas',
+                        'MySQL 8.0',
+                        'Backup diario',
+                        'SSL encryption',
+                        'Soporte por ticket',
+                        'Válido 30 días',
+                    ],
+                    'specs'       => [
+                        'ram'         => '512 MB RAM',
+                        'storage'     => '5 GB SSD',
+                        'connections' => '10 Conexiones',
+                        'version'     => 'MySQL 8.0',
+                    ],
+                    'cycles'      => ['trial' => 0.00],
                 ],
                 [
-                    "id" => "postgresql-pro",
-                    "name" => "PostgreSQL Pro",
-                    "description" => "Base de datos PostgreSQL para aplicaciones medianas",
-                    "price" => ["monthly" => 29.99, "quarterly" => 26.99, "annually" => 23.99],
-                    "popular" => true,
-                    "features" => ["2 GB RAM", "50 GB SSD", "500 conexiones", "PostgreSQL 15", "Backup automático", "SSL encryption", "Monitoreo avanzado", "Réplicas de lectura", "Soporte prioritario"],
-                    "specs" => ["ram" => "2 GB RAM", "storage" => "50 GB SSD", "connections" => "500 Conexiones", "version" => "PostgreSQL 15"],
+                    'id'          => 'mysql-basic',
+                    'name'        => 'MySQL Starter',
+                    'description' => 'Base de datos MySQL gestionada, ideal para aplicaciones en etapa de crecimiento.',
+                    'base_price'  => 149.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        '1 GB RAM',
+                        '20 GB SSD NVMe',
+                        '100 conexiones simultáneas',
+                        'MySQL 8.0 o MariaDB 10.11',
+                        'Backup diario automatizado',
+                        'SSL encryption en tránsito',
+                        'Monitoreo básico de rendimiento',
+                        'Acceso vía IP whitelist',
+                        'Soporte 24/7',
+                    ],
+                    'specs'       => [
+                        'ram'         => '1 GB RAM',
+                        'storage'     => '20 GB SSD',
+                        'connections' => '100 Conexiones',
+                        'version'     => 'MySQL 8.0',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 149.00,
+                        'quarterly' => 134.00,
+                        'annually'  => 119.00,
+                    ],
                 ],
                 [
-                    "id" => "mongodb-enterprise",
-                    "name" => "MongoDB Enterprise",
-                    "description" => "Base de datos MongoDB para aplicaciones escalables",
-                    "price" => ["monthly" => 59.99, "quarterly" => 53.99, "annually" => 47.99],
-                    "popular" => false,
-                    "features" => ["4 GB RAM", "100 GB SSD", "1000 conexiones", "MongoDB 7.0", "Backup automático", "SSL encryption", "Monitoreo premium", "Sharding automático", "Réplicas múltiples", "Soporte dedicado"],
-                    "specs" => ["ram" => "4 GB RAM", "storage" => "100 GB SSD", "connections" => "1000 Conexiones", "version" => "MongoDB 7.0"],
+                    'id'          => 'postgresql-pro',
+                    'name'        => 'PostgreSQL Pro',
+                    'description' => 'PostgreSQL gestionado para aplicaciones que exigen integridad, JSON y extensiones avanzadas.',
+                    'base_price'  => 299.00,
+                    'popular'     => true,
+                    'trial'       => false,
+                    'features'    => [
+                        '2 GB RAM',
+                        '50 GB SSD NVMe',
+                        '500 conexiones simultáneas',
+                        'PostgreSQL 16',
+                        'Backup automático + retención 7 días',
+                        'SSL encryption en tránsito y en reposo',
+                        'Monitoreo avanzado con alertas',
+                        'Réplica de lectura incluida',
+                        'Extensiones: PostGIS, pgvector, uuid-ossp',
+                        'Soporte prioritario 24/7',
+                    ],
+                    'specs'       => [
+                        'ram'         => '2 GB RAM',
+                        'storage'     => '50 GB SSD',
+                        'connections' => '500 Conexiones',
+                        'version'     => 'PostgreSQL 16',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 299.00,
+                        'quarterly' => 269.00,
+                        'annually'  => 239.00,
+                    ],
+                ],
+                [
+                    'id'          => 'mongodb-enterprise',
+                    'name'        => 'MongoDB Enterprise',
+                    'description' => 'MongoDB gestionado para aplicaciones con grandes volúmenes de datos y alta escalabilidad.',
+                    'base_price'  => 599.00,
+                    'popular'     => false,
+                    'trial'       => false,
+                    'features'    => [
+                        '4 GB RAM',
+                        '100 GB SSD NVMe',
+                        '1,000 conexiones simultáneas',
+                        'MongoDB 7.0',
+                        'Backup automático + retención 30 días',
+                        'SSL encryption en tránsito y en reposo',
+                        'Monitoreo premium con dashboards',
+                        'Replica Set de 3 nodos',
+                        'Sharding horizontal automático',
+                        'Soporte dedicado con SLA 99.9%',
+                    ],
+                    'specs'       => [
+                        'ram'         => '4 GB RAM',
+                        'storage'     => '100 GB SSD',
+                        'connections' => '1,000 Conexiones',
+                        'version'     => 'MongoDB 7.0',
+                    ],
+                    'cycles'      => [
+                        'monthly'   => 599.00,
+                        'quarterly' => 539.00,
+                        'annually'  => 479.00,
+                    ],
                 ],
             ],
         ];
 
-        foreach ($allPlansData as $categorySlug => $plans) {
-            $category = Category::where("slug", $categorySlug)->first();
+        foreach ($allPlans as $categorySlug => $plans) {
+            $category = Category::where('slug', $categorySlug)->first();
 
             if (!$category) {
-                $this->command->warn("Categoría no encontrada, saltando: {$categorySlug}");
+                $this->command->warn("Categoría '{$categorySlug}' no encontrada — ejecuta CategorySeeder primero.");
                 continue;
             }
 
             foreach ($plans as $planData) {
                 $servicePlan = ServicePlan::updateOrCreate(
-                    ['slug' => $planData["id"]],
+                    ['slug' => $planData['id']],
                     [
-                        "category_id" => $category->id,
-                        "name" => $planData["name"],
-                        "description" => $planData["description"],
-                        "base_price" => $planData["price"]["monthly"],
-                        "is_popular" => $planData["popular"],
-                        "specifications" => $planData["specs"],
-                        "is_active" => true,
+                        'category_id'    => $category->id,
+                        'name'           => $planData['name'],
+                        'description'    => $planData['description'],
+                        'base_price'     => $planData['base_price'],
+                        'is_popular'     => $planData['popular'],
+                        'specifications' => $planData['specs'],
+                        'is_active'      => true,
                     ]
                 );
 
+                // Features — limpiar y recrear
                 $servicePlan->features()->delete();
-                foreach ($planData["features"] as $index => $feature) {
+                foreach ($planData['features'] as $index => $feature) {
                     PlanFeature::create([
-                        "service_plan_id" => $servicePlan->id,
-                        "feature" => $feature,
-                        "sort_order" => $index,
+                        'service_plan_id' => $servicePlan->id,
+                        'feature'         => $feature,
+                        'sort_order'      => $index,
                     ]);
                 }
 
-
+                // Precios por ciclo de facturación
                 $servicePlan->pricing()->delete();
-
-                foreach ($planData["price"] as $cycleSlug => $price) {
-                    $billingCycle = BillingCycle::where("slug", $cycleSlug)->first();
-                    if ($billingCycle) {
+                foreach ($planData['cycles'] as $cycleSlug => $price) {
+                    $cycle = BillingCycle::where('slug', $cycleSlug)->first();
+                    if ($cycle) {
                         PlanPricing::create([
-                            "service_plan_id" => $servicePlan->id,
-                            "billing_cycle_id" => $billingCycle->id,
-                            "price" => $price,
+                            'service_plan_id'  => $servicePlan->id,
+                            'billing_cycle_id' => $cycle->id,
+                            'price'            => $price,
                         ]);
                     }
                 }
             }
         }
+
+        $this->command->info('✅ ServicePlanSeeder completado — ' . ServicePlan::count() . ' planes creados.');
     }
 }
