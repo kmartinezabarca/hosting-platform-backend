@@ -165,8 +165,12 @@ pipeline {
                     echo "Symlink current → \$RELEASE_DIR"
 
                     echo "♻️  Reload servicios..."
-                    sudo /usr/bin/systemctl reload php8.2-fpm
-                    sudo /usr/bin/systemctl reload nginx
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        docker:cli \
+                        docker exec \$(docker ps -q -f name=php-fpm) kill -USR2 1 2>/dev/null || true
+                    // O más simple:
+                    sh 'docker exec $(docker ps -q -f name=phpfpm) kill -USR2 1 || true'
 
                     echo "🧹 Limpiando releases antiguos (mantener 5)..."
                     cd "${STAGING_PATH}/releases"
