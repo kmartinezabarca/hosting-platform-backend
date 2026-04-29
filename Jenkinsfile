@@ -158,7 +158,7 @@ pipeline {
 
                         echo "Migraciones..."
                         if [ "${runMigrations}" = "true" ]; then
-                            php artisan migrate --force --no-interaction
+                            sh "DB_HOST=172.17.0.1 php artisan migrate --force --no-interaction"
                         fi
 
                         echo "Optimizando..."
