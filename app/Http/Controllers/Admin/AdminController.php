@@ -623,7 +623,7 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $tickets]);
     }
 
-    public function showTicket(int $id): JsonResponse
+    public function showTicket(string $id): JsonResponse
     {
         $ticket = Ticket::with([
             'user',
