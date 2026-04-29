@@ -4,16 +4,14 @@
 
 pipeline {
     agent {
-    docker {
-        image 'roke-jenkins-agent-php:latest'
-        args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer -v /opt/apps:/opt/apps:rw'
-        reuseNode true
+        docker {
+            image 'roke-jenkins-agent-php:latest'
+            args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer -v /opt/apps:/opt/apps:rw'
+            reuseNode true
+        }
     }
-}
 
     environment {
-        DEPLOY_HOST  = '100.124.151.68'
-        DEPLOY_USER  = 'rokecore'
         STAGING_PATH = '/opt/apps/api-staging'
         PROD_PATH    = '/opt/apps/api'
         STAGING_URL  = 'https://api.rokeindustries.dev'
@@ -80,8 +78,6 @@ pipeline {
         }
 
         // ── STAGE 3: Composer install ─────────────────────────
-        // --no-scripts: evita que package:discover corra aquí sin .env
-        // Los scripts de artisan se corren en el servidor después de linkear shared/.env
         stage('Composer Install') {
             steps {
                 echo "📥 Instalando dependencias PHP..."
@@ -104,7 +100,7 @@ pipeline {
                             --no-interaction
                     fi
 
-                    echo "✅ Composer install completado (scripts se corren en servidor)"
+                    echo "✅ Composer install completado"
                 '''
             }
         }
@@ -122,116 +118,146 @@ pipeline {
             }
         }
 
-        // ── STAGE 6: Deploy Staging ───────────────────────────
+        // ── STAGE 5: Deploy Staging ───────────────────────────
         stage('Deploy Staging') {
-    when { expression { params.DEPLOY_ENV == 'staging' } }
-    steps {
-        echo "🚀 Desplegando a STAGING: ${STAGING_URL}"
-        sh """
-            set -e
-            RELEASE_DIR="${STAGING_PATH}/releases/${env.RELEASE_NAME}"
+            when { expression { params.DEPLOY_ENV == 'staging' } }
+            steps {
+                echo "🚀 Desplegando a STAGING: ${STAGING_URL}"
+                sh """
+                    set -e
+                    RELEASE_DIR="${STAGING_PATH}/releases/${env.RELEASE_NAME}"
 
-            echo "📂 Creando release dir: \$RELEASE_DIR"
-            mkdir -p "\$RELEASE_DIR"
+                    echo "📂 Creando release dir: \$RELEASE_DIR"
+                    mkdir -p "\$RELEASE_DIR"
 
-            echo "📦 Copiando archivos..."
-            cp -r . "\$RELEASE_DIR/"
+                    echo "📦 Copiando archivos..."
+                    cp -r . "\$RELEASE_DIR/"
 
-            echo "🔗 Linkeando shared files..."
-            ln -sf "${STAGING_PATH}/shared/.env"            "\$RELEASE_DIR/.env"
-            rm -rf "\$RELEASE_DIR/storage"
-            ln -sf "${STAGING_PATH}/shared/storage"         "\$RELEASE_DIR/storage"
-            rm -rf "\$RELEASE_DIR/bootstrap/cache"
-            ln -sf "${STAGING_PATH}/shared/bootstrap-cache" "\$RELEASE_DIR/bootstrap/cache"
+                    echo "🔗 Linkeando shared files..."
+                    ln -sf "${STAGING_PATH}/shared/.env"            "\$RELEASE_DIR/.env"
+                    rm -rf "\$RELEASE_DIR/storage"
+                    ln -sf "${STAGING_PATH}/shared/storage"         "\$RELEASE_DIR/storage"
+                    rm -rf "\$RELEASE_DIR/bootstrap/cache"
+                    ln -sf "${STAGING_PATH}/shared/bootstrap-cache" "\$RELEASE_DIR/bootstrap/cache"
 
-            cd "\$RELEASE_DIR"
+                    cd "\$RELEASE_DIR"
 
-            echo "🔑 Verificando APP_KEY..."
-            grep -q "^APP_KEY=base64:" .env || php artisan key:generate --force --no-interaction
+                    echo "🔑 Verificando APP_KEY..."
+                    grep -q "^APP_KEY=base64:" .env || php artisan key:generate --force --no-interaction
 
-            echo "🔍 Descubriendo packages..."
-            php artisan package:discover --ansi || true
+                    echo "🔍 Descubriendo packages..."
+                    php artisan package:discover --ansi || true
 
-            echo "🗄️  Migraciones..."
-            if [ "${params.RUN_MIGRATIONS}" = "true" ]; then
-                php artisan migrate --force --no-interaction
-            fi
+                    echo "🗄️  Migraciones..."
+                    if [ "${params.RUN_MIGRATIONS}" = "true" ]; then
+                        php artisan migrate --force --no-interaction
+                    fi
 
-            echo "⚡ Optimizando..."
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
-            php artisan event:cache
+                    echo "⚡ Optimizando..."
+                    php artisan config:cache
+                    php artisan route:cache
+                    php artisan view:cache
+                    php artisan event:cache
 
-            echo "🔄 Atomic switch..."
-            ln -snf "\$RELEASE_DIR" "${STAGING_PATH}/current"
+                    echo "🔄 Atomic switch..."
+                    ln -snf "\$RELEASE_DIR" "${STAGING_PATH}/current"
+                    echo "Symlink current → \$RELEASE_DIR"
 
-            echo "♻️  Reload servicios..."
-            sudo /usr/bin/systemctl reload php8.2-fpm
-            sudo /usr/bin/systemctl reload nginx
+                    echo "♻️  Reload servicios..."
+                    sudo /usr/bin/systemctl reload php8.2-fpm
+                    sudo /usr/bin/systemctl reload nginx
 
-            echo "🧹 Limpiando releases antiguos..."
-            cd "${STAGING_PATH}/releases"
-            ls -1t | tail -n +6 | xargs -r rm -rf
+                    echo "🧹 Limpiando releases antiguos (mantener 5)..."
+                    cd "${STAGING_PATH}/releases"
+                    ls -1t | tail -n +6 | xargs -r rm -rf
 
-            echo "✅ Deploy staging completado: ${env.RELEASE_NAME}"
-        """
-        echo "✅ Staging disponible en: ${STAGING_URL}"
-    }
-}
-
-        // ── STAGE 7: Deploy Producción ────────────────────────
-        stage('Deploy Production') {
-    when { expression { params.DEPLOY_ENV == 'production' } }
-    steps {
-        script {
-            echo "⚠️  Desplegando a PRODUCCIÓN"
-            input(
-                message: "¿Confirmas el deploy a producción?\n${PROD_URL}\nRelease: ${env.RELEASE_NAME}",
-                ok: '🚀 Sí, desplegar'
-            )
+                    echo "✅ Deploy staging completado: ${env.RELEASE_NAME}"
+                    ls -la "${STAGING_PATH}/current"
+                """
+                echo "✅ Staging disponible en: ${STAGING_URL}"
+            }
         }
-        echo "🚀 Desplegando a PRODUCCIÓN: ${PROD_URL}"
-        sh """
-            set -e
-            RELEASE_DIR="${PROD_PATH}/releases/${env.RELEASE_NAME}"
 
-            mkdir -p "\$RELEASE_DIR"
-            cp -r . "\$RELEASE_DIR/"
+        // ── STAGE 6: Deploy Producción ────────────────────────
+        stage('Deploy Production') {
+            when { expression { params.DEPLOY_ENV == 'production' } }
+            steps {
+                script {
+                    echo "⚠️  Desplegando a PRODUCCIÓN"
+                    input(
+                        message: "¿Confirmas el deploy a producción?\n${PROD_URL}\nRelease: ${env.RELEASE_NAME}",
+                        ok: '🚀 Sí, desplegar'
+                    )
+                }
+                echo "🚀 Desplegando a PRODUCCIÓN: ${PROD_URL}"
+                sh """
+                    set -e
+                    RELEASE_DIR="${PROD_PATH}/releases/${env.RELEASE_NAME}"
 
-            ln -sf "${PROD_PATH}/shared/.env"            "\$RELEASE_DIR/.env"
-            rm -rf "\$RELEASE_DIR/storage"
-            ln -sf "${PROD_PATH}/shared/storage"         "\$RELEASE_DIR/storage"
-            rm -rf "\$RELEASE_DIR/bootstrap/cache"
-            ln -sf "${PROD_PATH}/shared/bootstrap-cache" "\$RELEASE_DIR/bootstrap/cache"
+                    echo "📂 Creando release dir: \$RELEASE_DIR"
+                    mkdir -p "\$RELEASE_DIR"
 
-            cd "\$RELEASE_DIR"
+                    echo "📦 Copiando archivos..."
+                    cp -r . "\$RELEASE_DIR/"
 
-            grep -q "^APP_KEY=base64:" .env || php artisan key:generate --force --no-interaction
+                    echo "🔗 Linkeando shared files..."
+                    ln -sf "${PROD_PATH}/shared/.env"            "\$RELEASE_DIR/.env"
+                    rm -rf "\$RELEASE_DIR/storage"
+                    ln -sf "${PROD_PATH}/shared/storage"         "\$RELEASE_DIR/storage"
+                    rm -rf "\$RELEASE_DIR/bootstrap/cache"
+                    ln -sf "${PROD_PATH}/shared/bootstrap-cache" "\$RELEASE_DIR/bootstrap/cache"
 
-            php artisan package:discover --ansi || true
+                    cd "\$RELEASE_DIR"
 
-            if [ "${params.RUN_MIGRATIONS}" = "true" ]; then
-                php artisan migrate --force --no-interaction
-            fi
+                    echo "🔑 Verificando APP_KEY..."
+                    grep -q "^APP_KEY=base64:" .env || php artisan key:generate --force --no-interaction
 
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
-            php artisan event:cache
+                    echo "🔍 Descubriendo packages..."
+                    php artisan package:discover --ansi || true
 
-            ln -snf "\$RELEASE_DIR" "${PROD_PATH}/current"
+                    echo "🗄️  Migraciones..."
+                    if [ "${params.RUN_MIGRATIONS}" = "true" ]; then
+                        php artisan migrate --force --no-interaction
+                    fi
 
-            sudo /usr/bin/systemctl reload php8.2-fpm
-            sudo /usr/bin/systemctl reload nginx
-            sudo /usr/bin/supervisorctl restart laravel-prod: 2>/dev/null || true
+                    echo "⚡ Optimizando..."
+                    php artisan config:cache
+                    php artisan route:cache
+                    php artisan view:cache
+                    php artisan event:cache
 
-            cd "${PROD_PATH}/releases"
-            ls -1t | tail -n +6 | xargs -r rm -rf
+                    echo "🔄 Atomic switch..."
+                    ln -snf "\$RELEASE_DIR" "${PROD_PATH}/current"
+                    echo "Symlink current → \$RELEASE_DIR"
 
-            echo "✅ Deploy producción completado: ${env.RELEASE_NAME}"
-        """
-        echo "✅ Producción actualizada: ${PROD_URL}"
+                    echo "♻️  Reload servicios..."
+                    sudo /usr/bin/systemctl reload php8.2-fpm
+                    sudo /usr/bin/systemctl reload nginx
+                    sudo /usr/bin/supervisorctl restart laravel-prod: 2>/dev/null || true
+
+                    echo "🧹 Limpiando releases antiguos (mantener 5)..."
+                    cd "${PROD_PATH}/releases"
+                    ls -1t | tail -n +6 | xargs -r rm -rf
+
+                    echo "✅ Deploy producción completado: ${env.RELEASE_NAME}"
+                    ls -la "${PROD_PATH}/current"
+                """
+                echo "✅ Producción actualizada: ${PROD_URL}"
+            }
+        }
     }
-}
+
+    post {
+        success {
+            echo "✅ Pipeline #${env.BUILD_NUMBER} completado — Release: ${env.RELEASE_NAME ?: 'N/A'}"
+        }
+        failure {
+            echo "❌ Pipeline #${env.BUILD_NUMBER} falló en: ${env.STAGE_NAME}"
+        }
+        cleanup {
+            echo "🧹 Limpiando workspace..."
+            sh 'rm -f /tmp/release.tgz 2>/dev/null || true'
+            cleanWs()
+        }
+    }
 }
