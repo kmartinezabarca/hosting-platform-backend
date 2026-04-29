@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\DocumentationRequestController;
+use App\Http\Controllers\Api\QuotationPublicController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use App\Http\Controllers\Auth\TwoFactorController;
@@ -99,3 +100,9 @@ Route::prefix('system-status')->group(function () {
 });
 
 Route::post('/documentation-requests', [DocumentationRequestController::class, 'store']);
+
+// Cotizaciones públicas (sin autenticación)
+Route::prefix('quotations/public')->group(function () {
+    Route::get('/{token}',         [QuotationPublicController::class, 'show']);
+    Route::post('/{token}/viewed', [QuotationPublicController::class, 'markViewed']);
+});

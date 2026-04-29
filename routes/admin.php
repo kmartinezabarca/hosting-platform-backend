@@ -20,6 +20,7 @@ use App\Http\Controllers\Admin\DocumentationRequestController;
 use App\Http\Controllers\Admin\FiscalController;
 use App\Http\Controllers\Admin\CfdiController;
 use App\Http\Controllers\Admin\GameServerController;
+use App\Http\Controllers\Admin\QuotationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -198,6 +199,17 @@ Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
     // Blog Posts Routes
     Route::post("blog/upload-image", [BlogPostController::class, "uploadImage"]);
     Route::apiResource("blog-posts", BlogPostController::class);
+
+    // ── Cotizaciones ─────────────────────────────────────────────────────────
+    Route::prefix('quotations')->group(function () {
+        Route::get('/',                        [QuotationController::class, 'index']);
+        Route::post('/',                       [QuotationController::class, 'store']);
+        Route::get('/{uuid}',                  [QuotationController::class, 'show']);
+        Route::put('/{uuid}',                  [QuotationController::class, 'update']);
+        Route::delete('/{uuid}',               [QuotationController::class, 'destroy']);
+        Route::post('/{uuid}/send',            [QuotationController::class, 'send']);
+        Route::post('/{uuid}/regenerate-link', [QuotationController::class, 'regenerateLink']);
+    });
 
     // ── Servidores de Juego (Pterodactyl) ────────────────────────────────────
     Route::prefix('game-servers')->group(function () {

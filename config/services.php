@@ -37,4 +37,9 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
+    'pterodactyl' => [
+        'url' => env('PTERODACTYL_URL', 'https://panel.rokeindustries.net'),
+        'key' => env('PTERODACTYL_API_KEY'),
+    ],
+
 ];
