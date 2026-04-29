@@ -149,6 +149,7 @@ pipeline {
                     php artisan package:discover --ansi || true
 
                     echo "🗄️  Migraciones..."
+                    php artisan config:clear
                     if [ "${params.RUN_MIGRATIONS}" = "true" ]; then
                         php artisan migrate --force --no-interaction
                     fi
