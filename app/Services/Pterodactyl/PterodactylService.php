@@ -109,14 +109,15 @@ class PterodactylService
     }
 
     private function countFreeAllocations(int $nodeId): int
-    {
-        $response = $this->http()->get("/api/application/nodes/{$nodeId}/allocations", [
-            'filter[assigned]' => 'false',
-            'per_page'         => 1,
-        ]);
-        if ($response->failed()) return 0;
-        return $response->json('meta.pagination.total', 0);
-    }
+{
+    $response = $this->http()->get("/api/application/nodes/{$nodeId}/allocations", [
+        'per_page' => 100,
+    ]);
+    if ($response->failed()) return 0;
+
+    $data = $response->json('data', []);
+    return count(array_filter($data, fn($a) => empty($a['attributes']['assigned'])));
+}
 
     /**
      * Devuelve la primera allocation libre del nodo indicado.
@@ -124,22 +125,24 @@ class PterodactylService
      * @return array  Objeto allocation con 'id', 'ip', 'port'
      */
     public function getAvailableAllocation(int $nodeId): array
-    {
-        $response = $this->http()->get("/api/application/nodes/{$nodeId}/allocations", [
-            'filter[assigned]' => 'false',
-            'per_page'         => 1,
-        ]);
+{
+    $response = $this->http()->get("/api/application/nodes/{$nodeId}/allocations", [
+        'per_page' => 100,
+    ]);
 
-        $this->assertOk($response, 'getAvailableAllocation');
+    $this->assertOk($response, 'getAvailableAllocation');
 
-        $data = $response->json('data', []);
+    $data = $response->json('data', []);
 
-        if (empty($data)) {
-            throw new RuntimeException("No hay allocations libres en el nodo #{$nodeId}.");
+    // Filtrar manualmente las allocations no asignadas
+    foreach ($data as $allocation) {
+        if (empty($allocation['attributes']['assigned'])) {
+            return $allocation;
         }
-
-        return $data[0];
     }
+
+    throw new RuntimeException("No hay allocations libres en el nodo #{$nodeId}.");
+}
 
     // ─────────────────────────────────────────────────────────────────────────
     // Eggs (juegos)
