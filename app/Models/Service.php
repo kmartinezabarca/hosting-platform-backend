@@ -54,6 +54,8 @@ class Service extends Model
         'setup_fee',
         'notes',
         'terminated_at',
+        'restart_required',
+        'pending_changes_count',
     ];
 
     /**
@@ -68,6 +70,8 @@ class Service extends Model
         'price' => 'decimal:2',
         'setup_fee' => 'decimal:2',
         'terminated_at' => 'datetime',
+        'restart_required'      => 'boolean',
+        'pending_changes_count' => 'integer',
     ];
 
     /**

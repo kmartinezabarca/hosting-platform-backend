@@ -7,77 +7,63 @@ use App\Http\Requests\Client\ContractServiceRequest;
 use App\Http\Resources\ServiceResource;
 use App\Services\ServiceContractingService;
 use App\Exceptions\PaymentRequiresActionException;
+use App\Models\Service;
+use App\Models\ServicePlan;
+use App\Models\ActivityLog;
 
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
-use App\Models\Service;
-use App\Models\ServicePlan;
-use App\Models\Invoice;
-use App\Models\ActivityLog;
-use App\Services\Pterodactyl\PterodactylService;
-
 class ServiceController extends Controller
 {
-    public function __construct(private readonly ServiceContractingService $contractingService)
-    {
-    }
+    public function __construct(
+        private readonly ServiceContractingService $contractingService
+    ) {}
 
     /**
-     * Get available service plans
+     * GET /services/plans
+     * Planes de servicio disponibles.
      */
     public function getServicePlans(): JsonResponse
     {
         try {
-            $plans = ServicePlan::with(["category", "features", "pricing.billingCycle"])
+            $plans = ServicePlan::with(['category', 'features', 'pricing.billingCycle'])
                 ->active()
-                ->orderBy("sort_order")
+                ->orderBy('sort_order')
                 ->get()
-                ->map(function ($plan) {
-                    $planData = [
-                        "id" => $plan->id,
-                        "uuid" => $plan->uuid,
-                        "slug" => $plan->slug,
-                        "name" => $plan->name,
-                        "description" => $plan->description,
-                        "base_price" => $plan->base_price,
-                        "setup_fee" => $plan->setup_fee,
-                        "is_popular" => $plan->is_popular,
-                        "category" => $plan->category ? $plan->category->name : null,
-                        "category_slug" => $plan->category ? $plan->category->slug : null,
-                        "specifications" => $plan->specifications,
-                        "features" => $plan->features->pluck("name")->toArray(),
-                        "pricing" => $plan->pricing->map(function ($pricing) {
-                            return [
-                                "billing_cycle" => $pricing->billingCycle->name,
-                                "billing_cycle_slug" => $pricing->billingCycle->slug,
-                                "price" => $pricing->price,
-                                "discount_percentage" => $pricing->discount_percentage,
-                            ];
-                        })->toArray()
-                    ];
+                ->map(fn($plan) => [
+                    'id'             => $plan->id,
+                    'uuid'           => $plan->uuid,
+                    'slug'           => $plan->slug,
+                    'name'           => $plan->name,
+                    'description'    => $plan->description,
+                    'base_price'     => $plan->base_price,
+                    'setup_fee'      => $plan->setup_fee,
+                    'is_popular'     => $plan->is_popular,
+                    'category'       => $plan->category?->name,
+                    'category_slug'  => $plan->category?->slug,
+                    'specifications' => $plan->specifications,
+                    'features'       => $plan->features->pluck('name')->toArray(),
+                    'pricing'        => $plan->pricing->map(fn($p) => [
+                        'billing_cycle'       => $p->billingCycle->name,
+                        'billing_cycle_slug'  => $p->billingCycle->slug,
+                        'price'               => $p->price,
+                        'discount_percentage' => $p->discount_percentage,
+                    ])->toArray(),
+                ]);
 
-                    return $planData;
-                });
-
-            return response()->json([
-                "success" => true,
-                "data" => $plans
-            ]);
+            return response()->json(['success' => true, 'data' => $plans]);
         } catch (\Exception $e) {
-            Log::error("Error fetching service plans: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error fetching service plans"
-            ], 500);
+            Log::error('Error fetching service plans: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Error fetching service plans'], 500);
         }
     }
 
     /**
-     * Contract a service — validates input, delegates all business logic to ServiceContractingService.
+     * POST /services/contract
+     * Contrata un servicio.
      */
     public function contractService(ContractServiceRequest $request): JsonResponse
     {
@@ -99,23 +85,16 @@ class ServiceController extends Controller
             ], 201);
         } catch (PaymentRequiresActionException $e) {
             return response()->json([
-                'success'         => false,
-                'message'         => $e->getMessage(),
-                'data'            => ['client_secret' => $e->clientSecret, 'requires_action' => true],
-            ], 402);
-        } catch (\RuntimeException $e) {
-            return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-            ], 422);
-        } catch (\Stripe\Exception\CardException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getError()->message ?? 'Payment failed.',
+                'data'    => ['client_secret' => $e->clientSecret, 'requires_action' => true],
             ], 402);
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Stripe\Exception\CardException $e) {
+            return response()->json(['success' => false, 'message' => $e->getError()->message ?? 'Payment failed.'], 402);
         } catch (\Throwable $e) {
             Log::error('Error contracting service: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Error al contratar el servicio.',
@@ -124,452 +103,193 @@ class ServiceController extends Controller
         }
     }
 
-
     /**
-     * Get user's services
+     * GET /services/user
+     * Servicios del usuario autenticado.
      */
     public function getUserServices(): JsonResponse
     {
         try {
-            $user = Auth::user();
-            $services = Service::where("user_id", $user->id)
-                ->with(["plan", "plan.category", "plan.features"])
-                ->orderByDesc("created_at")
+            $services = Service::where('user_id', Auth::id())
+                ->with(['plan', 'plan.category', 'plan.features'])
+                ->orderByDesc('created_at')
                 ->get();
 
-            return response()->json([
-                "success" => true,
-                "data" => $services
-            ]);
+            return response()->json(['success' => true, 'data' => $services]);
         } catch (\Exception $e) {
-            Log::error("Error fetching user services: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error fetching user services"
-            ], 500);
+            Log::error('Error fetching user services: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Error fetching user services'], 500);
         }
     }
 
     /**
-     * Get service details
+     * GET /services/{uuid}
+     * Detalle de un servicio.
      */
-    public function getServiceDetails(string $serviceId): JsonResponse
+    public function getServiceDetails(string $uuid): JsonResponse
+    {
+        try {
+            $service = Service::where('user_id', Auth::id())
+                ->where('uuid', $uuid)
+                ->with(['plan.category', 'plan.features', 'selectedAddOns'])
+                ->firstOrFail();
+
+            return response()->json(['success' => true, 'data' => new ServiceResource($service)]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching service details: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Service not found or not authorized'], 404);
+        }
+    }
+
+    /**
+     * GET /services/{uuid}/invoices
+     */
+    public function getServiceInvoices(Request $request, string $uuid): JsonResponse
+    {
+        $service  = Service::where('uuid', $uuid)->where('user_id', $request->user()->id)->firstOrFail();
+        $invoices = $service->invoice()->orderByDesc('created_at')->get();
+
+        return response()->json(['success' => true, 'data' => $invoices]);
+    }
+
+    /**
+     * PATCH /services/{uuid}/configuration
+     * Actualiza auto_renew y otros campos simples del configuration JSON.
+     */
+    public function updateConfiguration(Request $request, string $uuid): JsonResponse
+    {
+        $service   = Service::where('uuid', $uuid)->where('user_id', $request->user()->id)->firstOrFail();
+        $validated = $request->validate(['auto_renew' => 'required|boolean']);
+
+        $config                = $service->configuration ?? [];
+        $config['auto_renew'] = $validated['auto_renew'];
+        $service->configuration = $config;
+        $service->save();
+
+        return response()->json(['success' => true, 'message' => 'Configuración actualizada correctamente.', 'data' => $service]);
+    }
+
+    /**
+     * PUT /services/{uuid}/config
+     * Reemplaza el configuration completo.
+     */
+    public function updateServiceConfig(Request $request, string $uuid): JsonResponse
     {
         try {
             $user    = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->with(["plan.category", "plan.features", "selectedAddOns"])
-                ->firstOrFail();
+            $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+            $validated = $request->validate(['configuration' => 'required|array']);
 
-            return response()->json([
-                "success" => true,
-                "data"    => new ServiceResource($service),
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error fetching service details: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Service not found or not authorized",
-            ], 404);
-        }
-    }
-
-    public function getServiceInvoices(Request $request, $uuid)
-    {
-        $service = Service::where('uuid', $uuid)->where('user_id', $request->user()->id)->firstOrFail();
-
-        $invoices = $service->invoice()->orderBy('created_at', 'desc')->get();
-
-        return response()->json([
-            'success' => true,
-            'data' => $invoices,
-        ]);
-    }
-
-    public function updateConfiguration(Request $request, $uuid)
-    {
-        $service = Service::where('uuid', $uuid)->where('user_id', $request->user()->id)->firstOrFail();
-
-        $validated = $request->validate([
-            'auto_renew' => 'required|boolean',
-        ]);
-
-        // El ->cast('array') en el modelo Service se encarga de esto
-        $currentConfig = $service->configuration;
-        $currentConfig['auto_renew'] = $validated['auto_renew'];
-        $service->configuration = $currentConfig;
-
-        $service->save();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Configuración actualizada correctamente.',
-            'data' => $service,
-        ]);
-    }
-
-    /**
-     * Update service configuration
-     */
-    public function updateServiceConfig(Request $request, string $serviceId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
-
-            $validated = $request->validate([
-                "configuration" => "required|array",
-            ]);
-
-            $service->update([
-                "configuration" => $validated["configuration"]
-            ]);
+            $service->update(['configuration' => $validated['configuration']]);
 
             ActivityLog::record(
-                "Configuración de servicio actualizada",
-                "Configuración del servicio " . $service->name . " (" . $service->uuid . ") actualizada.",
-                "service",
-                ["user_id" => $user->id, "service_id" => $service->id, "new_config" => $validated["configuration"]],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Service configuration updated successfully",
-                "data" => $service->fresh()
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error updating service configuration: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error updating service configuration"
-            ], 500);
-        }
-    }
-
-    /**
-     * Cancel a service
-     */
-    public function cancelService(string $serviceId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
-
-            $service->update([
-                "status" => "cancelled",
-                "cancelled_at" => now(),
-            ]);
-
-            ActivityLog::record(
-                "Servicio cancelado",
-                "El servicio " . $service->name . " (" . $service->uuid . ") ha sido cancelado.",
-                "service",
-                ["user_id" => $user->id, "service_id" => $service->id],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Service cancelled successfully",
-                "data" => $service->fresh()
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error cancelling service: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error cancelling service"
-            ], 500);
-        }
-    }
-
-    /**
-     * Suspend a service
-     */
-    public function suspendService(string $serviceId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
-
-            $service->update([
-                "status" => "suspended",
-                "suspended_at" => now(),
-            ]);
-
-            ActivityLog::record(
-                "Servicio suspendido",
-                "El servicio " . $service->name . " (" . $service->uuid . ") ha sido suspendido.",
-                "service",
-                ["user_id" => $user->id, "service_id" => $service->id],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Service suspended successfully",
-                "data" => $service->fresh()
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error suspending service: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error suspending service"
-            ], 500);
-        }
-    }
-
-    /**
-     * Reactivate a service
-     */
-    public function reactivateService(string $serviceId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $service = Service::where("user_id", $user->id)
-                ->where("uuid", $serviceId)
-                ->firstOrFail();
-
-            $service->update([
-                "status" => "active",
-                "suspended_at" => null,
-            ]);
-
-            ActivityLog::record(
-                "Servicio reactivado",
-                "El servicio " . $service->name . " (" . $service->uuid . ") ha sido reactivado.",
-                "service",
-                ["user_id" => $user->id, "service_id" => $service->id],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Service reactivated successfully",
-                "data" => $service->fresh()
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error reactivating service: " . $e->getMessage());
-            return response()->json([
-                "success" => false,
-                "message" => "Error reactivating service"
-            ], 500);
-        }
-    }
-
-    /**
-     * Get service resource usage.
-     * For Pterodactyl game servers: returns real-time CPU/RAM/disk from the panel.
-     * For other services: returns data stored in configuration.
-     */
-    public function getServiceUsage(string $serviceId): JsonResponse
-    {
-        $user    = Auth::user();
-        $service = Service::where("user_id", $user->id)
-            ->where("uuid", $serviceId)
-            ->firstOrFail();
-
-        // ── Pterodactyl game server ──────────────────────────────────────
-        if ($service->isPterodactylManaged()) {
-            $identifier = $service->connection_details['identifier'] ?? null;
-
-            if (!$identifier) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'El servidor aún no tiene un identificador asignado.',
-                ], 404);
-            }
-
-            try {
-                $resources = app(PterodactylService::class)->getServerResources($identifier);
-
-                return response()->json([
-                    'success' => true,
-                    'data'    => [
-                        'state'       => $resources['current_state'] ?? 'offline',
-                        'is_suspended'=> $resources['is_suspended']  ?? false,
-                        'cpu'         => $resources['resources']['cpu_absolute']      ?? 0,
-                        'memory_bytes'=> $resources['resources']['memory_bytes']      ?? 0,
-                        'disk_bytes'  => $resources['resources']['disk_bytes']        ?? 0,
-                        'network_rx'  => $resources['resources']['network_rx_bytes']  ?? 0,
-                        'network_tx'  => $resources['resources']['network_tx_bytes']  ?? 0,
-                        'uptime_ms'   => $resources['resources']['uptime']            ?? 0,
-                    ],
-                ]);
-            } catch (\Throwable $e) {
-                Log::warning('No se pudieron obtener métricas de Pterodactyl', [
-                    'service_id' => $service->id,
-                    'error'      => $e->getMessage(),
-                ]);
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No se pudo conectar al panel. Intenta de nuevo.',
-                ], 503);
-            }
-        }
-
-        // ── Otros tipos de servicio ──────────────────────────────────────
-        $usage = $service->configuration['usage'] ?? null;
-
-        return response()->json([
-            'success' => true,
-            'data'    => $usage,
-            'message' => $usage ? null : 'No hay datos de uso disponibles para este servicio.',
-        ]);
-    }
-
-    /**
-     * List backups for a service.
-     * Integrate with your backup provider (Veeam, Acronis, cPanel, etc.) here.
-     */
-    public function getServiceBackups(string $serviceId): JsonResponse
-    {
-        $user    = Auth::user();
-        $service = Service::where("user_id", $user->id)
-            ->where("uuid", $serviceId)
-            ->firstOrFail();
-
-        $backups = $service->configuration['backups'] ?? [];
-
-        return response()->json(['success' => true, 'data' => $backups]);
-    }
-
-    /**
-     * POST /api/services/{uuid}/game-server/power
-     * Envía una señal de poder al servidor de juego: start | stop | restart | kill
-     *
-     * Solo disponible para servicios administrados por Pterodactyl.
-     */
-    public function gameServerPower(Request $request, string $serviceId): JsonResponse
-    {
-        $user    = Auth::user();
-        $service = Service::where("user_id", $user->id)
-            ->where("uuid", $serviceId)
-            ->firstOrFail();
-
-        if (!$service->isPterodactylManaged()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Este servicio no es un servidor de juego administrado.',
-            ], 422);
-        }
-
-        if ($service->status === 'suspended') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tu servidor está suspendido. Contacta a soporte.',
-            ], 403);
-        }
-
-        $validated = $request->validate([
-            'signal' => ['required', \Illuminate\Validation\Rule::in(['start', 'stop', 'restart', 'kill'])],
-        ], [
-            'signal.in' => 'Señal inválida. Usa: start, stop, restart o kill.',
-        ]);
-
-        $identifier = $service->connection_details['identifier'] ?? null;
-
-        if (!$identifier) {
-            return response()->json([
-                'success' => false,
-                'message' => 'El servidor no tiene un identificador asignado. Contacta a soporte.',
-            ], 500);
-        }
-
-        try {
-            app(PterodactylService::class)->sendPowerSignal($identifier, $validated['signal']);
-
-            $labels = [
-                'start'   => 'Servidor iniciando...',
-                'stop'    => 'Servidor deteniéndose...',
-                'restart' => 'Servidor reiniciando...',
-                'kill'    => 'Servidor detenido forzosamente.',
-            ];
-
-            ActivityLog::record(
-                "Power action: {$validated['signal']}",
-                "El cliente ejecutó '{$validated['signal']}' en el servicio {$service->name}.",
+                'Configuración de servicio actualizada',
+                "Configuración del servicio {$service->name} ({$service->uuid}) actualizada.",
                 'service',
-                ['service_id' => $service->id, 'signal' => $validated['signal']],
+                ['user_id' => $user->id, 'service_id' => $service->id, 'new_config' => $validated['configuration']],
                 $user->id
             );
 
-            return response()->json([
-                'success' => true,
-                'message' => $labels[$validated['signal']],
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('Power action fallida', [
-                'service_id' => $service->id,
-                'signal'     => $validated['signal'],
-                'error'      => $e->getMessage(),
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo enviar la señal al servidor. Intenta de nuevo.',
-            ], 503);
+            return response()->json(['success' => true, 'message' => 'Service configuration updated successfully', 'data' => $service->fresh()]);
+        } catch (\Exception $e) {
+            Log::error('Error updating service configuration: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Error updating service configuration'], 500);
         }
     }
 
     /**
-     * Request a backup job for a service.
-     * Dispatches a queued job when a backup provider is integrated.
+     * POST /services/{uuid}/cancel
      */
-    public function createServiceBackup(string $serviceId): JsonResponse
+    public function cancelService(string $uuid): JsonResponse
     {
-        $user    = Auth::user();
-        $service = Service::where("user_id", $user->id)
-            ->where("uuid", $serviceId)
-            ->firstOrFail();
-
-        // TODO: dispatch(\App\Jobs\CreateServiceBackup::class)->onQueue('backups') when provisioning is integrated.
-
-        ActivityLog::record(
-            "Solicitud de copia de seguridad",
-            "El usuario solicitó una copia de seguridad para el servicio {$service->name}.",
-            "service",
-            ["user_id" => $user->id, "service_id" => $service->id],
-            $user->id
-        );
-
-        return response()->json([
-            "success" => true,
-            "message" => "Solicitud de copia de seguridad registrada. Se te notificará cuando esté lista.",
-        ], 202);
+        return $this->changeServiceStatus($uuid, 'cancelled', ['cancelled_at' => now()], 'Servicio cancelado');
     }
 
     /**
-     * Request a backup restore for a service.
-     * Dispatches a queued job when a backup provider is integrated.
+     * POST /services/{uuid}/suspend
      */
-    public function restoreServiceBackup(string $serviceId, string $backupId): JsonResponse
+    public function suspendService(string $uuid): JsonResponse
+    {
+        return $this->changeServiceStatus($uuid, 'suspended', ['suspended_at' => now()], 'Servicio suspendido');
+    }
+
+    /**
+     * POST /services/{uuid}/reactivate
+     */
+    public function reactivateService(string $uuid): JsonResponse
+    {
+        return $this->changeServiceStatus($uuid, 'active', ['suspended_at' => null], 'Servicio reactivado');
+    }
+
+    /**
+     * GET /services/{uuid}/backups
+     */
+    public function getServiceBackups(string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())->where('uuid', $uuid)->firstOrFail();
+        return response()->json(['success' => true, 'data' => $service->configuration['backups'] ?? []]);
+    }
+
+    /**
+     * POST /services/{uuid}/backups
+     */
+    public function createServiceBackup(string $uuid): JsonResponse
     {
         $user    = Auth::user();
-        $service = Service::where("user_id", $user->id)
-            ->where("uuid", $serviceId)
-            ->firstOrFail();
-
-        // TODO: dispatch(\App\Jobs\RestoreServiceBackup::class, $backupId)->onQueue('backups') when integrated.
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
 
         ActivityLog::record(
-            "Solicitud de restauración de servicio",
-            "El usuario solicitó restaurar el servicio {$service->name} desde la copia {$backupId}.",
-            "service",
-            ["user_id" => $user->id, "service_id" => $service->id, "backup_id" => $backupId],
+            'Solicitud de copia de seguridad',
+            "El usuario solicitó una copia de seguridad para el servicio {$service->name}.",
+            'service',
+            ['user_id' => $user->id, 'service_id' => $service->id],
             $user->id
         );
 
-        return response()->json([
-            "success" => true,
-            "message" => "Solicitud de restauración registrada. Se te notificará cuando esté lista.",
-        ], 202);
+        return response()->json(['success' => true, 'message' => 'Solicitud registrada. Se te notificará cuando esté lista.'], 202);
     }
 
+    /**
+     * POST /services/{uuid}/backups/{backupId}/restore
+     */
+    public function restoreServiceBackup(string $uuid, string $backupId): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+        ActivityLog::record(
+            'Solicitud de restauración de servicio',
+            "El usuario solicitó restaurar el servicio {$service->name} desde la copia {$backupId}.",
+            'service',
+            ['user_id' => $user->id, 'service_id' => $service->id, 'backup_id' => $backupId],
+            $user->id
+        );
+
+        return response()->json(['success' => true, 'message' => 'Solicitud de restauración registrada.'], 202);
+    }
+
+    // ─── Private helpers ──────────────────────────────────────────────────────
+
+    private function changeServiceStatus(string $uuid, string $status, array $extra, string $logTitle): JsonResponse
+    {
+        try {
+            $user    = Auth::user();
+            $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+            $service->update(array_merge(['status' => $status], $extra));
+
+            ActivityLog::record(
+                $logTitle,
+                "{$logTitle}: {$service->name} ({$service->uuid}).",
+                'service',
+                ['user_id' => $user->id, 'service_id' => $service->id],
+                $user->id
+            );
+
+            return response()->json(['success' => true, 'message' => "{$logTitle} exitosamente.", 'data' => $service->fresh()]);
+        } catch (\Exception $e) {
+            Log::error("{$logTitle} error: " . $e->getMessage());
+            return response()->json(['success' => false, 'message' => "Error: {$logTitle}"], 500);
+        }
+    }
 }

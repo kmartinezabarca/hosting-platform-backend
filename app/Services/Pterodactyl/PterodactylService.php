@@ -2,6 +2,7 @@
 
 namespace App\Services\Pterodactyl;
 
+use App\Exceptions\PterodactylApiException;
 use App\Models\User;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -275,6 +276,166 @@ class PterodactylService
         }
     }
 
+    /**
+     * Lista archivos/directorios desde la Client API de Pterodactyl.
+     *
+     * @param  string $identifier  Identificador corto del servidor
+     */
+    public function listFiles(string $identifier, string $directory): array
+    {
+        $response = $this->clientHttp()->get(
+            "/api/client/servers/{$identifier}/files/list",
+            ['directory' => $directory]
+        );
+
+        $this->assertClientApiOk($response, 'listFiles');
+
+        return collect($response->json('data', []))
+            ->map(fn (array $file) => $file['attributes'] ?? [])
+            ->map(fn (array $attributes) => [
+                'name'        => $attributes['name'] ?? null,
+                'size'        => $attributes['size'] ?? 0,
+                'modified_at' => $attributes['modified_at'] ?? null,
+                'is_file'     => $attributes['is_file'] ?? false,
+                'mimetype'    => $attributes['mimetype'] ?? null,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Obtiene una URL firmada para subir archivos directo al panel.
+     */
+    public function getUploadUrl(string $identifier): string
+    {
+        $response = $this->clientHttp()->get("/api/client/servers/{$identifier}/files/upload");
+
+        $this->assertClientApiOk($response, 'getUploadUrl');
+
+        return $this->extractSignedUrl($response, 'getUploadUrl');
+    }
+
+    /**
+     * Elimina archivos/directorios desde la Client API de Pterodactyl.
+     */
+    public function deleteFiles(string $identifier, string $root, array $files): void
+    {
+        $response = $this->clientHttp()->post(
+            "/api/client/servers/{$identifier}/files/delete",
+            [
+                'root'  => $root,
+                'files' => $files,
+            ]
+        );
+
+        if ($response->status() !== 204 && $response->failed()) {
+            $this->assertClientApiOk($response, 'deleteFiles');
+        }
+    }
+
+    /**
+     * Obtiene una URL firmada para descargar un archivo.
+     */
+    public function getDownloadUrl(string $identifier, string $file): string
+    {
+        $response = $this->clientHttp()->get(
+            "/api/client/servers/{$identifier}/files/download",
+            ['file' => $file]
+        );
+
+        $this->assertClientApiOk($response, 'getDownloadUrl');
+
+        return $this->extractSignedUrl($response, 'getDownloadUrl');
+    }
+
+    /**
+     * Lee un archivo del filesystem del server via Client API.
+     */
+    public function readServerFile(string $identifier, string $file): string
+    {
+        $response = $this->clientHttp()->get(
+            "/api/client/servers/{$identifier}/files/contents",
+            ['file' => $file]
+        );
+
+        $this->assertClientApiOk($response, 'readServerFile');
+
+        return $response->body();
+    }
+
+    /**
+     * Escribe un archivo del filesystem del server via Client API.
+     */
+    public function writeServerFile(string $identifier, string $file, string $contents): void
+    {
+        $response = $this->clientHttp()
+            ->withBody($contents, 'text/plain')
+            ->post("/api/client/servers/{$identifier}/files/write?file=" . urlencode($file));
+
+        if ($response->status() !== 204 && $response->failed()) {
+            $this->assertClientApiOk($response, 'writeServerFile');
+        }
+    }
+
+    public function getStartupConfig(string $identifier)
+    {
+        $response = $this->clientHttp()->get("/api/client/servers/{$identifier}/startup");
+
+        $this->assertClientApiOk($response, 'getStartupConfig');
+    }
+
+    public function updateMinecraftVersion(string $identifier, string $version): void
+    {
+        $response = $this->clientHttp()->put(
+            "/api/client/servers/{$identifier}/startup/variable",
+            [
+                'key'   => 'MINECRAFT_VERSION',
+                'value' => $version,
+            ]
+        );
+
+        $this->assertClientApiOk($response, 'updateMinecraftVersion');
+    }
+
+    public function listNestEggs(int $nestId): array
+    {
+        $response = $this->http()->get("/api/application/nests/{$nestId}/eggs", [
+            'include' => 'variables',
+            'per_page' => 100,
+        ]);
+
+        $this->assertOk($response, 'listNestEggs');
+
+        return collect($response->json('data', []))
+            ->map(fn($egg) => $egg['attributes'] ?? [])
+            ->values()
+            ->all();
+    }
+    /**
+     * Actualiza startup/env/docker image de un servidor usando Application API.
+     */
+    public function updateServerStartup(
+        int $serverId,
+        array $environment,
+        string $startup,
+        ?int $egg,
+        string $dockerImage
+    ): void {
+        if (!$egg) {
+            throw new RuntimeException('No se pudo determinar el egg de Pterodactyl para actualizar startup.');
+        }
+
+        $response = $this->http()->patch("/api/application/servers/{$serverId}/startup", [
+            'startup' => $startup,
+            'environment' => $environment,
+            'egg' => $egg,
+            'image' => $dockerImage,
+            'skip_scripts' => false,
+        ]);
+
+        $this->assertClientApiOk($response, 'updateServerStartup');
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers privados
     // ─────────────────────────────────────────────────────────────────────────
@@ -284,7 +445,8 @@ class PterodactylService
     {
         return Http::baseUrl($this->baseUrl)
             ->withToken($this->apiKey)
-            ->timeout(config('pterodactyl.timeout', 30))
+            ->withoutVerifying()
+            ->timeout(config('pterodactyl.timeout', 60))
             ->acceptJson()
             ->asJson();
     }
@@ -294,7 +456,8 @@ class PterodactylService
     {
         return Http::baseUrl($this->baseUrl)
             ->withToken(config('pterodactyl.client_api_key', ''))
-            ->timeout(config('pterodactyl.timeout', 30))
+            ->withoutVerifying()
+            ->timeout(config('pterodactyl.timeout', 60))
             ->acceptJson()
             ->asJson();
     }
@@ -314,6 +477,47 @@ class PterodactylService
         ]);
 
         throw new RuntimeException("Pterodactyl [{$method}]: {$message}");
+    }
+
+    private function assertClientApiOk(Response $response, string $method): void
+    {
+        if ($response->successful()) return;
+
+        $message = $this->extractErrorMessage($response);
+
+        Log::error("PterodactylService::{$method} falló", [
+            'status' => $response->status(),
+            'body'   => $response->body(),
+        ]);
+
+        throw new PterodactylApiException($message, $response->status());
+    }
+
+    private function extractSignedUrl(Response $response, string $method): string
+    {
+        $url = $response->json('attributes.url')
+            ?? $response->json('data.url')
+            ?? $response->json('url');
+
+        if (is_string($url) && $url !== '') {
+            return $url;
+        }
+
+        Log::error("PterodactylService::{$method} no devolvió URL firmada", [
+            'body' => $response->body(),
+        ]);
+
+        throw new PterodactylApiException('El panel no devolvió una URL válida.', 502);
+    }
+
+    private function extractErrorMessage(Response $response): string
+    {
+        $errors = $response->json('errors', []);
+        $detail = $errors[0]['detail'] ?? $errors[0]['status'] ?? null;
+
+        return $response->json('message')
+            ?? $detail
+            ?? "HTTP {$response->status()}";
     }
 
     private function sanitizeUsername(string $email): string

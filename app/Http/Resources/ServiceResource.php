@@ -24,6 +24,8 @@ class ServiceResource extends JsonResource
             'next_due_date' => optional($this->next_due_date)->toDateString(),
             'notes'         => $this->notes,
             'configuration' => $this->configuration,
+            'restart_required' => $this->restart_required,
+            'pending_changes_count' => $this->pending_changes_count,
 
             // ── Tipo de servicio ──────────────────────────────────────────
             'service_type'  => $this->whenLoaded('plan', fn() => $this->service_type, 'other'),
@@ -46,6 +48,7 @@ class ServiceResource extends JsonResource
                 'slug'          => $this->plan->slug,
                 'category_slug' => $this->plan->category?->slug,
                 'category'      => $this->plan->category?->name,
+                'game_type'     => $this->plan->game_type,
                 // Recursos del plan (límites del servidor de juego)
                 'limits'        => $isGameServer ? ($this->plan->pterodactyl_limits ?? null) : null,
                 'feature_limits'=> $isGameServer ? ($this->plan->pterodactyl_feature_limits ?? null) : null,

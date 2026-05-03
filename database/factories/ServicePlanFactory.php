@@ -54,6 +54,10 @@ class ServicePlanFactory extends Factory
                 'cpu' => 100,
                 'disk' => 1024,
             ],
+            'game_type' => 'minecraft',
+            'game_runtime_options' => [
+                'software' => ['paper', 'vanilla'],
+            ],
         ]);
     }
 }

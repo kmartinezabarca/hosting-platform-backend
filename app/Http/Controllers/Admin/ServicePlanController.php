@@ -157,6 +157,18 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
+                'provisioner' => 'nullable|in:none,pterodactyl,manual',
+                'game_type' => 'nullable|string|max:50',
+                'game_runtime_options' => 'nullable|array',
+                'game_config_schema' => 'nullable|array',
+                'pterodactyl_nest_id' => 'nullable|integer|min:1',
+                'pterodactyl_egg_id' => 'nullable|integer|min:1',
+                'pterodactyl_node_id' => 'nullable|integer|min:1',
+                'pterodactyl_limits' => 'nullable|array',
+                'pterodactyl_feature_limits' => 'nullable|array',
+                'pterodactyl_environment' => 'nullable|array',
+                'pterodactyl_docker_image' => 'nullable|string|max:255',
+                'pterodactyl_startup' => 'nullable|string|max:2000',
                 'features' => 'nullable|array',
                 'features.*' => 'string|max:500',
                 'pricing' => 'nullable|array',
@@ -177,7 +189,11 @@ class ServicePlanController extends Controller
             // Create service plan
             $servicePlan = ServicePlan::create($request->only([
                 'category_id', 'slug', 'name', 'description', 'base_price',
-                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications'
+                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
+                'provisioner', 'game_type', 'game_runtime_options', 'game_config_schema',
+                'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
+                'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',
+                'pterodactyl_docker_image', 'pterodactyl_startup',
             ]));
 
             // Create features if provided
@@ -247,6 +263,18 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
+                'provisioner' => 'nullable|in:none,pterodactyl,manual',
+                'game_type' => 'nullable|string|max:50',
+                'game_runtime_options' => 'nullable|array',
+                'game_config_schema' => 'nullable|array',
+                'pterodactyl_nest_id' => 'nullable|integer|min:1',
+                'pterodactyl_egg_id' => 'nullable|integer|min:1',
+                'pterodactyl_node_id' => 'nullable|integer|min:1',
+                'pterodactyl_limits' => 'nullable|array',
+                'pterodactyl_feature_limits' => 'nullable|array',
+                'pterodactyl_environment' => 'nullable|array',
+                'pterodactyl_docker_image' => 'nullable|string|max:255',
+                'pterodactyl_startup' => 'nullable|string|max:2000',
                 'features' => 'nullable|array',
                 'features.*' => 'string|max:500',
                 'pricing' => 'nullable|array',
@@ -267,7 +295,11 @@ class ServicePlanController extends Controller
             // Update service plan
             $servicePlan->update($request->only([
                 'category_id', 'slug', 'name', 'description', 'base_price',
-                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications'
+                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
+                'provisioner', 'game_type', 'game_runtime_options', 'game_config_schema',
+                'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
+                'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',
+                'pterodactyl_docker_image', 'pterodactyl_startup',
             ]));
 
             // Update features if provided
@@ -366,4 +398,3 @@ class ServicePlanController extends Controller
         }
     }
 }
-

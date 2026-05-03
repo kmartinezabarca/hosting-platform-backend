@@ -31,6 +31,9 @@ class ServicePlan extends Model
         'specifications',
         // Aprovisionamiento automático
         'provisioner',
+        'game_type',
+        'game_runtime_options',
+        'game_config_schema',
         'pterodactyl_nest_id',
         'pterodactyl_egg_id',
         'pterodactyl_node_id',
@@ -52,6 +55,8 @@ class ServicePlan extends Model
         'is_popular'                 => 'boolean',
         'is_active'                  => 'boolean',
         'specifications'             => 'array',
+        'game_runtime_options'        => 'array',
+        'game_config_schema'          => 'array',
         'pterodactyl_limits'         => 'array',
         'pterodactyl_feature_limits' => 'array',
         'pterodactyl_environment'    => 'array',
@@ -165,6 +170,11 @@ class ServicePlan extends Model
     public function isPterodactylManaged(): bool
     {
         return $this->provisioner === 'pterodactyl';
+    }
+
+    public function isGameServerPlan(): bool
+    {
+        return $this->provisioner === 'pterodactyl' && !empty($this->game_type);
     }
 
     public function addOns()

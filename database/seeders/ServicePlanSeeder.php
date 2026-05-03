@@ -169,6 +169,10 @@ class ServicePlanSeeder extends Seeder
                         'storage' => '10 GB SSD',
                     ],
                     'cycles'      => ['trial' => 0.00],
+                    'game'        => [
+                        'type' => 'minecraft',
+                        'software' => ['vanilla'],
+                    ],
                 ],
                 [
                     'id'          => 'minecraft-basic',
@@ -198,6 +202,10 @@ class ServicePlanSeeder extends Seeder
                         'monthly'   => 129.00,
                         'quarterly' => 116.00,
                         'annually'  => 103.00,
+                    ],
+                    'game'        => [
+                        'type' => 'minecraft',
+                        'software' => ['paper', 'vanilla'],
                     ],
                 ],
                 [
@@ -230,6 +238,10 @@ class ServicePlanSeeder extends Seeder
                         'quarterly' => 224.00,
                         'annually'  => 199.00,
                     ],
+                    'game'        => [
+                        'type' => 'minecraft',
+                        'software' => ['paper', 'purpur', 'vanilla', 'fabric'],
+                    ],
                 ],
                 [
                     'id'          => 'minecraft-enterprise',
@@ -261,6 +273,10 @@ class ServicePlanSeeder extends Seeder
                         'monthly'   => 499.00,
                         'quarterly' => 449.00,
                         'annually'  => 399.00,
+                    ],
+                    'game'        => [
+                        'type' => 'minecraft',
+                        'software' => ['paper', 'purpur', 'vanilla', 'fabric', 'forge'],
                     ],
                 ],
             ],
@@ -536,6 +552,11 @@ class ServicePlanSeeder extends Seeder
                         'is_popular'     => $planData['popular'],
                         'specifications' => $planData['specs'],
                         'is_active'      => true,
+                        'provisioner'     => isset($planData['game']) ? 'pterodactyl' : 'none',
+                        'game_type'       => $planData['game']['type'] ?? null,
+                        'game_runtime_options' => isset($planData['game'])
+                            ? ['software' => $planData['game']['software']]
+                            : null,
                     ]
                 );
 

@@ -22,6 +22,9 @@ class ServicePlanResource extends JsonResource
             'is_active' => $this->is_active,
             'sort_order' => $this->sort_order,
             'specifications' => $this->specifications ?? [],
+            'game_type' => $this->game_type,
+            'game_runtime_options' => $this->when($request->is('api/admin/*'), $this->game_runtime_options ?? []),
+            'game_config_schema' => $this->when($request->is('api/admin/*'), $this->game_config_schema ?? []),
             'created_at' => $this->when($this->shouldIncludeTimestamp($request), fn () => $this->created_at?->toIso8601String()),
             'updated_at' => $this->when($this->shouldIncludeTimestamp($request), fn () => $this->updated_at?->toIso8601String()),
 
