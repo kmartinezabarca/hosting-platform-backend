@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Client;
 
+use App\Models\ServicePlan;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,11 +15,24 @@ class ContractServiceRequest extends FormRequest
 
     public function rules(): array
     {
+        // Determine if this plan requires egg selection.
+        $isPterodactylPlan = false;
+        $planSlug = $this->input('plan_id');
+        if ($planSlug) {
+            $plan = ServicePlan::where('slug', $planSlug)->first();
+            $isPterodactylPlan = $plan?->isPterodactylManaged() ?? false;
+        }
+
         return [
             'plan_id'       => ['required', 'string', Rule::exists('service_plans', 'slug')],
             'billing_cycle' => ['required', Rule::in(['monthly', 'quarterly', 'semi_annually', 'annually'])],
             'domain'        => ['nullable', 'string', 'max:255'],
             'service_name'  => ['required', 'string', 'max:255'],
+
+            // Egg selection — required only for Pterodactyl-managed (game server) plans.
+            'egg_id' => $isPterodactylPlan
+                ? ['required', 'integer', 'min:1', Rule::exists('pterodactyl_eggs', 'id')]
+                : ['sometimes', 'nullable', 'integer'],
 
             // Either a confirmed PaymentIntent or a saved payment method must be supplied
             'payment_intent_id' => ['required_without:payment_method_id', 'nullable', 'string', 'starts_with:pi_'],
@@ -50,6 +64,8 @@ class ContractServiceRequest extends FormRequest
         return [
             'plan_id.exists'                     => 'El plan seleccionado no existe.',
             'billing_cycle.in'                   => 'El ciclo de facturación debe ser mensual, trimestral o anual.',
+            'egg_id.required'                    => 'Debes seleccionar un juego para este servidor.',
+            'egg_id.exists'                      => 'El juego seleccionado no está disponible.',
             'payment_intent_id.required_without' => 'Debes proporcionar un método de pago o un PaymentIntent confirmado.',
             'payment_method_id.required_without' => 'Debes proporcionar un método de pago o un PaymentIntent confirmado.',
             'add_ons.*.uuid'                     => 'El UUID de un add-on no es válido.',

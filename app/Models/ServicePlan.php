@@ -34,14 +34,18 @@ class ServicePlan extends Model
         'game_type',
         'game_runtime_options',
         'game_config_schema',
-        'pterodactyl_nest_id',
-        'pterodactyl_egg_id',
+        // NOTE: pterodactyl_nest_id y pterodactyl_egg_id fueron eliminados de la tabla
+        // en la migración update_service_plans_for_multi_game. El egg lo elige el cliente
+        // al contratar y queda guardado en services.selected_egg_id.
         'pterodactyl_node_id',
         'pterodactyl_limits',
         'pterodactyl_feature_limits',
         'pterodactyl_environment',
         'pterodactyl_docker_image',
         'pterodactyl_startup',
+        // Multi-game: nest IDs permitidos para este plan y max jugadores
+        'allowed_nest_ids',
+        'max_players',
     ];
 
     /**
@@ -60,6 +64,8 @@ class ServicePlan extends Model
         'pterodactyl_limits'         => 'array',
         'pterodactyl_feature_limits' => 'array',
         'pterodactyl_environment'    => 'array',
+        'allowed_nest_ids'           => 'array',
+        'max_players'                => 'integer',
     ];
 
     /**
@@ -175,6 +181,109 @@ class ServicePlan extends Model
     public function isGameServerPlan(): bool
     {
         return $this->provisioner === 'pterodactyl' && !empty($this->game_type);
+    }
+
+    /**
+     * Devuelve los límites reales de Pterodactyl para este plan.
+     *
+     * Orden de prioridad:
+     *   1. pterodactyl_limits  (columna explícita en DB — lo ideal)
+     *   2. Derivado de specifications (conversión automática de specs humanas)
+     *   3. Defaults del config ('pterodactyl.defaults.limits')
+     *
+     * Esto actúa como red de seguridad: si un plan se crea sin pterodactyl_limits,
+     * el aprovisionador siempre recibe valores razonables en lugar del mínimo global.
+     */
+    public function resolvedLimits(): array
+    {
+        if (! empty($this->pterodactyl_limits)) {
+            return $this->pterodactyl_limits;
+        }
+
+        $derived = $this->limitsFromSpecifications();
+        if (! empty($derived)) {
+            return $derived;
+        }
+
+        return config('pterodactyl.defaults.limits');
+    }
+
+    /**
+     * Devuelve los feature_limits reales para este plan.
+     * Misma lógica que resolvedLimits().
+     */
+    public function resolvedFeatureLimits(): array
+    {
+        if (! empty($this->pterodactyl_feature_limits)) {
+            return $this->pterodactyl_feature_limits;
+        }
+
+        return config('pterodactyl.defaults.feature_limits');
+    }
+
+    /**
+     * Convierte el campo `specifications` (formato legible por humanos) a límites
+     * de Pterodactyl en MB/%.
+     *
+     * Soporta formatos como "8 GB RAM", "100 GB SSD", "4 vCPU".
+     * Devuelve [] si no puede parsear nada útil.
+     */
+    private function limitsFromSpecifications(): array
+    {
+        $specs = $this->specifications ?? [];
+        if (empty($specs)) {
+            return [];
+        }
+
+        $limits = config('pterodactyl.defaults.limits'); // base
+
+        // RAM: "2 GB RAM", "512 MB RAM"
+        foreach (['ram', 'memory', 'ram_gb'] as $key) {
+            if (isset($specs[$key])) {
+                $mb = $this->parseToMb((string) $specs[$key]);
+                if ($mb > 0) {
+                    $limits['memory'] = $mb;
+                    break;
+                }
+            }
+        }
+
+        // Disco: "25 GB SSD", "100 GB NVMe"
+        foreach (['storage', 'disk', 'storage_gb'] as $key) {
+            if (isset($specs[$key])) {
+                $mb = $this->parseToMb((string) $specs[$key]);
+                if ($mb > 0) {
+                    $limits['disk'] = $mb;
+                    break;
+                }
+            }
+        }
+
+        // CPU: "2 vCPU", "4 cores"  → 100% por vCPU
+        foreach (['cpu', 'vcpu', 'cores'] as $key) {
+            if (isset($specs[$key])) {
+                if (preg_match('/(\d+(\.\d+)?)\s*(vcpu|vcore|core|cpu)/i', (string) $specs[$key], $m)) {
+                    $limits['cpu'] = (int) round((float) $m[1] * 100);
+                    break;
+                }
+            }
+        }
+
+        return $limits;
+    }
+
+    /**
+     * Parsea una cadena como "8 GB", "512 MB", "100 GB SSD" a MB enteros.
+     */
+    private function parseToMb(string $value): int
+    {
+        if (preg_match('/(\d+(\.\d+)?)\s*(GB|GiB)/i', $value, $m)) {
+            return (int) round((float) $m[1] * 1024);
+        }
+        if (preg_match('/(\d+(\.\d+)?)\s*(MB|MiB)/i', $value, $m)) {
+            return (int) round((float) $m[1]);
+        }
+        return 0;
     }
 
     public function addOns()

@@ -23,7 +23,7 @@ class EventServiceProvider extends ServiceProvider
         Logout::class => [
             MarkUserSessionLoggedOut::class,
         ],
-        
+
         // Email Events
         \App\Events\UserRegistered::class => [
             \App\Listeners\SendWelcomeEmail::class,
@@ -31,9 +31,9 @@ class EventServiceProvider extends ServiceProvider
         \App\Events\PasswordResetRequested::class => [
             \App\Listeners\SendPasswordResetEmail::class,
         ],
-        \App\Events\PurchaseCompleted::class => [
-            \App\Listeners\SendPurchaseConfirmationEmail::class,
-        ],
+        // \App\Events\PurchaseCompleted::class => [
+        //     \App\Listeners\SendPurchaseConfirmationEmail::class,
+        // ],
         \App\Events\PaymentProcessed::class => [
             \App\Listeners\SendPaymentSuccessEmail::class,
             \App\Listeners\CreatePaymentNotification::class . '@handleProcessed',
@@ -53,6 +53,7 @@ class EventServiceProvider extends ServiceProvider
             \App\Listeners\CreateServiceNotification::class . '@handleStatusChanged',
         ],
         \App\Events\ServicePurchased::class => [
+            \App\Listeners\SendPurchaseConfirmationEmail::class,
             \App\Listeners\CreateServiceNotification::class . '@handlePurchased',
         ],
         \App\Events\ServiceReady::class => [

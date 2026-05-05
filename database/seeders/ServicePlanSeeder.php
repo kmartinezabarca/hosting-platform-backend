@@ -145,6 +145,23 @@ class ServicePlanSeeder extends Seeder
             // ═══════════════════════════════════════════
             // GAME SERVERS
             // ═══════════════════════════════════════════
+            //
+            // pterodactyl_limits:
+            //   memory  → MB de RAM
+            //   disk    → MB de disco
+            //   cpu     → % de CPU (100 = 1 core, 200 = 2 cores, …)
+            //   swap    → MB de swap  (0 = sin swap — recomendado para Minecraft)
+            //   io      → peso de I/O (100-1000, 500 es el valor normal)
+            //
+            // pterodactyl_feature_limits:
+            //   databases   → bases de datos MySQL en el panel
+            //   backups     → copias de seguridad automáticas
+            //   allocations → puertos adicionales
+            // Arquitectura multi-juego: el cliente elige el egg (juego) al contratar.
+            // allowed_nest_ids: null = todos los nests activos disponibles.
+            // max_players: snapshot del límite al contratar — se inyecta como MAX_PLAYERS
+            //              en la variable de entorno del servidor Pterodactyl.
+            //
             'gameserver' => [
                 [
                     'id'          => 'gameserver-trial',
@@ -170,9 +187,15 @@ class ServicePlanSeeder extends Seeder
                     ],
                     'cycles'      => ['trial' => 0.00],
                     'game'        => [
-                        'type' => 'minecraft',
-                        'software' => ['vanilla'],
+                        'type'             => 'minecraft',
+                        'software'         => ['vanilla'],
+                        'docker_image'     => 'ghcr.io/pterodactyl/yolks:java_21',
+                        'allowed_nest_ids' => null, // todos los nests activos
                     ],
+                    'max_players'    => 5,
+                    // 1 GB RAM | 1 vCPU | 10 GB disco
+                    'ptero_limits'   => ['memory' => 1024,  'swap' => 0, 'disk' => 10240,  'io' => 500, 'cpu' => 100],
+                    'ptero_features' => ['databases' => 0,  'backups' => 1,  'allocations' => 1],
                 ],
                 [
                     'id'          => 'minecraft-basic',
@@ -204,9 +227,15 @@ class ServicePlanSeeder extends Seeder
                         'annually'  => 103.00,
                     ],
                     'game'        => [
-                        'type' => 'minecraft',
-                        'software' => ['paper', 'vanilla'],
+                        'type'             => 'multi',
+                        'software'         => ['paper', 'vanilla'],
+                        'docker_image'     => 'ghcr.io/pterodactyl/yolks:java_21',
+                        'allowed_nest_ids' => null, // todos los nests activos
                     ],
+                    'max_players'    => 10,
+                    // 2 GB RAM | 1 vCPU | 25 GB disco
+                    'ptero_limits'   => ['memory' => 2048,  'swap' => 0, 'disk' => 25600,  'io' => 500, 'cpu' => 100],
+                    'ptero_features' => ['databases' => 1,  'backups' => 2,  'allocations' => 1],
                 ],
                 [
                     'id'          => 'minecraft-pro',
@@ -239,9 +268,15 @@ class ServicePlanSeeder extends Seeder
                         'annually'  => 199.00,
                     ],
                     'game'        => [
-                        'type' => 'minecraft',
-                        'software' => ['paper', 'purpur', 'vanilla', 'fabric'],
+                        'type'             => 'multi',
+                        'software'         => ['paper', 'purpur', 'vanilla', 'fabric'],
+                        'docker_image'     => 'ghcr.io/pterodactyl/yolks:java_21',
+                        'allowed_nest_ids' => null, // todos los nests activos
                     ],
+                    'max_players'    => 30,
+                    // 4 GB RAM | 2 vCPU | 50 GB disco
+                    'ptero_limits'   => ['memory' => 4096,  'swap' => 0, 'disk' => 51200,  'io' => 500, 'cpu' => 200],
+                    'ptero_features' => ['databases' => 2,  'backups' => 5,  'allocations' => 1],
                 ],
                 [
                     'id'          => 'minecraft-enterprise',
@@ -275,9 +310,15 @@ class ServicePlanSeeder extends Seeder
                         'annually'  => 399.00,
                     ],
                     'game'        => [
-                        'type' => 'minecraft',
-                        'software' => ['paper', 'purpur', 'vanilla', 'fabric', 'forge'],
+                        'type'             => 'multi',
+                        'software'         => ['paper', 'purpur', 'vanilla', 'fabric', 'forge'],
+                        'docker_image'     => 'ghcr.io/pterodactyl/yolks:java_21',
+                        'allowed_nest_ids' => null, // todos los nests activos
                     ],
+                    'max_players'    => 150,
+                    // 8 GB RAM | 4 vCPU | 100 GB disco
+                    'ptero_limits'   => ['memory' => 8192,  'swap' => 0, 'disk' => 102400, 'io' => 500, 'cpu' => 400],
+                    'ptero_features' => ['databases' => 5,  'backups' => 15, 'allocations' => 2],
                 ],
             ],
 
@@ -552,11 +593,21 @@ class ServicePlanSeeder extends Seeder
                         'is_popular'     => $planData['popular'],
                         'specifications' => $planData['specs'],
                         'is_active'      => true,
-                        'provisioner'     => isset($planData['game']) ? 'pterodactyl' : 'none',
-                        'game_type'       => $planData['game']['type'] ?? null,
-                        'game_runtime_options' => isset($planData['game'])
+                        // Aprovisionamiento
+                        'provisioner'              => isset($planData['game']) ? 'pterodactyl' : 'none',
+                        'game_type'                => $planData['game']['type']         ?? null,
+                        'game_runtime_options'     => isset($planData['game'])
                             ? ['software' => $planData['game']['software']]
                             : null,
+                        // Pterodactyl — docker image por defecto (el egg lo elige el cliente)
+                        'pterodactyl_docker_image' => $planData['game']['docker_image'] ?? null,
+                        // Nests permitidos en este plan (vacío = todos los nests activos)
+                        'allowed_nest_ids'         => $planData['game']['allowed_nest_ids'] ?? null,
+                        // Límites de recursos — ¡estos son los que usa el aprovisionador!
+                        'pterodactyl_limits'         => $planData['ptero_limits']   ?? null,
+                        'pterodactyl_feature_limits' => $planData['ptero_features'] ?? null,
+                        // Max jugadores resueltos en la contratación
+                        'max_players'                => $planData['max_players']    ?? null,
                     ]
                 );
 

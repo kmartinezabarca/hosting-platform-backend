@@ -56,6 +56,10 @@ class Service extends Model
         'terminated_at',
         'restart_required',
         'pending_changes_count',
+        // Game server — egg elegido por el cliente al contratar
+        'selected_egg_id',
+        'max_players',
+        'payment_intent_id',
     ];
 
     /**
@@ -64,14 +68,15 @@ class Service extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'connection_details' => 'array',
-        'configuration' => 'array',
-        'next_due_date' => 'date',
-        'price' => 'decimal:2',
-        'setup_fee' => 'decimal:2',
-        'terminated_at' => 'datetime',
+        'connection_details'    => 'array',
+        'configuration'         => 'array',
+        'next_due_date'         => 'date',
+        'price'                 => 'decimal:2',
+        'setup_fee'             => 'decimal:2',
+        'terminated_at'         => 'datetime',
         'restart_required'      => 'boolean',
         'pending_changes_count' => 'integer',
+        'max_players'           => 'integer',
     ];
 
     /**
@@ -133,6 +138,15 @@ class Service extends Model
     public function plan()
     {
         return $this->belongsTo(ServicePlan::class);
+    }
+
+    /**
+     * Egg (juego) seleccionado por el cliente al contratar.
+     * Null para servicios no-gameserver o anteriores a esta feature.
+     */
+    public function selectedEgg()
+    {
+        return $this->belongsTo(PterodactylEgg::class, 'selected_egg_id');
     }
 
     /**

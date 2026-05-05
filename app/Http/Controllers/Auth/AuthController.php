@@ -16,42 +16,49 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $request->validate([
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'first_name' => ['required', 'string', 'max:100'],
+            'last_name'  => ['required', 'string', 'max:100'],
+            'username'   => [
+                'required',
+                'string',
+                'min:3',
+                'max:30',
+                'unique:users,username',
+                'regex:/^[a-zA-Z0-9_-]+$/',
+            ],
+            'email'    => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ], [
+            'username.regex'  => 'El nombre de usuario solo puede contener letras, números, guiones y guiones bajos.',
+            'username.unique' => 'Este nombre de usuario ya está en uso.',
+            'email.unique'    => 'Este correo ya tiene una cuenta registrada.',
         ]);
 
         $user = User::create([
             'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'role' => 'client', // Default role for new registrations
+            'last_name'  => $request->last_name,
+            'username'   => strtolower($request->username),
+            'email'      => $request->email,
+            'password'   => Hash::make($request->password),
+            'role'       => 'client',
+            'status'     => 'active',
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        // Registrar actividad de registro de usuario
         ActivityLog::record(
             'Registro de usuario',
             'Nuevo usuario registrado: ' . $user->email,
             'authentication',
-            ['user_id' => $user->id, 'email' => $user->email],
+            ['user_id' => $user->id, 'email' => $user->email, 'username' => $user->username],
             $user->id
         );
 
         return response()->json([
-            'message' => 'User registered successfully',
+            'message'      => 'Usuario registrado exitosamente.',
             'access_token' => $token,
-            'token_type' => 'Bearer',
-            'user' => [
-                'uuid'       => $user->uuid,
-                'first_name' => $user->first_name,
-                'last_name'  => $user->last_name,
-                'email'      => $user->email,
-                'role'       => $user->role,
-            ],
+            'token_type'   => 'Bearer',
+            'user'         => $this->userPayload($user),
         ], 201);
     }
 
@@ -130,36 +137,43 @@ class AuthController extends Controller
         );
 
         return response()->json([
-            'message' => 'Logged in successfully',
-            'user' => [
-                'uuid' => $user->uuid,
-                'email' => $user->email,
-                'first_name' => $user->first_name,
-                'last_name' => $user->last_name,
-                'phone' => $user->phone,
-                'role' => $user->role,
-                'status' => $user->status,
-            ],
-            'redirect_to' => $this->getRedirectPath($user->role)
+            'message'        => 'Logged in successfully',
+            'user'           => $this->userPayload($user),
+            // Si el usuario no tiene username (cuenta anterior a esta feature)
+            // el frontend debe llevarlo a la pantalla de configuración de username.
+            'needs_username' => is_null($user->username),
+            'redirect_to'    => $this->getRedirectPath($user->role),
         ])->withCookie($cookie);
     }
 
     public function me(Request $request)
     {
-        $u = $request->user();
-
         return response()->json([
             'success' => true,
-            'data' => [
-                'uuid'        => $u->uuid,
-                'first_name'  => $u->first_name,
-                'last_name'   => $u->last_name,
-                'email'       => $u->email,
-                'phone'       => $u->phone,
-                'role'        => $u->role,
-                'avatar_url'  => $u->avatar_full_url, // atributo calculado (ver abajo)
-            ],
+            'data'    => $this->userPayload($request->user()),
         ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Payload normalizado del usuario para todas las respuestas de auth. */
+    private function userPayload(User $user): array
+    {
+        return [
+            'uuid'              => $user->uuid,
+            'first_name'        => $user->first_name,
+            'last_name'         => $user->last_name,
+            'username'          => $user->username,
+            'email'             => $user->email,
+            'phone'             => $user->phone,
+            'role'              => $user->role,
+            'status'            => $user->status,
+            'avatar_url'        => $user->avatar_full_url ?: null,
+            'is_google_account' => $user->is_google_account,
+            'needs_username'    => is_null($user->username),
+        ];
     }
 
     /**

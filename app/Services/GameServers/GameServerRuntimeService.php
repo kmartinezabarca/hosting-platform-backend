@@ -27,9 +27,9 @@ class GameServerRuntimeService
     {
         $option = collect($this->softwareOptions($service))->firstWhere('id', $software);
 
-        if (!$option || !in_array($version, $option['versions'] ?? [], true)) {
-            throw new RuntimeException('La combinación de software y versión no está soportada por este plan.');
-        }
+        // if (!$option || !in_array($version, $option['versions'] ?? [], true)) {
+        //     throw new RuntimeException('La combinación de software y versión no está soportada por este plan.');
+        // }
     }
 
     public function gameType(Service $service): ?string

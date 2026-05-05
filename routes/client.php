@@ -16,7 +16,7 @@ use App\Http\Controllers\Client\NotificationController;
 use App\Http\Controllers\Client\SupportChatController;
 use App\Http\Controllers\Client\FiscalController;
 
-Route::middleware('auth')->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
     Route::prefix('dashboard')->group(function () {
@@ -76,6 +76,7 @@ Route::middleware('auth')->group(function () {
 
             // ── Game server ──────────────────────────────────────────────────
             Route::prefix('game-server')->group(function () {
+                Route::get ('/startup',           [GameServerController::class, 'getStartupConfig']);
                 Route::get ('/usage',             [GameServerController::class, 'getServiceUsage']);
                 Route::post('/power',             [GameServerController::class, 'power']);
                 Route::get ('/websocket',         [GameServerController::class, 'websocket']);
@@ -85,6 +86,14 @@ Route::middleware('auth')->group(function () {
                 Route::patch('/software',         [GameServerController::class, 'updateSoftware']);
                 Route::patch('/server-properties',[GameServerController::class, 'updateServerProperties']);
                 Route::post('/restart-required',  [GameServerController::class, 'markRestartRequired']);
+                // EULA — solo Minecraft Java Edition
+                Route::get ('/eula',              [GameServerController::class, 'eulaStatus']);
+                Route::post('/eula/accept',       [GameServerController::class, 'acceptEula']);
+                // Java version management
+                Route::post('/fix-java',          [GameServerController::class, 'fixJavaVersion']);
+                Route::get ('/java-check',        [GameServerController::class, 'checkJavaCompatibility']);
+                Route::post('/java-autofix',      [GameServerController::class, 'autoFixJavaCompatibility']);
+                Route::get ('/java-requirements', [GameServerController::class, 'javaRequirements']);
             });
         });
     });

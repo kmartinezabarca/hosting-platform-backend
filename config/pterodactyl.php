@@ -22,6 +22,10 @@ return [
     // Créalo en el panel: Account → API Credentials (con permisos de la cuenta admin)
     'client_api_key' => env('PTERODACTYL_CLIENT_API_KEY', ''),
 
+    // IP del relay/VPS donde Wings recibe conexiones externas.
+    // Usada para registros A de Bedrock y como IP de display cuando no hay SRV.
+    'relay_ip' => env('PTERODACTYL_RELAY_IP', '178.156.225.26'),
+
     // Timeout HTTP en segundos
     'timeout'   => 30,
 

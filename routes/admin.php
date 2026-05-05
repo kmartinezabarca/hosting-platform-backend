@@ -21,6 +21,7 @@ use App\Http\Controllers\Admin\FiscalController;
 use App\Http\Controllers\Admin\CfdiController;
 use App\Http\Controllers\Admin\GameServerController;
 use App\Http\Controllers\Admin\QuotationController;
+use App\Http\Controllers\Admin\PterodactylEggController;
 
 /*
 |--------------------------------------------------------------------------
@@ -33,9 +34,17 @@ use App\Http\Controllers\Admin\QuotationController;
 |
 */
 
-Route::middleware(["auth", "admin"])->prefix("admin")->group(function () {
+Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function () {
     // Dashboard routes
     Route::get("/dashboard/stats", [AdminController::class, "getDashboardStats"]);
+
+    // ── Catálogo de juegos Pterodactyl ─────────────────────────────────────
+    Route::prefix("pterodactyl")->group(function () {
+        Route::get   ("/eggs",          [PterodactylEggController::class, "index"]);
+        Route::patch ("/eggs/{id}",     [PterodactylEggController::class, "update"]);
+        Route::post  ("/eggs/{id}/toggle", [PterodactylEggController::class, "toggle"]);
+        Route::post  ("/eggs/sync",     [PterodactylEggController::class, "sync"]);
+    });
 
     // Users management
     Route::get("/users", [AdminController::class, "getUsers"]);

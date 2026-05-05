@@ -382,19 +382,30 @@ class PterodactylService
         $response = $this->clientHttp()->get("/api/client/servers/{$identifier}/startup");
 
         $this->assertClientApiOk($response, 'getStartupConfig');
+
+        return $response->json('meta');
     }
 
     public function updateMinecraftVersion(string $identifier, string $version): void
     {
+        $this->updateStartupVariable($identifier, 'MINECRAFT_VERSION', $version);
+    }
+
+    /**
+     * Actualiza una variable de startup individual via Client API.
+     * Útil para cambiar solo la versión sin reinstalar el servidor.
+     */
+    public function updateStartupVariable(string $identifier, string $key, string $value): void
+    {
         $response = $this->clientHttp()->put(
             "/api/client/servers/{$identifier}/startup/variable",
             [
-                'key'   => 'MINECRAFT_VERSION',
-                'value' => $version,
+                'key'   => $key,
+                'value' => $value,
             ]
         );
 
-        $this->assertClientApiOk($response, 'updateMinecraftVersion');
+        $this->assertClientApiOk($response, 'updateStartupVariable');
     }
 
     public function listNestEggs(int $nestId): array
@@ -413,27 +424,36 @@ class PterodactylService
     }
     /**
      * Actualiza startup/env/docker image de un servidor usando Application API.
+     *
+     * @param bool $skipScripts
+     *   false (default) → Pterodactyl ejecuta el install script del egg al reinstalar.
+     *                      Pterodactyl moderno también auto-dispara el install.
+     *   true            → Solo actualiza la configuración en BD, NO ejecuta install script.
+     *                      Usar cuando solo se cambia el docker image (fix de Java) sin
+     *                      necesidad de re-descargar el JAR del servidor.
      */
     public function updateServerStartup(
         int $serverId,
         array $environment,
         string $startup,
         ?int $egg,
-        string $dockerImage
+        string $dockerImage,
+        bool $skipScripts = false
     ): void {
         if (!$egg) {
             throw new RuntimeException('No se pudo determinar el egg de Pterodactyl para actualizar startup.');
         }
 
         $response = $this->http()->patch("/api/application/servers/{$serverId}/startup", [
-            'startup' => $startup,
-            'environment' => $environment,
-            'egg' => $egg,
-            'image' => $dockerImage,
-            'skip_scripts' => false,
+            'startup'      => $startup,
+            'environment'  => $environment,
+            'egg'          => $egg,
+            'image'        => $dockerImage,
+            'skip_scripts' => $skipScripts,
         ]);
 
-        $this->assertClientApiOk($response, 'updateServerStartup');
+        // Usa assertOk (Application API), NO assertClientApiOk (Client API)
+        $this->assertOk($response, 'updateServerStartup');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

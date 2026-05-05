@@ -13,6 +13,7 @@ use App\Models\Subscription;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\ServicePlan;
+use App\Models\PterodactylEgg;
 use App\Models\ActivityLog;
 use App\Services\Factura\CfdiService;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,33 @@ class ServiceContractingService
      */
     public function contract(User $user, ServicePlan $plan, array $validated): array
     {
+        // ── Egg (juego) seleccionado — solo para planes de game server ───
+        // El campo `egg_id` es obligatorio cuando provisioner=pterodactyl.
+        // Validamos aquí (antes del cobro) para no cobrar si el egg no existe.
+        $selectedEgg    = null;
+        $resolvedMaxPlayers = null;
+
+        if ($plan->isPterodactylManaged()) {
+            if (empty($validated['egg_id'])) {
+                throw new \RuntimeException('Debes seleccionar un juego para este plan de servidor.');
+            }
+
+            $selectedEgg = PterodactylEgg::active()->find((int) $validated['egg_id']);
+
+            if (! $selectedEgg) {
+                throw new \RuntimeException('El juego seleccionado no está disponible.');
+            }
+
+            // Validar que el egg pertenece a un nest permitido por el plan
+            if (! empty($plan->allowed_nest_ids)
+                && ! in_array($selectedEgg->ptero_nest_id, $plan->allowed_nest_ids, true)) {
+                throw new \RuntimeException('El juego seleccionado no está permitido en este plan.');
+            }
+
+            // MAX_PLAYERS: plan.max_players > specifications.players > egg default 20
+            $resolvedMaxPlayers = $this->resolveMaxPlayers($plan);
+        }
+
         // ── Pricing ─────────────────────────────────────────────────────
         $multiplier = match ($validated['billing_cycle']) {
             'monthly'       => 1,
@@ -95,7 +123,8 @@ class ServiceContractingService
             $multiplier, $planNet, $addonsNet, $subtotal,
             $taxRatePct, $taxAmount, $total, $currency,
             $amountCents, $nextBillingDate, $customerId,
-            $localPaymentMethodId, $pi, $usedStripePmId, $cardMeta
+            $localPaymentMethodId, $pi, $usedStripePmId, $cardMeta,
+            $selectedEgg, $resolvedMaxPlayers
         ) {
             $paymentIntentId = $pi->id ?? $validated['payment_intent_id'];
 
@@ -111,6 +140,9 @@ class ServiceContractingService
                 'payment_intent_id' => $paymentIntentId,
                 'configuration'     => $validated['additional_options'] ?? null,
                 'next_due_date'     => $nextBillingDate,
+                // ── Game server ──────────────────────────────────────────
+                'selected_egg_id'   => $selectedEgg?->id,
+                'max_players'       => $resolvedMaxPlayers,
             ]);
 
             // 1.1) Add-on snapshots
@@ -493,6 +525,30 @@ class ServiceContractingService
             'funding'   => $c->funding,
             'country'   => $c->country ?? null,
         ];
+    }
+
+    /**
+     * Resuelve el número máximo de jugadores para el plan.
+     *
+     * Prioridad:
+     *   1. plan.max_players (campo explícito)
+     *   2. specifications.players (ej: "150 Jugadores" → 150)
+     *   3. 20 (default seguro)
+     */
+    private function resolveMaxPlayers(ServicePlan $plan): int
+    {
+        if (! empty($plan->max_players)) {
+            return (int) $plan->max_players;
+        }
+
+        $specs   = $plan->specifications ?? [];
+        $players = $specs['players'] ?? null;
+
+        if ($players && preg_match('/(\d+)/', (string) $players, $m)) {
+            return (int) $m[1];
+        }
+
+        return 20; // default seguro
     }
 
     private function createStripeSubscription(

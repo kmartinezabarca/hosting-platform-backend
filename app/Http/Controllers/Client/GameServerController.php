@@ -346,6 +346,37 @@ class GameServerController extends Controller
     }
 
     /**
+     * Obtener la config de statup
+     * GET usando getStartupConfig
+     */
+    public function getStartupConfig(string $uuid): JsonResponse
+    {
+
+        try {
+            $user    = Auth::user();
+            $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+            if ($service->isPterodactylManaged()) {
+                $identifier = $service->connection_details['identifier'] ?? null;
+
+                if (!$identifier) {
+                    return response()->json(['success' => false, 'message' => 'El servidor aún no tiene identificador asignado.'], 404);
+                }
+            } else {
+                return response()->json(['success' => false, 'message' => 'Este servicio no es un servidor de juego administrado.'], 422);
+            }
+
+            return response()->json([
+                'data' => $this->pterodactyl->getStartupConfig($identifier),
+            ]);
+        } catch (PterodactylApiException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->statusCode());
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * PATCH /services/{uuid}/game-server/server-properties
      */
     public function updateServerProperties(
@@ -361,6 +392,160 @@ class GameServerController extends Controller
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
+        } catch (PterodactylApiException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->statusCode());
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * POST /services/{uuid}/game-server/fix-java
+     * Corrige la imagen Docker del servidor para usar la versión de Java correcta.
+     * No reinstala el servidor (skip_scripts=true) — solo actualiza el contenedor.
+     * El usuario debe reiniciar manualmente para aplicar el cambio.
+     *
+     * Body (opcional):
+     *   target_java: int  — versión de Java explícita (útil cuando el error viene
+     *                       de un plugin/mod compilado con un Java más reciente).
+     *                       Null → se calcula automáticamente desde la versión MC.
+     */
+    public function fixJavaVersion(
+        Request $request,
+        string $uuid,
+        MinecraftServerConfigurationService $configuration
+    ): JsonResponse {
+        // Aceptar todas las versiones disponibles en Pterodactyl Yolks
+        $availableJava = $configuration->availableJavaVersionNumbers();
+
+        $validated = $request->validate([
+            'target_java' => ['sometimes', 'nullable', 'integer', \Illuminate\Validation\Rule::in($availableJava)],
+        ], [
+            'target_java.in' => 'La versión de Java debe ser una de las disponibles en Pterodactyl Yolks: ' . implode(', ', $availableJava) . '.',
+        ]);
+
+        $service = $this->findOwnedMinecraftService($request, $uuid);
+
+        try {
+            $targetJava = isset($validated['target_java']) ? (int) $validated['target_java'] : null;
+            $result     = $configuration->fixJavaVersion($service, $targetJava);
+            return response()->json($result);
+        } catch (PterodactylApiException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->statusCode());
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/java-check
+     * Lee los logs del servidor y detecta errores de compatibilidad de Java.
+     * Devuelve el diagnóstico completo sin aplicar ninguna corrección.
+     */
+    public function checkJavaCompatibility(
+        Request $request,
+        string $uuid,
+        MinecraftServerConfigurationService $configuration
+    ): JsonResponse {
+        $service = $this->findOwnedMinecraftService($request, $uuid);
+
+        try {
+            $result = $configuration->detectJavaCompatibilityFromLogs($service);
+            return response()->json(['success' => true, 'data' => $result]);
+        } catch (PterodactylApiException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], $e->statusCode());
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * POST /services/{uuid}/game-server/java-autofix
+     * Lee los logs, detecta el error de Java y lo corrige automáticamente.
+     * Si no hay error, devuelve has_error=false y fix_applied=false.
+     */
+    public function autoFixJavaCompatibility(
+        Request $request,
+        string $uuid,
+        MinecraftServerConfigurationService $configuration
+    ): JsonResponse {
+        $service = $this->findOwnedMinecraftService($request, $uuid);
+
+        try {
+            $result = $configuration->checkAndFixJavaCompatibility($service);
+            return response()->json(['success' => true, 'data' => $result]);
+        } catch (PterodactylApiException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], $e->statusCode());
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/java-requirements
+     * Devuelve la tabla de requisitos de Java por versión de Minecraft.
+     * Útil para mostrar en el frontend "¿qué Java necesita mi versión de MC?".
+     */
+    public function javaRequirements(
+        Request $request,
+        string $uuid,
+        MinecraftServerConfigurationService $configuration
+    ): JsonResponse {
+        // Solo necesitamos que sea un game server válido del usuario
+        $this->findOwnedMinecraftService($request, $uuid);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'requirements'     => $configuration->javaRequirementsTable(),
+                'available_images' => $configuration->availableJavaVersionNumbers(),
+            ],
+        ]);
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/eula
+     * Devuelve si el EULA de Minecraft fue aceptado en este servidor.
+     * Solo aplica a servidores Minecraft (Java Edition).
+     */
+    public function eulaStatus(
+        Request $request,
+        string $uuid,
+        MinecraftServerConfigurationService $configuration
+    ): JsonResponse {
+        $service = $this->findOwnedMinecraftService($request, $uuid);
+
+        try {
+            return response()->json([
+                'eula_accepted' => $configuration->eulaAccepted($service),
+            ]);
+        } catch (PterodactylApiException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->statusCode());
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * POST /services/{uuid}/game-server/eula/accept
+     * Escribe eula=true en el archivo eula.txt del servidor.
+     * El usuario debe haber aceptado explícitamente en el frontend.
+     */
+    public function acceptEula(
+        Request $request,
+        string $uuid,
+        MinecraftServerConfigurationService $configuration
+    ): JsonResponse {
+        $service = $this->findOwnedMinecraftService($request, $uuid);
+
+        try {
+            $configuration->acceptEula($service);
+
+            return response()->json([
+                'success'       => true,
+                'eula_accepted' => true,
+                'message'       => 'EULA aceptado correctamente.',
+            ]);
         } catch (PterodactylApiException $e) {
             return response()->json(['message' => $e->getMessage()], $e->statusCode());
         } catch (\RuntimeException $e) {

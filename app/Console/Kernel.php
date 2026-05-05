@@ -18,6 +18,30 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/cfdi-stamp.log'));
+
+        // Actualización nocturna de versiones de software de Minecraft (Pterodactyl Eggs)
+        $schedule->command('software:refresh-versions')
+            ->dailyAt('03:00')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/software-versions.log'));
+
+        // Sincronización del catálogo de juegos (nests/eggs) desde Pterodactyl.
+        // Se ejecuta cada hora para reflejar cualquier egg nuevo o eliminado en el panel.
+        $schedule->command('pterodactyl:sync-eggs')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/pterodactyl-sync.log'));
+
+        // Monitoreo de salud de servidores de juego.
+        // Cada 5 minutos escanea todos los servidores activos; si alguno está offline
+        // encola CheckAndFixJavaCompatibilityJob para auto-detección y corrección de Java.
+        $schedule->command('game-servers:monitor-health')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/game-server-health.log'));
     }
 
     /**

@@ -2,9 +2,7 @@
 
 use App\Http\Controllers\Api\DocumentationRequestController;
 use App\Http\Controllers\Api\QuotationPublicController;
-use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\Auth\GoogleLoginController;
-use App\Http\Controllers\Auth\TwoFactorController;
+use App\Http\Controllers\Api\SoftwareController;
 use App\Http\Controllers\Client\ApiDocsController;
 use App\Http\Controllers\Client\ApiDocumentationController;
 use App\Http\Controllers\Client\BillingCycleController;
@@ -16,6 +14,7 @@ use App\Http\Controllers\Client\MarketingServiceController;
 use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\ServicePlanController;
 use App\Http\Controllers\Client\SystemStatusController;
+use App\Http\Controllers\Client\GameEggController;
 use App\Http\Controllers\Common\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,19 +27,16 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-// Public authentication routes
-Route::middleware('throttle:10,1')->group(function () {
-    Route::post('auth/register', [AuthController::class, 'register']);
-    Route::post('auth/google/callback', [GoogleLoginController::class, 'handleGoogleCallback']);
-});
-
-Route::middleware('throttle:5,1')->group(function () {
-    Route::post('auth/login', [AuthController::class, 'login']);
-    Route::post('auth/2fa/verify', [TwoFactorController::class, 'verifyLogin']);
-});
+// Auth routes are defined in routes/auth.php (loaded from RouteServiceProvider).
 
 // Stripe webhook (no authentication required)
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handleWebhook']);
+
+// Catálogo de juegos disponibles — público (el usuario lo ve antes de pagar)
+Route::prefix('game-eggs')->group(function () {
+    Route::get('/',     [GameEggController::class, 'index']);   // ?plan_uuid=xxx
+    Route::get('/{id}', [GameEggController::class, 'show']);
+});
 
 // Swagger/OpenAPI Documentation
 Route::get('/docs', [ApiDocsController::class, 'json']);
@@ -100,6 +96,9 @@ Route::prefix('system-status')->group(function () {
 });
 
 Route::post('/documentation-requests', [DocumentationRequestController::class, 'store']);
+
+// Versiones de software de servidores de Minecraft (Pterodactyl Eggs)
+Route::get('/software/{identifier}/versions', [SoftwareController::class, 'getVersions']);
 
 // Cotizaciones públicas (sin autenticación)
 Route::prefix('quotations/public')->group(function () {

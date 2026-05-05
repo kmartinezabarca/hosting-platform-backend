@@ -30,15 +30,7 @@ Route::get("/sanctum/csrf-cookie", function (Request $request) {
     return response()->noContent();
 });
 
-// --- GRUPO DE RUTAS /api ---
-Route::prefix("api")->group(function () {
-    // Incluir rutas de autenticación
-    require __DIR__.'/auth.php';
-
-    // Incluir rutas del módulo Cliente
-    require __DIR__.'/client.php';
-
-    // Incluir rutas del módulo Administrador
-    require __DIR__.'/admin.php';
-});
+// API routes are loaded under the 'api' middleware group in RouteServiceProvider.
+// Do NOT require auth.php / client.php / admin.php here — they must run under
+// EnsureFrontendRequestsAreStateful (api group) for Sanctum cookie auth to work.
 
