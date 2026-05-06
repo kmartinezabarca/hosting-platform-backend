@@ -4,7 +4,7 @@ return [
     'enabled' => env('PROMETHEUS_ENABLED', true),
 
     'urls' => [
-        'metrics' => '/metrics',
+        'default' => '/metrics',
     ],
 
     'middleware' => [],
