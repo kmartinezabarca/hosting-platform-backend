@@ -21,6 +21,7 @@ class PrometheusServiceProvider extends ServiceProvider
 {
     public function register()
     {
+        \Log::info('PrometheusServiceProvider::register() called');
         Prometheus::addGauge('Queue Jobs', fn() => \DB::table('jobs')->count());
         Prometheus::addGauge('Failed Jobs', fn() => \DB::table('failed_jobs')->count());
         Prometheus::addGauge('Users Total', fn() => \DB::table('users')->count());
