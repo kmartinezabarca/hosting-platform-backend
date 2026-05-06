@@ -61,7 +61,7 @@ pipeline {
         PROD_URL                = 'https://api.rokeindustries.com'
         COMPOSER_NO_INTERACTION = '1'
         COMPOSER_MEMORY_LIMIT   = '-1'
-        DISCORD_WEBHOOK         = 'https://discord.com/api/webhooks/XXXXX'
+        DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1501364059117715558/W_w1xbGHR_jifhNtdE9koiPjoaiXB2fYEJ62mAsMn9zSeOnQxLXasOWpPN9a-Is35Wsd'
     }
 
     options {
