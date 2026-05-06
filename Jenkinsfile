@@ -107,16 +107,17 @@ pipeline {
         }
 
         stage('Composer Install') {
-            steps {
-                sh '''
-                    if [ "${DEPLOY_ENV}" = "production" ]; then
-                        composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
-                    else
-                        composer install --no-scripts --optimize-autoloader --prefer-dist
-                    fi
-                '''
-            }
-        }
+    steps {
+        sh '''
+            rm -rf vendor
+            if [ "${DEPLOY_ENV}" = "production" ]; then
+                composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
+            else
+                composer install --no-scripts --optimize-autoloader --prefer-dist
+            fi
+        '''
+    }
+}
 
         stage('Tests') {
             when { expression { params.RUN_TESTS } }
