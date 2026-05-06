@@ -152,8 +152,9 @@ pipeline {
                         php artisan config:clear
 
                         if [ "${runMigrations}" = "true" ]; then
-                            php artisan migrate --force --no-interaction
-                        fi
+    export DB_HOST=172.17.0.1
+    php artisan migrate --force --no-interaction
+fi
 
                         php artisan config:cache
                         php artisan route:cache
