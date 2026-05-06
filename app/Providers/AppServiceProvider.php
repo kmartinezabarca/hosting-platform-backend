@@ -21,25 +21,20 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         if (config('prometheus.enabled')) {
-        Prometheus::addGauge('laravel_up')
-            ->label('app', config('app.name'))
-            ->value(fn() => 1);
+            Prometheus::addGauge('laravel_up')
+                ->value(fn() => 1);
 
-        Prometheus::addGauge('laravel_queue_size')
-            ->label('app', config('app.name'))
-            ->value(fn() => \DB::table('jobs')->count());
+            Prometheus::addGauge('laravel_queue_jobs')
+                ->value(fn() => \DB::table('jobs')->count());
 
-        Prometheus::addGauge('laravel_failed_jobs')
-            ->label('app', config('app.name'))
-            ->value(fn() => \DB::table('failed_jobs')->count());
+            Prometheus::addGauge('laravel_failed_jobs')
+                ->value(fn() => \DB::table('failed_jobs')->count());
 
-        Prometheus::addGauge('laravel_users_total')
-            ->label('app', config('app.name'))
-            ->value(fn() => \DB::table('users')->count());
+            Prometheus::addGauge('laravel_users_total')
+                ->value(fn() => \DB::table('users')->count());
 
-        Prometheus::addGauge('laravel_services_active')
-            ->label('app', config('app.name'))
-            ->value(fn() => \DB::table('services')->where('status', 'active')->count());
-    }
+            Prometheus::addGauge('laravel_services_active')
+                ->value(fn() => \DB::table('services')->where('status', 'active')->count());
+        }
     }
 }
