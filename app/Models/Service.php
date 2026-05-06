@@ -339,8 +339,12 @@ class Service extends Model
         $details = $this->connection_details ?? [];
         $formatted = [];
 
-        if (isset($details['ip_address'])) {
-            $formatted['IP Address'] = $details['ip_address'];
+        if (isset($details['display'])) {
+            $formatted['Connection Address'] = $details['display'];
+        }
+
+        if (isset($details['hostname'])) {
+            $formatted['Hostname'] = $details['hostname'];
         }
 
         if (isset($details['server_ip'])) {
@@ -351,16 +355,8 @@ class Service extends Model
             $formatted['Server Port'] = $details['server_port'];
         }
 
-        if (isset($details['ssh_port'])) {
-            $formatted['SSH Port'] = $details['ssh_port'];
-        }
-
         if (isset($details['panel_url'])) {
             $formatted['Panel URL'] = $details['panel_url'];
-        }
-
-        if (isset($details['domain_name'])) {
-            $formatted['Domain'] = $details['domain_name'];
         }
 
         return $formatted;

@@ -93,12 +93,13 @@ class RetrofitServiceDns extends Command
 
         try {
             if ($isJava) {
-                $dnsRecordIds['srv'] = $cloudflare->createMinecraftSrv($subdomain, $port);
-                $hostname            = "{$subdomain}.rokeindustries.com";
-                $display             = $hostname;
+                $dnsRecordIds['cname'] = $cloudflare->createCnameRecord($subdomain, 'mc.rokeindustries.com');
+                $dnsRecordIds['srv']   = $cloudflare->createMinecraftSrv($subdomain, $port);
+                $hostname              = "{$subdomain}.rokeindustries.com";
+                $display               = $hostname;
             } else {
-                $dnsRecordIds['a'] = $cloudflare->createARecord("{$subdomain}-bedrock", config('pterodactyl.relay_ip', $ip));
-                $hostname          = "{$subdomain}-bedrock.rokeindustries.com";
+                $dnsRecordIds['a'] = $cloudflare->createARecord($subdomain, config('pterodactyl.relay_ip', $ip));
+                $hostname          = "{$subdomain}.rokeindustries.com";
                 $display           = "{$hostname}:{$port}";
             }
 

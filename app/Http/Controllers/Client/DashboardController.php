@@ -179,8 +179,8 @@ class DashboardController extends Controller
                         'created_at' => $service->created_at->format('d M, Y'),
                         'usage' => $this->generateMockUsage($plan->category->slug ?? 'hosting'),
                         'specs' => $plan->specifications ?? $this->generateMockSpecs($plan->category->slug ?? 'hosting'),
-                        'domain' => $service->name,
-                        'ip' => $service->connection_details['ip_address'] ?? null
+                        'domain' => $service->connection_details['display'] ?? $service->name,
+                        'ip' => $service->connection_details['display'] ?? ($service->connection_details['server_ip'] ?? null)
                     ];
                 });
 

@@ -134,17 +134,26 @@ class GameServerProvisioningService
 
             try {
                 if ($isJava) {
+                    // 1. Crear CNAME base: kmartinez.rokeindustries.com -> mc.rokeindustries.com
+                    $dnsRecordIds['cname'] = $this->cloudflare->createCnameRecord(
+                        $subdomain,
+                        'mc.rokeindustries.com'
+                    );
+
+                    // 2. Crear SRV: _minecraft._tcp.kmartinez -> kmartinez.rokeindustries.com:PORT
                     $dnsRecordIds['srv'] = $this->cloudflare->createMinecraftSrv(
                         $subdomain,
                         (int) $allocation['attributes']['port']
                     );
                     $hostname = "{$subdomain}.rokeindustries.com";
                 } else {
+                    // Bedrock: kmartinez.rokeindustries.com -> IP (Registro A)
+                    // El cliente se conecta con kmartinez.rokeindustries.com:PORT
                     $dnsRecordIds['a'] = $this->cloudflare->createARecord(
-                        "{$subdomain}-bedrock",
+                        $subdomain,
                         $vpsIp
                     );
-                    $hostname = "{$subdomain}-bedrock.rokeindustries.com";
+                    $hostname = "{$subdomain}.rokeindustries.com";
                 }
             } catch (\Throwable $e) {
                 // DNS no es bloqueante — el servidor igual funciona con IP:puerto

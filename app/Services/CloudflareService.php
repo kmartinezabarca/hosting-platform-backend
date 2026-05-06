@@ -26,6 +26,32 @@ class CloudflareService
      *
      * @return string  ID del registro DNS creado en Cloudflare
      */
+    /**
+     * Crea un registro CNAME para el subdominio base.
+     *
+     * @return string ID del registro DNS creado
+     */
+    public function createCnameRecord(string $subdomain, string $target): string
+    {
+        $response = $this->http()->post("zones/{$this->zoneId}/dns_records", [
+            'type'    => 'CNAME',
+            'name'    => $subdomain,
+            'content' => $target,
+            'ttl'     => 60,
+            'proxied' => false,
+        ]);
+
+        return $this->extractId($response, 'createCnameRecord');
+    }
+
+    /**
+     * Crea un registro SRV para un servidor Minecraft Java Edition.
+     * El registro permite conectarse con solo el hostname (sin puerto).
+     *
+     * Ej: _minecraft._tcp.kmartinez → mc.rokeindustries.com:25565
+     *
+     * @return string  ID del registro DNS creado en Cloudflare
+     */
     public function createMinecraftSrv(string $subdomain, int $port): string
     {
         $response = $this->http()->post("zones/{$this->zoneId}/dns_records", [
@@ -38,7 +64,7 @@ class CloudflareService
                 'priority' => 0,
                 'weight'   => 5,
                 'port'     => $port,
-                'target'   => 'mc.rokeindustries.com',
+                'target'   => "{$subdomain}.rokeindustries.com",
             ],
             'ttl' => 60,
         ]);
