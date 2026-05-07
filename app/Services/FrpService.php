@@ -15,10 +15,10 @@ class FrpService
 
     public function __construct()
     {
-        $this->host       = config('frp.host');
-        $this->user       = config('frp.user');
-        $this->configPath = config('frp.config_path');
-        $this->sshOptions = config('frp.ssh_options');
+        $this->host = config('frp.host', '');
+        $this->user = config('frp.user', '');
+        $this->configPath = config('frp.config_path', '/etc/frp/frpc.toml');
+        $this->sshOptions = config('frp.ssh_options', '-o StrictHostKeyChecking=no');
     }
 
     /* =========================================================
