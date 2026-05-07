@@ -93,6 +93,10 @@ class Service extends Model
         });
     }
 
+    public function invoices(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
     /**
      * Get the route key for the model.
      */
@@ -261,7 +265,7 @@ class Service extends Model
         return $this->next_due_date < now() && in_array($this->status, ['active', 'suspended']);
     }
 
-     /**
+    /**
      * Obtiene el tipo de servicio desde la categoría del plan.
      */
     public function getServiceType()

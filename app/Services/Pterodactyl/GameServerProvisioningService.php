@@ -14,6 +14,7 @@ class GameServerProvisioningService
     public function __construct(
         private readonly PterodactylService $pterodactyl,
         private readonly CloudflareService  $cloudflare,
+        private readonly \App\Services\FrpService $frp,
     ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -190,7 +191,26 @@ class GameServerProvisioningService
                 ],
             ]);
 
-            // 8) Notificar al cliente
+            // 8) Agregar proxy frp para el puerto del servidor
+            try {
+                $port = $allocation['attributes']['port'];
+                $this->frp->addTcpProxy($port, $service->name);
+
+                // Guardar el puerto en connection_details para poder eliminarlo al terminar
+                $service->update([
+                    'connection_details' => array_merge(
+                        $service->connection_details ?? [],
+                        ['frp_port' => $port]
+                    ),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('FRP proxy no creado (no fatal)', [
+                    'service_id' => $service->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
+            // 9) Notificar al cliente
             $this->notifyProvisioned($user, $service->fresh());
 
             Log::info('Servidor de juego aprovisionado', [
@@ -282,6 +302,19 @@ class GameServerProvisioningService
                 // Si ya no existe en Pterodactyl, continuamos con la terminación local
                 Log::warning('Error al eliminar servidor de Pterodactyl (se continúa terminación)', [
                     'service_id' => $service->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $frpPort = $service->connection_details['frp_port'] ?? null;
+        if ($frpPort) {
+            try {
+                $this->frp->removeTcpProxy((int) $frpPort);
+            } catch (\Throwable $e) {
+                Log::warning('FRP proxy no eliminado', [
+                    'service_id' => $service->id,
+                    'port'       => $frpPort,
                     'error'      => $e->getMessage(),
                 ]);
             }
