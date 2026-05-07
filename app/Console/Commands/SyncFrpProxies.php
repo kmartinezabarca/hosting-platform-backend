@@ -5,75 +5,53 @@ namespace App\Console\Commands;
 use App\Models\Service;
 use App\Services\FrpService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
 
 class SyncFrpProxies extends Command
 {
-    protected $signature   = 'frp:sync-proxies {--dry-run : Solo mostrar, no ejecutar}';
-    protected $description = 'Agrega proxies frp faltantes para todos los game servers activos';
+    protected $signature = 'frp:sync {--dry-run}';
+    protected $description = 'Sync FRP proxies (production SaaS mode)';
 
-    public function __construct(private readonly FrpService $frp)
+    public function __construct(private FrpService $frp)
     {
         parent::__construct();
     }
 
     public function handle(): int
     {
-        $services = Service::where('status', 'active')
-            ->whereNotNull('pterodactyl_server_id')
-            ->get();
+        $services = Service::where('status', 'active')->get();
 
-        $this->info("Encontrados {$services->count()} game servers activos.");
-
-        $added   = 0;
-        $skipped = 0;
-        $failed  = 0;
+        $proxies = [];
 
         foreach ($services as $service) {
+
             $conn = $service->connection_details ?? [];
-            $port = $conn['server_port'] ?? null;
 
-            if (!$port) {
-                $this->warn("  [SKIP] {$service->name} — sin puerto en connection_details");
-                $skipped++;
+            if (!isset($conn['server_port'])) {
                 continue;
             }
 
-            // Ya tiene frp registrado
-            if (!empty($conn['frp_port'])) {
-                $this->line("  [OK]   {$service->name} — puerto {$port} ya registrado");
-                $skipped++;
-                continue;
-            }
+            $port = (int) $conn['server_port'];
 
-            $this->line("  [ADD]  {$service->name} — puerto {$port}");
-
-            if ($this->option('dry-run')) {
-                $added++;
-                continue;
-            }
-
-            try {
-                $ok = $this->frp->addTcpProxy((int) $port, $service->name);
-
-                if ($ok) {
-                    $service->update([
-                        'connection_details' => array_merge($conn, ['frp_port' => $port]),
-                    ]);
-                    $added++;
-                } else {
-                    $this->error("  [FAIL] {$service->name} — frp falló");
-                    $failed++;
-                }
-            } catch (\Throwable $e) {
-                $this->error("  [ERR]  {$service->name} — {$e->getMessage()}");
-                $failed++;
-            }
+            $proxies[] = [
+                'name'       => "mc-{$port}",
+                'localPort'  => $port,
+                'remotePort' => $port,
+            ];
         }
 
-        $this->newLine();
-        $this->info("Resultado: {$added} agregados · {$skipped} omitidos · {$failed} fallidos");
+        if ($this->option('dry-run')) {
+            $this->info(json_encode($proxies, JSON_PRETTY_PRINT));
+            return self::SUCCESS;
+        }
 
-        return $failed > 0 ? self::FAILURE : self::SUCCESS;
+        $ok = $this->frp->sync($proxies);
+
+        if ($ok) {
+            $this->info('FRP synced successfully');
+            return self::SUCCESS;
+        }
+
+        $this->error('FRP sync failed');
+        return self::FAILURE;
     }
 }

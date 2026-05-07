@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\CloudflareService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use App\Enums\GameProtocol;
 use RuntimeException;
 
 class GameServerProvisioningService
@@ -44,7 +45,7 @@ class GameServerProvisioningService
         if (! $selectedEgg) {
             throw new \RuntimeException(
                 "El servicio #{$service->id} no tiene un juego (egg) seleccionado. " .
-                "Edita el servicio desde el panel de admin para asignar uno."
+                    "Edita el servicio desde el panel de admin para asignar uno."
             );
         }
 
@@ -93,11 +94,11 @@ class GameServerProvisioningService
                 'user'         => $pteroUserId,
                 'egg'          => $selectedEgg->ptero_egg_id,
                 'docker_image' => $plan->pterodactyl_docker_image
-                                  ?? $selectedEgg->docker_image
-                                  ?? $eggDetails['attributes']['docker_image'],
+                    ?? $selectedEgg->docker_image
+                    ?? $eggDetails['attributes']['docker_image'],
                 'startup'      => $plan->pterodactyl_startup
-                                  ?? $selectedEgg->startup
-                                  ?? $eggDetails['attributes']['startup'],
+                    ?? $selectedEgg->startup
+                    ?? $eggDetails['attributes']['startup'],
                 'environment'    => $environment,
                 'limits'         => $plan->resolvedLimits(),
                 'feature_limits' => $plan->resolvedFeatureLimits(),
@@ -127,14 +128,14 @@ class GameServerProvisioningService
             // Bedrock → registro A + mostrar puerto en la dirección
             //   kmartinez-bedrock.rokeindustries.com:19132
             //
-            $isJava       = $this->isJavaEdition($plan);
+            $protocol = $selectedEgg->game_protocol ?? GameProtocol::JAVA;
             $subdomain    = $this->buildSubdomain($user);
             $vpsIp        = config('pterodactyl.relay_ip', '178.156.225.26');
             $hostname     = null;
             $dnsRecordIds = [];
 
             try {
-                if ($isJava) {
+                if ($protocol->usesSrvRecord()) {
                     // 1. Crear CNAME base: kmartinez.rokeindustries.com -> mc.rokeindustries.com
                     $dnsRecordIds['cname'] = $this->cloudflare->createCnameRecord(
                         $subdomain,
@@ -176,14 +177,16 @@ class GameServerProvisioningService
                     // hostname = null cuando Cloudflare falló (fallback a IP:port)
                     'hostname'         => $hostname,
                     // display: lo que se muestra al usuario en el panel
-                    'display'          => $hostname
-                        ? ($isJava
-                            ? $hostname
-                            : "{$hostname}:{$allocation['attributes']['port']}")
+                    'display' => $hostname
+                        ? (
+                            $protocol->displayPort()
+                            ? "{$hostname}:{$allocation['attributes']['port']}"
+                            : $hostname
+                        )
                         : "{$allocation['attributes']['ip']}:{$allocation['attributes']['port']}",
-                    'is_java'          => $isJava,
+                    'is_java'          => $protocol->value,
                     'panel_url'        => rtrim(config('pterodactyl.base_url'), '/')
-                                         . '/server/' . $serverAttrs['identifier'],
+                        . '/server/' . $serverAttrs['identifier'],
                     'identifier'       => $serverAttrs['identifier'],
                     'pterodactyl_uuid' => $serverAttrs['uuid'],
                     // IDs de registros DNS para eliminarlos al terminar el servicio
@@ -194,17 +197,23 @@ class GameServerProvisioningService
             // 8) Agregar proxy frp para el puerto del servidor
             try {
                 $port = $allocation['attributes']['port'];
-                $this->frp->addTcpProxy($port, $service->name);
+                $proxyCreated = $this->frp->addTcpProxy(port: $port, name: $service->name);
 
-                // Guardar el puerto en connection_details para poder eliminarlo al terminar
-                $service->update([
-                    'connection_details' => array_merge(
-                        $service->connection_details ?? [],
-                        ['frp_port' => $port]
-                    ),
-                ]);
+                if ($proxyCreated) {
+
+                    $service->update([
+                        'connection_details' => array_merge(
+                            $service->connection_details ?? [],
+                            [
+                                'frp_port' => $port,
+                                'frp_enabled' => true,
+                            ],
+                        ),
+                    ]);
+                }
             } catch (\Throwable $e) {
-                Log::warning('FRP proxy no creado (no fatal)', [
+
+                Log::warning('FRP proxy provisioning failed', [
                     'service_id' => $service->id,
                     'error'      => $e->getMessage(),
                 ]);
@@ -221,7 +230,6 @@ class GameServerProvisioningService
                 'hostname'              => $hostname,
                 'dns_records'           => $dnsRecordIds,
             ]);
-
         } catch (\Throwable $e) {
             $service->update(['status' => 'failed']);
 
@@ -307,7 +315,7 @@ class GameServerProvisioningService
             }
         }
 
-        $frpPort = $service->connection_details['frp_port'] ?? null;
+        $frpPort = data_get($service->connection_details, 'frp_port');
         if ($frpPort) {
             try {
                 $this->frp->removeTcpProxy((int) $frpPort);
@@ -353,24 +361,6 @@ class GameServerProvisioningService
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Determina si el plan es Java Edition (vs Bedrock u otro protocolo).
-     * Basado en el nombre del plan o el game_type del plan.
-     */
-    private function isJavaEdition(mixed $plan): bool
-    {
-        $gameType = strtolower($plan->game_type ?? '');
-        if ($gameType === 'bedrock') {
-            return false;
-        }
-
-        // Fallback: revisar nombre del plan
-        $bedrockKeywords = ['bedrock', 'nukkit', 'pocketmine', 'pmmp'];
-        $planName        = strtolower($plan->name ?? '');
-
-        return ! collect($bedrockKeywords)->contains(fn ($kw) => str_contains($planName, $kw));
-    }
-
-    /**
      * Genera el subdominio a partir del username o email del usuario.
      * Solo caracteres alfanuméricos y guiones, máx 30 caracteres.
      *
@@ -393,18 +383,18 @@ class GameServerProvisioningService
             ->whereIn('status', ['active', 'pending'])
             ->whereNotNull('connection_details')
             ->get()
-            ->map(fn ($s) => $s->connection_details['hostname'] ?? null)
+            ->map(fn($s) => $s->connection_details['hostname'] ?? null)
             ->filter()
             ->values();
 
-        if (! $existing->contains(fn ($h) => str_starts_with($h, $base))) {
+        if (! $existing->contains(fn($h) => str_starts_with($h, $base))) {
             return $base;
         }
 
         // Sufijo numérico incremental: base-2, base-3…
         for ($i = 2; $i <= 99; $i++) {
             $candidate = "{$base}-{$i}";
-            if (! $existing->contains(fn ($h) => str_starts_with($h, $candidate))) {
+            if (! $existing->contains(fn($h) => str_starts_with($h, $candidate))) {
                 return $candidate;
             }
         }

@@ -2,39 +2,55 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Enums\GameProtocol;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class PterodactylEgg extends Model
 {
     protected $fillable = [
         'uuid',
+
         'ptero_nest_id',
         'ptero_egg_id',
+
         'nest_name',
         'nest_identifier',
         'nest_description',
+
         'egg_name',
         'egg_description',
         'egg_author',
+
         'docker_image',
         'startup',
+
         'variables',
         'config_files',
+
         'is_active',
+
         'display_name',
         'icon_url',
+
         'sort_order',
+
+        'game_protocol',
+
         'synced_at',
     ];
 
     protected $casts = [
-        'variables'    => 'array',
-        'config_files' => 'array',
-        'is_active'    => 'boolean',
-        'synced_at'    => 'datetime',
-        'sort_order'   => 'integer',
+        'variables'      => 'array',
+        'config_files'   => 'array',
+
+        'is_active'      => 'boolean',
+        'sort_order'     => 'integer',
+
+        'synced_at'      => 'datetime',
+
+        'game_protocol'  => GameProtocol::class,
     ];
 
     protected static function boot(): void
@@ -45,12 +61,17 @@ class PterodactylEgg extends Model
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
+
+            // Default inteligente
+            if (! $model->game_protocol) {
+                $model->game_protocol = GameProtocol::JAVA;
+            }
         });
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
     // Scopes
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
 
     public function scopeActive(Builder $query): Builder
     {
@@ -62,55 +83,99 @@ class PterodactylEgg extends Model
         return $query->whereIn('ptero_nest_id', $nestIds);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Relaciones
-    // ─────────────────────────────────────────────────────────────────────────
+    public function scopeProtocol(
+        Builder $query,
+        GameProtocol $protocol
+    ): Builder {
+        return $query->where('game_protocol', $protocol->value);
+    }
 
-    /** Servicios que usan este egg. */
+    // ─────────────────────────────────────────────────────────────────────
+    // Relaciones
+    // ─────────────────────────────────────────────────────────────────────
+
     public function services()
     {
         return $this->hasMany(Service::class, 'selected_egg_id');
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
     // Helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
 
-    /** Nombre para mostrar al cliente (display_name si está seteado, egg_name si no). */
     public function getDisplayLabel(): string
     {
         return $this->display_name ?: $this->egg_name;
     }
 
     /**
-     * Variables del egg en formato key → valor por defecto.
-     * Útil para pre-rellenar el environment al crear el servidor.
+     * Nunca regresar null.
+     */
+    public function protocol(): GameProtocol
+    {
+        return $this->game_protocol ?? GameProtocol::JAVA;
+    }
+
+    public function isJava(): bool
+    {
+        return $this->protocol()->supportsJava();
+    }
+
+    public function isBedrock(): bool
+    {
+        return $this->protocol()->supportsBedrock();
+    }
+
+    public function usesSrvRecord(): bool
+    {
+        return $this->protocol()->usesSrvRecord();
+    }
+
+    public function shouldDisplayPort(): bool
+    {
+        return $this->protocol()->displayPort();
+    }
+
+    /**
+     * Variables default del egg.
      */
     public function defaultEnvironment(): array
     {
         $env = [];
+
         foreach ($this->variables ?? [] as $var) {
             $key = $var['env_variable'] ?? null;
+
             if ($key) {
                 $env[$key] = $var['default_value'] ?? '';
             }
         }
+
         return $env;
     }
 
     /**
-     * Payload listo para el API pública del frontend.
-     * No expone datos internos de Pterodactyl.
+     * API frontend.
      */
     public function toClientArray(): array
     {
         return [
-            'id'          => $this->id,
-            'name'        => $this->getDisplayLabel(),
-            'description' => $this->egg_description,
-            'nest'        => $this->nest_name,
-            'nest_id'     => $this->ptero_nest_id,
-            'icon_url'    => $this->icon_url,
+            'id'              => $this->id,
+
+            'name'            => $this->getDisplayLabel(),
+
+            'description'     => $this->egg_description,
+
+            'nest'            => $this->nest_name,
+            'nest_id'         => $this->ptero_nest_id,
+
+            'icon_url'        => $this->icon_url,
+
+            'protocol'        => $this->protocol()->value,
+            'protocol_label'  => $this->protocol()->label(),
+
+            'supports_java'   => $this->isJava(),
+            'supports_bedrock'=> $this->isBedrock(),
         ];
     }
 }
