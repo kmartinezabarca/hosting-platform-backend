@@ -18,7 +18,10 @@ class SyncFrpProxies extends Command
 
     public function handle(): int
     {
+        $this->warn('--- INICIANDO SINCRONIZACIÓN FRP (V5 - SCP) ---');
+        
         $services = Service::where('status', 'active')->get();
+        $this->info('Servicios activos encontrados: ' . $services->count());
 
         $proxies = [];
 
@@ -45,14 +48,20 @@ class SyncFrpProxies extends Command
             return self::SUCCESS;
         }
 
-        $ok = $this->frp->sync($proxies);
+        $this->info('Enviando ' . count($proxies) . ' proxies al servidor...');
+        
+        try {
+            $ok = $this->frp->sync($proxies);
 
-        if ($ok) {
-            $this->info('FRP synced successfully');
-            return self::SUCCESS;
+            if ($ok) {
+                $this->info('✅ FRP synced successfully');
+                return self::SUCCESS;
+            }
+        } catch (\Throwable $e) {
+            $this->error('❌ Error fatal: ' . $e->getMessage());
         }
 
-        $this->error('FRP sync failed');
+        $this->error('❌ FRP sync failed. Revisa storage/logs/laravel.log para más detalles.');
         return self::FAILURE;
     }
 }
