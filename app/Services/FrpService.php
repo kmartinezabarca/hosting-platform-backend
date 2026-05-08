@@ -124,10 +124,11 @@ class FrpService
     {
         $toml = $this->arrayToToml($config);
 
-        $escaped = str_replace("'", "'\\''", $toml);
+        // Usamos Base64 para evitar problemas con caracteres especiales y saltos de línea en la terminal
+        $base64 = base64_encode($toml);
 
         $commands = [
-            "echo '{$escaped}' | sudo tee {$this->configPath} > /dev/null",
+            "echo '{$base64}' | base64 -d | sudo tee {$this->configPath} > /dev/null",
             "sudo systemctl reload frpc || sudo systemctl restart frpc",
         ];
 
