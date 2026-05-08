@@ -23,14 +23,13 @@ class FrpService
     }
 
     /**
-     * Sincroniza una lista completa de proxies (usado por el comando de consola).
+     * Sincroniza una lista completa de proxies.
      */
     public function sync(array $proxies): bool
     {
         try {
             $config = $this->getRemoteConfig();
             
-            // Mantenemos la configuración global pero reemplazamos todos los proxies
             $config['proxies'] = array_map(function ($p) {
                 return [
                     'name'       => $p['name'],
@@ -48,66 +47,44 @@ class FrpService
         }
     }
 
-    /* =========================================================
-     | ADD PROXY (SAFE)
-     ========================================================= */
     public function addTcpProxy(int $port, string $name): bool
     {
         return Cache::lock("frp-port-{$port}", 10)->block(5, function () use ($port, $name) {
-
-            $proxyName = $this->buildProxyName($port);
-
+            $proxyName = "mc-{$port}";
             $config = $this->getRemoteConfig();
-
             $proxies = $config['proxies'] ?? [];
 
-            // evitar duplicados
             foreach ($proxies as $p) {
-                if (($p['name'] ?? null) === $proxyName) {
-                    Log::info('FRP already exists', compact('proxyName'));
-                    return true;
-                }
+                if (($p['name'] ?? null) === $proxyName) return true;
             }
 
-            $proxies[] = $this->buildProxyArray($proxyName, $port);
+            $proxies[] = [
+                'name'       => $proxyName,
+                'type'       => 'tcp',
+                'localIP'    => '100.94.93.51',
+                'localPort'  => $port,
+                'remotePort' => $port,
+            ];
 
             $config['proxies'] = $proxies;
-
             return $this->pushConfig($config, $proxyName, $port);
         });
     }
 
-    /* =========================================================
-     | REMOVE PROXY (SAFE)
-     ========================================================= */
     public function removeTcpProxy(int $port): bool
     {
         return Cache::lock("frp-port-{$port}", 10)->block(5, function () use ($port) {
-
-            $proxyName = $this->buildProxyName($port);
-
+            $proxyName = "mc-{$port}";
             $config = $this->getRemoteConfig();
-
-            $proxies = array_filter(
-                $config['proxies'] ?? [],
-                fn ($p) => ($p['name'] ?? null) !== $proxyName
-            );
-
+            $proxies = array_filter($config['proxies'] ?? [], fn ($p) => ($p['name'] ?? null) !== $proxyName);
             $config['proxies'] = array_values($proxies);
-
             return $this->pushConfig($config, $proxyName, $port, false);
         });
     }
 
-    /* =========================================================
-     | READ REMOTE CONFIG
-     ========================================================= */
     private function getRemoteConfig(): array
     {
-        $process = $this->sshProcess([
-            "cat {$this->configPath}"
-        ]);
-
+        $process = Process::fromShellCommandline("ssh {$this->sshOptions} {$this->user}@{$this->host} 'cat {$this->configPath}'");
         $process->run();
 
         if (!$process->isSuccessful()) {
@@ -117,118 +94,74 @@ class FrpService
         return Toml::parse($process->getOutput());
     }
 
-    /* =========================================================
-     | PUSH CONFIG BACK
-     ========================================================= */
     private function pushConfig(array $config, string $proxyName, int $port, bool $isAdd = true): bool
     {
         $toml = $this->arrayToToml($config);
-        
-        Log::debug('FRP: Iniciando pushConfig con Base64 V3');
+        $tempFile = tempnam(sys_get_temp_dir(), 'frp_');
+        file_put_contents($tempFile, $toml);
 
-        // Usamos Base64 para evitar problemas con caracteres especiales y saltos de línea en la terminal
-        $base64 = base64_encode($toml);
+        try {
+            // 1. Enviar archivo por SCP a una carpeta temporal del usuario remoto
+            $remoteTemp = "/tmp/frpc_" . time() . ".toml";
+            $scp = Process::fromShellCommandline("scp {$this->sshOptions} {$tempFile} {$this->user}@{$this->host}:{$remoteTemp}");
+            $scp->run();
 
-        $commands = [
-            "printf '%s' \"{$base64}\" | base64 -d | sudo tee {$this->configPath} > /dev/null",
-            "sudo systemctl reload frpc || sudo systemctl restart frpc",
-        ];
+            if (!$scp->isSuccessful()) {
+                throw new \RuntimeException("SCP failed: " . $scp->getErrorOutput());
+            }
 
-        $process = $this->sshProcess($commands);
-        $process->run();
+            // 2. Mover el archivo a su destino final con sudo y reiniciar frpc
+            $commands = [
+                "sudo mv {$remoteTemp} {$this->configPath}",
+                "sudo systemctl reload frpc || sudo systemctl restart frpc"
+            ];
+            $ssh = $this->sshProcess($commands);
+            $ssh->run();
 
-        if (!$process->isSuccessful()) {
-            Log::error('FRP sync failed', [
-                'proxy' => $proxyName,
-                'error' => $process->getErrorOutput(),
-            ]);
+            if (!$ssh->isSuccessful()) {
+                throw new \RuntimeException("SSH Move/Reload failed: " . $ssh->getErrorOutput());
+            }
 
+            Log::info($isAdd ? 'FRP added' : 'FRP removed', ['proxy' => $proxyName, 'port' => $port]);
+            return true;
+
+        } catch (\Throwable $e) {
+            Log::error('FRP sync failed', ['proxy' => $proxyName, 'error' => $e->getMessage()]);
             return false;
+        } finally {
+            if (file_exists($tempFile)) unlink($tempFile);
         }
-
-        Log::info($isAdd ? 'FRP added' : 'FRP removed', [
-            'proxy' => $proxyName,
-            'port'  => $port,
-        ]);
-
-        return true;
     }
 
-    /* =========================================================
-     | BUILD PROXY
-     ========================================================= */
-    private function buildProxyArray(string $proxyName, int $port): array
-    {
-        return [
-            'name'       => $proxyName,
-            'type'       => 'tcp',
-            'localIP'    => '100.94.93.51',
-            'localPort'  => $port,
-            'remotePort' => $port,
-        ];
-    }
-
-    private function buildProxyName(int $port): string
-    {
-        return "mc-{$port}";
-    }
-
-    /* =========================================================
-     | ARRAY -> TOML (preserves global config)
-     ========================================================= */
     private function arrayToToml(array $config): string
     {
         $output = "";
-
-        // 1. Escribir configuración global (todo lo que no sea 'proxies')
         foreach ($config as $key => $value) {
             if ($key === 'proxies') continue;
-            
             if (is_array($value)) {
-                // Manejo simple de secciones anidadas como [auth]
                 $output .= "\n[{$key}]\n";
-                foreach ($value as $subKey => $subValue) {
-                    $output .= "{$subKey} = " . $this->formatTomlValue($subValue) . "\n";
-                }
+                foreach ($value as $sk => $sv) $output .= "{$sk} = " . $this->formatTomlValue($sv) . "\n";
             } else {
                 $output .= "{$key} = " . $this->formatTomlValue($value) . "\n";
             }
         }
-
-        // 2. Escribir proxies
         foreach ($config['proxies'] ?? [] as $proxy) {
             $output .= "\n[[proxies]]\n";
-            foreach ($proxy as $k => $v) {
-                $output .= "{$k} = " . $this->formatTomlValue($v) . "\n";
-            }
+            foreach ($proxy as $k => $v) $output .= "{$k} = " . $this->formatTomlValue($v) . "\n";
         }
-
         return trim($output) . "\n";
     }
 
-    private function formatTomlValue($value): string
+    private function formatTomlValue($v): string
     {
-        if (is_bool($value)) {
-            return $value ? 'true' : 'false';
-        }
-        if (is_numeric($value)) {
-            return (string) $value;
-        }
-        return "\"{$value}\"";
+        if (is_bool($v)) return $v ? 'true' : 'false';
+        if (is_numeric($v)) return (string) $v;
+        return "\"{$v}\"";
     }
 
-    /* =========================================================
-     | SSH
-     ========================================================= */
-    private function sshProcess(array $commands): Process
+    private function sshProcess(array $cmds): Process
     {
-        $command = implode(' && ', $commands);
-        
-        // Usamos escapeshellarg para que el comando completo sea tratado como un solo argumento por SSH
-        $safeCommand = escapeshellarg($command);
-
-        return Process::fromShellCommandline(
-            "ssh {$this->sshOptions} {$this->user}@{$this->host} {$safeCommand}"
-        );
+        $cmd = implode(' && ', $cmds);
+        return Process::fromShellCommandline("ssh {$this->sshOptions} {$this->user}@{$this->host} " . escapeshellarg($cmd));
     }
 }
