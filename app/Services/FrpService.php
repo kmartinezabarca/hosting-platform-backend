@@ -16,10 +16,36 @@ class FrpService
 
     public function __construct()
     {
-        $this->host        = config('frp.host', '100.94.93.51');
-        $this->user        = config('frp.user', 'rokeryzen');
-        $this->configPath  = config('frp.config_path', '/etc/frp/frpc.toml');
-        $this->sshOptions  = config('frp.ssh_options', '-o StrictHostKeyChecking=no -o ConnectTimeout=5');
+        $this->host        = (string) config('frp.host', '100.94.93.51');
+        $this->user        = (string) config('frp.user', 'rokeryzen');
+        $this->configPath  = (string) config('frp.config_path', '/etc/frp/frpc.toml');
+        $this->sshOptions  = (string) config('frp.ssh_options', '-o StrictHostKeyChecking=no -o ConnectTimeout=5');
+    }
+
+    /**
+     * Sincroniza una lista completa de proxies (usado por el comando de consola).
+     */
+    public function sync(array $proxies): bool
+    {
+        try {
+            $config = $this->getRemoteConfig();
+            
+            // Mantenemos la configuración global pero reemplazamos todos los proxies
+            $config['proxies'] = array_map(function ($p) {
+                return [
+                    'name'       => $p['name'],
+                    'type'       => $p['type'] ?? 'tcp',
+                    'localIP'    => $p['localIP'] ?? '100.94.93.51',
+                    'localPort'  => (int) $p['localPort'],
+                    'remotePort' => (int) $p['remotePort'],
+                ];
+            }, $proxies);
+
+            return $this->pushConfig($config, 'bulk-sync', 0);
+        } catch (\Throwable $e) {
+            Log::error('FRP Bulk Sync failed', ['error' => $e->getMessage()]);
+            return false;
+        }
     }
 
     /* =========================================================
@@ -145,20 +171,47 @@ class FrpService
     }
 
     /* =========================================================
-     | ARRAY -> TOML (simple safe serializer)
+     | ARRAY -> TOML (preserves global config)
      ========================================================= */
     private function arrayToToml(array $config): string
     {
         $output = "";
 
-        foreach ($config['proxies'] ?? [] as $proxy) {
-            $output .= "\n[[proxies]]\n";
-            foreach ($proxy as $k => $v) {
-                $output .= "{$k} = " . (is_numeric($v) ? $v : "\"{$v}\"") . "\n";
+        // 1. Escribir configuración global (todo lo que no sea 'proxies')
+        foreach ($config as $key => $value) {
+            if ($key === 'proxies') continue;
+            
+            if (is_array($value)) {
+                // Manejo simple de secciones anidadas como [auth]
+                $output .= "\n[{$key}]\n";
+                foreach ($value as $subKey => $subValue) {
+                    $output .= "{$subKey} = " . $this->formatTomlValue($subValue) . "\n";
+                }
+            } else {
+                $output .= "{$key} = " . $this->formatTomlValue($value) . "\n";
             }
         }
 
-        return $output;
+        // 2. Escribir proxies
+        foreach ($config['proxies'] ?? [] as $proxy) {
+            $output .= "\n[[proxies]]\n";
+            foreach ($proxy as $k => $v) {
+                $output .= "{$k} = " . $this->formatTomlValue($v) . "\n";
+            }
+        }
+
+        return trim($output) . "\n";
+    }
+
+    private function formatTomlValue($value): string
+    {
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+        if (is_numeric($value)) {
+            return (string) $value;
+        }
+        return "\"{$value}\"";
     }
 
     /* =========================================================

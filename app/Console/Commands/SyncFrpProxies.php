@@ -34,6 +34,7 @@ class SyncFrpProxies extends Command
 
             $proxies[] = [
                 'name'       => "mc-{$port}",
+                'type'       => 'tcp',
                 'localPort'  => $port,
                 'remotePort' => $port,
             ];
