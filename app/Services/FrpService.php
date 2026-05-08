@@ -221,9 +221,12 @@ class FrpService
     private function sshProcess(array $commands): Process
     {
         $command = implode(' && ', $commands);
+        
+        // Usamos escapeshellarg para que el comando completo sea tratado como un solo argumento por SSH
+        $safeCommand = escapeshellarg($command);
 
         return Process::fromShellCommandline(
-            "ssh {$this->sshOptions} {$this->user}@{$this->host} '{$command}'"
+            "ssh {$this->sshOptions} {$this->user}@{$this->host} {$safeCommand}"
         );
     }
 }
