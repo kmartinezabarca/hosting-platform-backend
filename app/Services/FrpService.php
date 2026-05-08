@@ -128,7 +128,7 @@ class FrpService
         $base64 = base64_encode($toml);
 
         $commands = [
-            "echo '{$base64}' | base64 -d | sudo tee {$this->configPath} > /dev/null",
+            "echo \"{$base64}\" | base64 -d | sudo tee {$this->configPath} > /dev/null",
             "sudo systemctl reload frpc || sudo systemctl restart frpc",
         ];
 
