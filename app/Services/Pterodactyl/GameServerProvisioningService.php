@@ -78,6 +78,9 @@ class GameServerProvisioningService
                 $service->max_players
             );
 
+            $username = $user->username ?? explode('@', $user->email)[0];
+            $environment['SERVER_MOTD'] = "\\u00A7f\\u00A1Bienvenido al servidor de \\u00A79{$username}!";
+
             // 6) Construir payload completo
             //
             // docker_image y startup vienen del egg sincronizado.
