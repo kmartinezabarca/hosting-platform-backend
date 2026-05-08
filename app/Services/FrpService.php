@@ -123,12 +123,14 @@ class FrpService
     private function pushConfig(array $config, string $proxyName, int $port, bool $isAdd = true): bool
     {
         $toml = $this->arrayToToml($config);
+        
+        Log::debug('FRP: Iniciando pushConfig con Base64 V3');
 
         // Usamos Base64 para evitar problemas con caracteres especiales y saltos de línea en la terminal
         $base64 = base64_encode($toml);
 
         $commands = [
-            "echo \"{$base64}\" | base64 -d | sudo tee {$this->configPath} > /dev/null",
+            "printf '%s' \"{$base64}\" | base64 -d | sudo tee {$this->configPath} > /dev/null",
             "sudo systemctl reload frpc || sudo systemctl restart frpc",
         ];
 
