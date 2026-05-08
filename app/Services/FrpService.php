@@ -117,7 +117,8 @@ class FrpService
 
             // 2. Mover el archivo a su destino final con sudo y reiniciar frpc
             $commands = [
-                "sudo mv {$remoteTemp} {$this->configPath}",
+                "sudo tee {$this->configPath} < {$remoteTemp} > /dev/null",
+                "rm {$remoteTemp}",
                 "sudo systemctl reload frpc || sudo systemctl restart frpc"
             ];
             
