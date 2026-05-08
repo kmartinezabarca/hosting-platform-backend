@@ -100,34 +100,45 @@ class FrpService
         $tempFile = tempnam(sys_get_temp_dir(), 'frp_');
         file_put_contents($tempFile, $toml);
 
+        Log::debug("FRP: Archivo temporal local creado en {$tempFile}");
+
         try {
             // 1. Enviar archivo por SCP a una carpeta temporal del usuario remoto
             $remoteTemp = "/tmp/frpc_" . time() . ".toml";
+            Log::debug("FRP: Enviando por SCP a {$this->user}@{$this->host}:{$remoteTemp}");
+            
             $scp = Process::fromShellCommandline("scp {$this->sshOptions} {$tempFile} {$this->user}@{$this->host}:{$remoteTemp}");
             $scp->run();
 
             if (!$scp->isSuccessful()) {
                 throw new \RuntimeException("SCP failed: " . $scp->getErrorOutput());
             }
+            Log::debug("FRP: SCP completado con éxito.");
 
             // 2. Mover el archivo a su destino final con sudo y reiniciar frpc
             $commands = [
                 "sudo mv {$remoteTemp} {$this->configPath}",
                 "sudo systemctl reload frpc || sudo systemctl restart frpc"
             ];
+            
+            Log::debug("FRP: Ejecutando comandos remotos: " . implode(' && ', $commands));
+            
             $ssh = $this->sshProcess($commands);
             $ssh->run();
 
             if (!$ssh->isSuccessful()) {
-                throw new \RuntimeException("SSH Move/Reload failed: " . $ssh->getErrorOutput());
+                $error = $ssh->getErrorOutput() ?: $ssh->getOutput();
+                throw new \RuntimeException("SSH Move/Reload failed: " . $error);
             }
+            Log::debug("FRP: Comandos remotos ejecutados con éxito.");
 
             Log::info($isAdd ? 'FRP added' : 'FRP removed', ['proxy' => $proxyName, 'port' => $port]);
             return true;
 
         } catch (\Throwable $e) {
             Log::error('FRP sync failed', ['proxy' => $proxyName, 'error' => $e->getMessage()]);
-            return false;
+            // Lanzamos la excepción para que el comando de consola la capture y la muestre
+            throw $e;
         } finally {
             if (file_exists($tempFile)) unlink($tempFile);
         }
