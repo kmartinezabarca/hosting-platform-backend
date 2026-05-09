@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\GoogleLoginController;
 use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\Auth\UsernameController;
+use App\Http\Controllers\Auth\PasswordResetController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,9 @@ Route::middleware('throttle:10,1')->group(function () {
     Route::get ("auth/username/check",    [UsernameController::class,  "check"]);           // ?username=xxx
     Route::post("auth/complete-profile",  [UsernameController::class,  "completeGoogleProfile"]); // setup_token + username
 });
+
+Route::post("/forgot-password", [PasswordResetController::class, "sendResetLinkEmail"]);
+Route::post("/reset-password", [PasswordResetController::class, "reset"]);
 
 Route::middleware('throttle:5,1')->group(function () {
     Route::post("auth/login", [AuthController::class, "login"])->name('login');
