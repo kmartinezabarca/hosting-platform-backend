@@ -3,104 +3,58 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-
+use App\Models\ActivityLog;
+use App\Models\User;
+use App\Models\UserSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
-use Illuminate\Support\Facades\Session as SessionFacade;
-use Carbon\Carbon;
-use App\Models\Service;
-use App\Models\UserSession;
-use App\Models\ActivityLog; // Importar el modelo ActivityLog
 
 class ProfileController extends Controller
 {
     /**
-     * Get user profile information
+     * Get user profile
      */
     public function getProfile()
     {
-        try {
-            $user = Auth::user();
-
-            $yearsWithUs = Carbon::now()->diffInYears($user->created_at);
-            $activeServices = Service::where("user_id", $user->id)->active()->count();
-
-            $avatarFull = $user->avatar_url
-                ? asset("storage/" . $user->avatar_url)
-                : null;
-
-            return response()->json([
-                "success" => true,
-                "data" => [
-                    "uuid"               => $user->uuid,
-                    "email"              => $user->email,
-                    "first_name"         => $user->first_name,
-                    "last_name"          => $user->last_name,
-                    "phone"              => $user->phone,
-                    "address"            => $user->address,
-                    "city"               => $user->city,
-                    "state"              => $user->state,
-                    "country"            => $user->country,
-                    "postal_code"        => $user->postal_code,
-                    "role"               => $user->role,
-                    "status"             => $user->status,
-                    "two_factor_enabled" => $user->two_factor_enabled,
-                    "email_verified_at"  => $user->email_verified_at,
-                    "last_login_at"      => $user->last_login_at,
-                    "created_at"         => $user->created_at,
-                    "avatar_url"         => $avatarFull,
-                    "years_with_us"      => $yearsWithUs,
-                    "active_services"    => $activeServices,
-                    "is_google_account"  => $user->is_google_account,
-                ]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                "success" => false,
-                "message" => "Error fetching profile",
-                "error" => $e->getMessage()
-            ], 500);
-        }
+        $user = Auth::user();
+        return response()->json([
+            "success" => true,
+            "data" => $user
+        ]);
     }
 
     /**
-     * Update user profile information
+     * Update user profile
      */
     public function updateProfile(Request $request)
     {
         try {
             $user = Auth::user();
-
             $validated = $request->validate([
-                "first_name" => "sometimes|string|max:100",
-                "last_name" => "sometimes|string|max:100",
-                "phone" => "nullable|string|max:20",
-                "address" => "nullable|string|max:500",
-                "city" => "nullable|string|max:100",
-                "state" => "nullable|string|max:100",
-                "country" => "nullable|string|size:2",
-                "postal_code" => "nullable|string|max:20",
+                "first_name" => "required|string|max:255",
+                "last_name"  => "required|string|max:255",
+                "phone"      => "nullable|string|max:20",
             ]);
 
             $user->update($validated);
 
-            // Registrar actividad de actualización de perfil
+            // Registrar actividad
             ActivityLog::record(
-                "Actualización de perfil",
-                "El usuario " . $user->email . " ha actualizado su perfil.",
+                "Perfil actualizado",
+                "El usuario " . $user->email . " actualizó su información personal.",
                 "profile",
-                ["user_id" => $user->id, "changes" => $validated],
+                ["user_id" => $user->id],
                 $user->id
             );
 
             return response()->json([
                 "success" => true,
                 "message" => "Profile updated successfully",
-                "data" => $user->fresh()
+                "data" => $user
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -112,151 +66,48 @@ class ProfileController extends Controller
     }
 
     /**
-     * Update user email
-     */
-    public function updateEmail(Request $request)
-    {
-        try {
-            $user = Auth::user();
-
-            $validated = $request->validate([
-                "email" => ["required", "email", Rule::unique("users")->ignore($user->id)],
-                "password" => "required|string"
-            ]);
-
-            // Verify current password
-            if (!Hash::check($request->password, $user->password)) {
-                return response()->json([
-                    "success" => false,
-                    "message" => "Current password is incorrect"
-                ], 400);
-            }
-
-            $oldEmail = $user->email;
-            $user->update([
-                "email" => $validated["email"],
-                "email_verified_at" => null // Reset email verification
-            ]);
-
-            // Registrar actividad de cambio de email
-            ActivityLog::record(
-                "Cambio de correo electrónico",
-                "El usuario " . $oldEmail . " ha cambiado su correo a " . $user->email . ".",
-                "profile",
-                ["user_id" => $user->id, "old_email" => $oldEmail, "new_email" => $user->email],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Email updated successfully. Please verify your new email address.",
-                "data" => $user->fresh()
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                "success" => false,
-                "message" => "Error updating email",
-                "error" => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Update user password
-     */
-    public function updatePassword(Request $request)
-    {
-        try {
-            $user = Auth::user();
-
-            if ($user->is_google_account) {
-                return response()->json([
-                    "success"    => false,
-                    "message"    => "Las cuentas vinculadas con Google no pueden establecer una contraseña desde aquí. Accede a tu cuenta de Google para gestionar tu seguridad.",
-                    "error_code" => "GOOGLE_ACCOUNT_NO_PASSWORD",
-                ], 422);
-            }
-
-            $validated = $request->validate([
-                "current_password" => "required|string",
-                "new_password"     => "required|string|min:8|confirmed",
-            ]);
-
-            // Verify current password
-            if (!Hash::check($request->current_password, $user->password)) {
-                return response()->json([
-                    "success" => false,
-                    "message" => "Current password is incorrect"
-                ], 400);
-            }
-
-            // Update password
-            $user->update([
-                "password" => Hash::make($validated["new_password"])
-            ]);
-
-            // Registrar actividad de cambio de contraseña
-            ActivityLog::record(
-                "Cambio de contraseña",
-                "El usuario " . $user->email . " ha cambiado su contraseña.",
-                "profile",
-                ["user_id" => $user->id],
-                $user->id
-            );
-
-            return response()->json([
-                "success" => true,
-                "message" => "Password updated successfully"
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                "success" => false,
-                "message" => "Error updating password",
-                "error" => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Update the user's avatar
+     * Update user avatar
      */
     public function updateAvatar(Request $request)
     {
         try {
+            $request->validate([
+                'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            ]);
+
             $user = Auth::user();
 
-            $request->validate([
-                "avatar" => ["required", "image", "mimes:jpg,jpeg,png,gif", "max:2048"],
-            ]);
+            if ($request->hasFile('avatar')) {
+                // Delete old avatar if exists
+                if ($user->avatar_url) {
+                    Storage::disk('public')->delete($user->avatar_url);
+                }
 
-            $path = $request->file("avatar")->store("avatars", "public");
+                $path = $request->file('avatar')->store('avatars', 'public');
+                $user->update(['avatar_url' => $path]);
 
-            if ($user->avatar_url) {
-                Storage::disk("public")->delete($user->avatar_url);
+                // Registrar actividad
+                ActivityLog::record(
+                    "Avatar actualizado",
+                    "El usuario " . $user->email . " actualizó su foto de perfil.",
+                    "profile",
+                    ["user_id" => $user->id, "avatar_path" => $path],
+                    $user->id
+                );
+
+                return response()->json([
+                    "success" => true,
+                    "message" => "Avatar updated successfully",
+                    "avatar_url" => $user->avatar_full_url
+                ]);
             }
 
-            $user->avatar_url = $path;
-            $user->save();
-
-            $publicUrl = asset("storage/" . $path);
-
-            // Registrar actividad de actualización de avatar
-            ActivityLog::record(
-                "Actualización de avatar",
-                "El usuario " . $user->email . " ha actualizado su avatar.",
-                "profile",
-                ["user_id" => $user->id, "avatar_url" => $publicUrl],
-                $user->id
-            );
-
             return response()->json([
-                "success" => true,
-                "message" => "Avatar actualizado correctamente",
-                "data" => [
-                    "avatar_url" => $publicUrl,
-                ],
-            ]);
-        } catch (\Exception $e) {
+                "success" => false,
+                "message" => "No avatar file provided",
+            ], 400);
+
+        } catch (\Throwable $e) {
             return response()->json([
                 "success" => false,
                 "message" => "Error al actualizar el avatar",
@@ -264,17 +115,14 @@ class ProfileController extends Controller
             ], 500);
         }
     }
+
     /**
-     * Get user sessions (login history)
-     */
-      /**
      * Listar sesiones del usuario autenticado.
      */
-      public function getSessions(Request $request)
+    public function getSessions(Request $request)
     {
         try {
             $user = Auth::user();
-
             $currentDeviceToken = $request->cookie('device_token');
             $currentTokenId = null;
 
@@ -285,16 +133,26 @@ class ProfileController extends Controller
                 }
             }
 
-
             $perPage = $request->query('per_page', 15);
-            $sessions = UserSession::where("user_id", $user->id)
-                ->orderByDesc("last_activity")
-                ->paginate($perPage);
+            
+            // Obtenemos las sesiones únicas por device_token o por combinación de IP + UserAgent si no hay token
+            // Pero como el middleware asegura device_token, confiaremos en él.
+            // Para evitar duplicados de IP que menciona el usuario, agruparemos por device_token
+            // y tomaremos la actividad más reciente.
+            
+            $sessionsQuery = UserSession::where("user_id", $user->id)
+                ->whereIn('id', function($query) {
+                    $query->selectRaw('MAX(id)')
+                        ->from('user_sessions')
+                        ->groupBy('device_token');
+                })
+                ->orderByDesc("last_activity");
+
+            $sessions = $sessionsQuery->paginate($perPage);
 
             $sessions->through(function (UserSession $s) use ($currentDeviceToken, $currentTokenId) {
                 $isCurrent = false;
 
-    
                 if (!is_null($s->sanctum_token_id) && $currentTokenId && $s->sanctum_token_id === $currentTokenId) {
                     $isCurrent = true;
                 }
@@ -302,6 +160,9 @@ class ProfileController extends Controller
                 if (!is_null($s->device_token) && $currentDeviceToken && $s->device_token === $currentDeviceToken) {
                     $isCurrent = true;
                 }
+
+                // Verificar si la sesión sigue "activa" (actividad en las últimas 24 horas)
+                $isActive = $s->last_activity && $s->last_activity->gt(now()->subDay());
 
                 return [
                     "uuid"          => $s->uuid,
@@ -312,6 +173,7 @@ class ProfileController extends Controller
                     "last_activity" => $s->last_activity,
                     "logout_at"     => $s->logout_at,
                     "is_current"    => $isCurrent,
+                    "is_active"     => $isActive,
                     "device"        => $s->device,
                     "platform"      => $s->platform,
                     "browser"       => $s->browser,
@@ -328,7 +190,7 @@ class ProfileController extends Controller
             return response()->json([
                 "success" => false,
                 "message" => "Error al obtener las sesiones",
-                "error"   => $e->getMessage(),
+                "error"   => $e->getMessage()
             ], 500);
         }
     }
@@ -344,15 +206,11 @@ class ProfileController extends Controller
 
     /**
      * Revoca y elimina una sesión de dispositivo específica.
-     *
-     * @param  string  $uuid El UUID de la sesión a revocar.
-     * @return \Illuminate\Http\JsonResponse
      */
     public function revokeSession(string $uuid)
     {
         try {
             $user = Auth::user();
-
             $session = UserSession::where('uuid', $uuid)
                 ->where('user_id', $user->id)
                 ->firstOrFail();
@@ -384,16 +242,14 @@ class ProfileController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'No fue posible revocar la sesión en este momento.',
+                'message' => 'Error al revocar la sesión.',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
 
     /**
-     * Revoca todas las sesiones de dispositivo del usuario excepto la actual.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
+     * Revoca todas las sesiones excepto la actual.
      */
     public function revokeOtherSessions(Request $request)
     {
@@ -401,7 +257,6 @@ class ProfileController extends Controller
             $user = Auth::user();
             $currentDeviceToken = $request->cookie('device_token');
 
-            // 1. Si por alguna razón no hay un token de dispositivo actual, no podemos proceder.
             if (!$currentDeviceToken) {
                 return response()->json([
                     'success' => false,
@@ -409,15 +264,21 @@ class ProfileController extends Controller
                 ], 400);
             }
 
-            // 2. Eliminar todas las sesiones del usuario que NO coincidan con el token actual.
+            // Obtener IDs de tokens de Sanctum a revocar
+            $tokenIdsToRevoke = UserSession::where('user_id', $user->id)
+                ->where('device_token', '!=', $currentDeviceToken)
+                ->whereNotNull('sanctum_token_id')
+                ->pluck('sanctum_token_id');
+
+            if ($tokenIdsToRevoke->isNotEmpty()) {
+                $patModel = config('sanctum.personal_access_token_model', \Laravel\Sanctum\PersonalAccessToken::class);
+                $patModel::whereIn('id', $tokenIdsToRevoke)->delete();
+            }
+
             $revokedCount = UserSession::where('user_id', $user->id)
                 ->where('device_token', '!=', $currentDeviceToken)
                 ->delete();
 
-            // (Opcional) También puedes querer eliminar los tokens de Sanctum que no estén asociados a ninguna sesión restante.
-            // Esta lógica puede ser más compleja y depende de tus necesidades.
-
-            // 3. Registrar la actividad.
             ActivityLog::record(
                 'Otras sesiones revocadas',
                 "El usuario {$user->email} ha revocado {$revokedCount} sesión(es) en otros dispositivos.",
@@ -432,10 +293,102 @@ class ProfileController extends Controller
                 'revoked_count' => $revokedCount,
             ]);
         } catch (\Throwable $e) {
-            // Log::error('Error al revocar otras sesiones: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'No fue posible revocar las otras sesiones en este momento.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update user password
+     */
+    public function updatePassword(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $validated = $request->validate([
+                "current_password" => "required|string",
+                "password"         => "required|string|min:8|confirmed",
+            ]);
+
+            if (!Hash::check($request->current_password, $user->password)) {
+                return response()->json([
+                    "success" => false,
+                    "message" => "La contraseña actual es incorrecta"
+                ], 400);
+            }
+
+            $user->update([
+                "password" => Hash::make($request->password)
+            ]);
+
+            // Registrar actividad
+            ActivityLog::record(
+                "Contraseña actualizada",
+                "El usuario " . $user->email . " cambió su contraseña.",
+                "security",
+                ["user_id" => $user->id],
+                $user->id
+            );
+
+            return response()->json([
+                "success" => true,
+                "message" => "Password updated successfully"
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                "success" => false,
+                "message" => "Error updating password",
+                "error" => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update user email
+     */
+    public function updateEmail(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            $validated = $request->validate([
+                "email"    => "required|email|unique:users,email," . $user->id,
+                "password" => "required|string",
+            ]);
+
+            if (!Hash::check($request->password, $user->password)) {
+                return response()->json([
+                    "success" => false,
+                    "message" => "La contraseña es incorrecta"
+                ], 400);
+            }
+
+            $oldEmail = $user->email;
+            $user->update([
+                "email" => $request->email,
+                "email_verified_at" => null // Requiere re-verificación
+            ]);
+
+            // Registrar actividad
+            ActivityLog::record(
+                "Email actualizado",
+                "El usuario cambió su email de " . $oldEmail . " a " . $request->email,
+                "security",
+                ["user_id" => $user->id, "old_email" => $oldEmail, "new_email" => $request->email],
+                $user->id
+            );
+
+            return response()->json([
+                "success" => true,
+                "message" => "Email updated successfully. Please verify your new email address."
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                "success" => false,
+                "message" => "Error updating email",
+                "error" => $e->getMessage()
             ], 500);
         }
     }
@@ -447,13 +400,11 @@ class ProfileController extends Controller
     {
         try {
             $user = Auth::user();
-
             $validated = $request->validate([
                 "password" => "required|string",
                 "confirmation" => "required|string|in:DELETE"
             ]);
 
-            // Verify password
             if (!Hash::check($request->password, $user->password)) {
                 return response()->json([
                     "success" => false,
@@ -461,7 +412,6 @@ class ProfileController extends Controller
                 ], 400);
             }
 
-            // Prevent deletion of admin users
             if (in_array($user->role, ["super_admin", "admin"])) {
                 return response()->json([
                     "success" => false,
@@ -469,10 +419,8 @@ class ProfileController extends Controller
                 ], 403);
             }
 
-            // Soft delete the user
             $user->delete();
 
-            // Registrar actividad de eliminación de cuenta
             ActivityLog::record(
                 "Eliminación de cuenta",
                 "El usuario " . $user->email . " ha eliminado su cuenta.",
@@ -501,7 +449,6 @@ class ProfileController extends Controller
     {
         try {
             $user = Auth::user();
-
             $overview = [
                 "password_last_changed" => $user->updated_at,
                 "two_factor_enabled"    => $user->two_factor_enabled,
@@ -532,32 +479,16 @@ class ProfileController extends Controller
     private function calculateSecurityScore($user): int
     {
         $score = 20; // base
-
-        // Email verified
-        if ($user->email_verified_at) {
-            $score += 20;
-        }
-
-        // 2FA enabled
-        if ($user->two_factor_enabled) {
-            $score += 30;
-        }
-
-        // Password / linked account strength
+        if ($user->email_verified_at) $score += 20;
+        if ($user->two_factor_enabled) $score += 30;
         if ($user->is_google_account) {
-            // Google-linked accounts delegate password security to Google
             $score += 15;
         } elseif ($user->updated_at->diffInDays() < 90) {
             $score += 15;
         }
-
-        // Recent login activity
         if ($user->last_login_at && $user->last_login_at->diffInDays() < 7) {
             $score += 15;
         }
-
         return min($score, 100);
     }
 }
-
-

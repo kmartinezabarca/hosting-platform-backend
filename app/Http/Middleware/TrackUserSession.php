@@ -7,6 +7,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Jenssegers\Agent\Agent;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class TrackUserSession
 {
@@ -17,38 +18,60 @@ class TrackUserSession
      * @param  \Closure  $next
      * @return mixed
      */
-     public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next)
     {
-        // El middleware se ejecuta después de que la petición ha sido manejada.
-        // Esto nos permite adjuntar la cookie a la respuesta saliente.
         $response = $next($request);
 
-        // Solo se ejecuta si hay un usuario autenticado.
         if (auth()->check()) {
             $user = $request->user();
             $deviceToken = $request->cookie('device_token');
+            $currentTokenId = null;
 
-            // --- Lógica de Identificación de Sesión del Dispositivo ---
+            // Intentar obtener el ID del token actual de Sanctum
+            if ($tokenString = $request->bearerToken()) {
+                $pat = PersonalAccessToken::findToken($tokenString);
+                if ($pat && (int) $pat->tokenable_id === (int) $user->getKey()) {
+                    $currentTokenId = $pat->id;
+                }
+            }
+
             $session = null;
+
+            // 1. Intentar encontrar por device_token (cookie)
             if ($deviceToken) {
                 $session = UserSession::where('device_token', $deviceToken)
                                       ->where('user_id', $user->id)
                                       ->first();
             }
 
-            // Si no encontramos una sesión con el token, creamos una nueva.
+            // 2. Si no hay por cookie, intentar por sanctum_token_id
+            if (!$session && $currentTokenId) {
+                $session = UserSession::where('sanctum_token_id', $currentTokenId)
+                                      ->where('user_id', $user->id)
+                                      ->first();
+            }
+
+            // 3. Si aún no hay sesión, crear una nueva
             if (!$session) {
                 $session = new UserSession();
                 $session->uuid = (string) Str::uuid();
                 $session->user_id = $user->id;
-                $session->device_token = Str::random(60);
-                $session->login_at = now(); // Se establece solo en la creación
-
-                // Adjuntamos la cookie con el nuevo token a la respuesta.
-                $response->cookie('device_token', $session->device_token, 60 * 24 * 365 * 5);
+                $session->login_at = now();
+                
+                if (!$deviceToken) {
+                    $session->device_token = Str::random(60);
+                    $response->cookie('device_token', $session->device_token, 60 * 24 * 365 * 5);
+                } else {
+                    $session->device_token = $deviceToken;
+                }
             }
 
-            // --- Actualización de Datos en Cada Petición ---
+            // Actualizar siempre el sanctum_token_id si lo tenemos
+            if ($currentTokenId) {
+                $session->sanctum_token_id = $currentTokenId;
+            }
+
+            // Actualización de Datos
             $ip = $this->clientIp($request);
             $agent = new Agent();
             $agent->setUserAgent((string) $request->userAgent());
