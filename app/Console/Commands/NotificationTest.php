@@ -248,9 +248,12 @@ class NotificationTest extends Command
 
     private function checkQueue(): string
     {
+        if (config('queue.default') === 'sync') {
+            return '✓ No necesario (QUEUE_CONNECTION=sync)';
+        }
         try {
             $size = $this->getQueueSize();
-            return $size > 0 ? "⚠ {$size} jobs pendientes (worker parado)" : '? Verificar manualmente';
+            return $size > 0 ? "⚠ {$size} jobs pendientes (worker parado)" : '✓ Sin jobs pendientes';
         } catch (\Exception $e) {
             return '? No se pudo verificar';
         }
