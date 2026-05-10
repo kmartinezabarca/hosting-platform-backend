@@ -21,11 +21,11 @@ class ServicePlanController extends Controller
     {
         try {
             $query = ServicePlan::with(['category:id,uuid,name,slug'])
-                ->withCount('features')
                 ->select([
                     'id', 'uuid', 'name', 'slug',
                     'category_id', 'base_price', 'setup_fee',
                     'is_active', 'is_popular', 'sort_order',
+                    DB::raw('(SELECT COUNT(*) FROM plan_features WHERE plan_features.service_plan_id = service_plans.id) as features_count'),
                 ]);
 
             if ($request->filled('category_id')) {
