@@ -140,6 +140,8 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
     Route::prefix("service-plans")->group(function () {
         Route::get("/", [ServicePlanController::class, "index"]);
         Route::post("/", [ServicePlanController::class, "store"]);
+        Route::post("/bulk/{action}", [ServicePlanController::class, "bulk"]);
+        Route::get("/{uuid}", [ServicePlanController::class, "show"]);
         Route::put("/{uuid}", [ServicePlanController::class, "update"]);
         Route::delete("/{uuid}", [ServicePlanController::class, "destroy"]);
     });

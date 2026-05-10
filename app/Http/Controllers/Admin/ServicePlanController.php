@@ -15,57 +15,50 @@ use Illuminate\Support\Facades\Validator;
 class ServicePlanController extends Controller
 {
     /**
-     * Get all active service plans
+     * List service plans for the admin table (lightweight — no heavy relations)
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = ServicePlan::active()->with(['category', 'features', 'pricing.billingCycle']);
+            $query = ServicePlan::with(['category:id,uuid,name,slug'])
+                ->withCount('features')
+                ->select([
+                    'id', 'uuid', 'name', 'slug',
+                    'category_id', 'base_price', 'setup_fee',
+                    'is_active', 'is_popular', 'sort_order',
+                ]);
 
-            // Filter by category if provided
-            if ($request->has('category_id')) {
+            if ($request->filled('category_id')) {
                 $query->where('category_id', $request->category_id);
             }
 
-            // Check if this is an admin request (has page parameter or is from admin route)
-            if ($request->has('page') || $request->is('api/admin/*')) {
-                // Admin version with pagination
-                $perPage = $request->get('per_page', 15);
-                $perPage = min($perPage, 100); // Limit max per page
-                
-                $servicePlans = $query->orderBy('sort_order')
-                                    ->orderBy('name')
-                                    ->paginate($perPage);
-
-                return response()->json([
-                    'success' => true,
-                    'data' => $servicePlans->items(),
-                    'pagination' => [
-                        'current_page' => $servicePlans->currentPage(),
-                        'per_page' => $servicePlans->perPage(),
-                        'total' => $servicePlans->total(),
-                        'last_page' => $servicePlans->lastPage(),
-                        'from' => $servicePlans->firstItem(),
-                        'to' => $servicePlans->lastItem(),
-                        'has_more_pages' => $servicePlans->hasMorePages()
-                    ]
-                ]);
-            } else {
-                // Public version without pagination
-                $servicePlans = $query->orderBy('sort_order')
-                                    ->orderBy('name')
-                                    ->get();
-
-                return response()->json([
-                    'success' => true,
-                    'data' => $servicePlans
-                ]);
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(fn($q) => $q->where('name', 'like', "%{$search}%")
+                                          ->orWhere('slug', 'like', "%{$search}%"));
             }
+
+            $perPage = min((int) $request->get('per_page', 15), 100);
+            $plans   = $query->orderBy('sort_order')->orderBy('name')->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data'    => $plans->items(),
+                'pagination' => [
+                    'current_page'   => $plans->currentPage(),
+                    'per_page'       => $plans->perPage(),
+                    'total'          => $plans->total(),
+                    'last_page'      => $plans->lastPage(),
+                    'from'           => $plans->firstItem(),
+                    'to'             => $plans->lastItem(),
+                    'has_more_pages' => $plans->hasMorePages(),
+                ],
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving service plans',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -356,6 +349,61 @@ class ServicePlanController extends Controller
                 'success' => false,
                 'message' => 'Error updating service plan',
                 'debug' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk actions: activate, deactivate, delete
+     */
+    public function bulk(Request $request, string $action): JsonResponse
+    {
+        $request->validate([
+            'uuids'   => 'required|array|min:1',
+            'uuids.*' => 'uuid',
+        ]);
+
+        $plans = ServicePlan::whereIn('uuid', $request->uuids)->get();
+
+        if ($plans->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'No service plans found'], 404);
+        }
+
+        try {
+            switch ($action) {
+                case 'activate':
+                    ServicePlan::whereIn('uuid', $request->uuids)->update(['is_active' => true]);
+                    $message = 'Plans activated successfully';
+                    break;
+
+                case 'deactivate':
+                    ServicePlan::whereIn('uuid', $request->uuids)->update(['is_active' => false]);
+                    $message = 'Plans deactivated successfully';
+                    break;
+
+                case 'delete':
+                    $withServices = $plans->filter(fn($p) => $p->services()->count() > 0);
+                    if ($withServices->isNotEmpty()) {
+                        return response()->json([
+                            'success'       => false,
+                            'message'       => 'Some plans have existing services and cannot be deleted',
+                            'blocked_uuids' => $withServices->pluck('uuid'),
+                        ], 400);
+                    }
+                    ServicePlan::whereIn('uuid', $request->uuids)->delete();
+                    $message = 'Plans deleted successfully';
+                    break;
+
+                default:
+                    return response()->json(['success' => false, 'message' => 'Invalid bulk action'], 400);
+            }
+
+            return response()->json(['success' => true, 'message' => $message, 'affected' => $plans->count()]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bulk action failed',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
