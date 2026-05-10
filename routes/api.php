@@ -105,3 +105,6 @@ Route::prefix('quotations/public')->group(function () {
     Route::get('/{token}',         [QuotationPublicController::class, 'show']);
     Route::post('/{token}/viewed', [QuotationPublicController::class, 'markViewed']);
 });
+
+// Postal Codes API
+Route::get('/postal-codes/{code}', [App\Http\Controllers\Api\PostalCodeController::class, 'search']);
