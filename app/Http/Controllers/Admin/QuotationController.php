@@ -3,60 +3,18 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\StoreQuotationRequest;
+use App\Http\Requests\Admin\UpdateQuotationRequest;
+use App\Http\Resources\QuotationListResource;
+use App\Http\Resources\QuotationResource;
 use App\Models\Quotation;
+use App\Services\QuotationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
 
 class QuotationController extends Controller
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Reglas de validación reutilizables
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private function baseRules(bool $required = true): array
-    {
-        $req = $required ? 'required' : 'sometimes|required';
-
-        return [
-            'title'            => "{$req}|string|max:255",
-            'client_name'      => "{$req}|string|max:255",
-            'client_email'     => "{$req}|email|max:255",
-            'client_company'   => 'nullable|string|max:255',
-            'client_phone'     => 'nullable|string|max:50',
-
-            'items'            => "{$req}|array|min:1",
-            'items.*.description' => 'required|string|max:500',
-            'items.*.quantity'    => 'required|numeric|min:0.01',
-            'items.*.unit_price'  => 'required|numeric|min:0',
-
-            'discount_percent' => 'nullable|numeric|min:0|max:100',
-            'tax_percent'      => 'nullable|numeric|min:0|max:100',
-            'currency'         => 'nullable|string|in:MXN,USD',
-            'notes'            => 'nullable|string',
-            'terms'            => 'nullable|string',
-        ];
-    }
-
-    private function baseMessages(): array
-    {
-        return [
-            'title.required'               => 'El título es obligatorio.',
-            'client_name.required'         => 'El nombre del cliente es obligatorio.',
-            'client_email.required'        => 'El correo del cliente es obligatorio.',
-            'client_email.email'           => 'El correo del cliente no es válido.',
-            'items.required'               => 'La cotización debe tener al menos un concepto.',
-            'items.min'                    => 'La cotización debe tener al menos un concepto.',
-            'items.*.description.required' => 'Cada concepto debe tener una descripción.',
-            'items.*.quantity.required'    => 'Cada concepto debe tener una cantidad.',
-            'items.*.quantity.min'         => 'La cantidad debe ser mayor a cero.',
-            'items.*.unit_price.required'  => 'Cada concepto debe tener un precio unitario.',
-            'currency.in'                  => 'La moneda debe ser MXN o USD.',
-            'discount_percent.max'         => 'El descuento no puede superar el 100%.',
-        ];
-    }
+    public function __construct(private readonly QuotationService $service) {}
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /admin/quotations
@@ -64,293 +22,258 @@ class QuotationController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        try {
-            $perPage = min((int) $request->get('per_page', 15), 100);
-            $search  = $request->get('search');
-            $status  = $request->get('status');
+        $perPage = min((int) $request->get('per_page', 15), 100);
 
-            $quotations = Quotation::search($search)
-                ->when($status, fn($q) => $q->where('status', $status))
-                ->orderByDesc('created_at')
-                ->paginate($perPage);
+        $quotations = Quotation::search($request->get('search'))
+            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
 
-            return response()->json([
-                'success' => true,
-                'data'    => $quotations,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al obtener las cotizaciones.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
+        return response()->json([
+            'success'    => true,
+            'data'       => QuotationListResource::collection($quotations->items()),
+            'pagination' => [
+                'current_page'   => $quotations->currentPage(),
+                'per_page'       => $quotations->perPage(),
+                'total'          => $quotations->total(),
+                'last_page'      => $quotations->lastPage(),
+                'has_more_pages' => $quotations->hasMorePages(),
+            ],
+        ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GET /admin/quotations/{uuid}
+    // GET /admin/quotations/{quotation}
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function show(string $uuid): JsonResponse
+    public function show(Quotation $quotation): JsonResponse
     {
-        try {
-            $quotation = Quotation::where('uuid', $uuid)->first();
+        $quotation->load('activities');
 
-            if (!$quotation) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cotización no encontrada.',
-                ], 404);
-            }
-
-            return response()->json([
-                'success' => true,
-                'data'    => $quotation,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al obtener la cotización.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'data'    => new QuotationResource($quotation),
+        ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /admin/quotations
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreQuotationRequest $request): JsonResponse
     {
         try {
-            $validator = Validator::make($request->all(), $this->baseRules(true), $this->baseMessages());
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error de validación.',
-                    'errors'  => $validator->errors(),
-                ], 422);
-            }
-
-            $data = $validator->validated();
-
-            $quotation = new Quotation([
-                'title'            => $data['title'],
-                'client_name'      => $data['client_name'],
-                'client_email'     => $data['client_email'],
-                'client_company'   => $data['client_company']   ?? null,
-                'client_phone'     => $data['client_phone']     ?? null,
-                'items'            => $data['items'],
-                'discount_percent' => $data['discount_percent'] ?? 0,
-                'tax_percent'      => $data['tax_percent']      ?? 16,
-                'currency'         => $data['currency']         ?? 'MXN',
-                'notes'            => $data['notes']            ?? null,
-                'terms'            => $data['terms']            ?? null,
-                'status'           => 'draft',
-            ]);
-
-            $quotation->recalculate();
-            $quotation->save();
+            $quotation = $this->service
+                ->withRequest($request)
+                ->create($request->validated(), $request->user());
 
             return response()->json([
                 'success' => true,
                 'message' => 'Cotización creada exitosamente.',
-                'data'    => $quotation->fresh(),
+                'data'    => new QuotationResource($quotation),
             ], 201);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al crear la cotización.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+            return $this->serverError($e);
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PUT /admin/quotations/{uuid}
+    // PUT /admin/quotations/{quotation}
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function update(Request $request, string $uuid): JsonResponse
+    public function update(UpdateQuotationRequest $request, Quotation $quotation): JsonResponse
     {
+        $this->authorize('update', $quotation);
+
         try {
-            $quotation = Quotation::where('uuid', $uuid)->first();
-
-            if (!$quotation) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cotización no encontrada.',
-                ], 404);
-            }
-
-            $rules = $this->baseRules(false);
-
-            // Permitir cambio manual de status
-            $rules['status'] = ['sometimes', Rule::in(['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired'])];
-
-            $validator = Validator::make($request->all(), $rules, $this->baseMessages());
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error de validación.',
-                    'errors'  => $validator->errors(),
-                ], 422);
-            }
-
-            $data = $validator->validated();
-
-            // Aplicar los campos que llegaron
-            $quotation->fill(array_filter($data, fn($v) => $v !== null || array_key_exists('notes', $data) || array_key_exists('terms', $data)));
-
-            // Forzar campos nullable a null si llegan explícitamente
-            foreach (['client_company', 'client_phone', 'notes', 'terms'] as $field) {
-                if ($request->has($field)) {
-                    $quotation->$field = $data[$field] ?? null;
-                }
-            }
-
-            // Si cambiaron items o porcentajes, recalcular
-            $needsRecalc = $request->hasAny(['items', 'discount_percent', 'tax_percent']);
-            if ($needsRecalc) {
-                $quotation->recalculate();
-            }
-
-            $quotation->save();
+            $quotation = $this->service
+                ->withRequest($request)
+                ->update($quotation, $request->validated(), $request->user());
 
             return response()->json([
                 'success' => true,
                 'message' => 'Cotización actualizada.',
-                'data'    => $quotation->fresh(),
+                'data'    => new QuotationResource($quotation),
             ]);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al actualizar la cotización.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+            return $this->serverError($e);
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DELETE /admin/quotations/{uuid}
+    // DELETE /admin/quotations/{quotation}
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function destroy(string $uuid): JsonResponse
+    public function destroy(Request $request, Quotation $quotation): JsonResponse
     {
+        $this->authorize('delete', $quotation);
+
         try {
-            $quotation = Quotation::where('uuid', $uuid)->first();
+            $this->service->withRequest($request)->delete($quotation, $request->user());
 
-            if (!$quotation) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cotización no encontrada.',
-                ], 404);
-            }
-
-            $quotation->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Cotización eliminada.',
-            ]);
+            return response()->json(['success' => true, 'message' => 'Cotización eliminada.']);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al eliminar la cotización.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+            return $this->serverError($e);
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /admin/quotations/{uuid}/send
+    // POST /admin/quotations/{quotation}/send
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function send(string $uuid): JsonResponse
+    public function send(Request $request, Quotation $quotation): JsonResponse
     {
+        $this->authorize('send', $quotation);
+
         try {
-            $quotation = Quotation::where('uuid', $uuid)->first();
-
-            if (!$quotation) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cotización no encontrada.',
-                ], 404);
-            }
-
-            $token     = Str::random(48);
-            $publicUrl = rtrim(config('app.frontend_url', config('app.url')), '/')
-                         . '/cotizacion/' . $token;
-
-            $quotation->update([
-                'public_token' => $token,
-                'public_url'   => $publicUrl,
-                'expires_at'   => now()->addHours(72),
-                'status'       => 'sent',
-                'sent_at'      => now(),
-            ]);
+            $quotation = $this->service->withRequest($request)->send($quotation, $request->user());
 
             return response()->json([
                 'success' => true,
                 'message' => 'Cotización enviada. El enlace es válido por 72 horas.',
-                'data'    => $quotation->fresh(),
+                'data'    => new QuotationResource($quotation),
             ]);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al enviar la cotización.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+            return $this->serverError($e);
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /admin/quotations/{uuid}/regenerate-link
+    // POST /admin/quotations/{quotation}/accept
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function regenerateLink(string $uuid): JsonResponse
+    public function accept(Request $request, Quotation $quotation): JsonResponse
     {
+        $this->authorize('accept', $quotation);
+
         try {
-            $quotation = Quotation::where('uuid', $uuid)->first();
-
-            if (!$quotation) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cotización no encontrada.',
-                ], 404);
-            }
-
-            if (!$quotation->public_token) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Esta cotización aún no ha sido enviada. Usa el endpoint /send primero.',
-                ], 422);
-            }
-
-            $token     = Str::random(48);
-            $publicUrl = rtrim(config('app.frontend_url', config('app.url')), '/')
-                         . '/cotizacion/' . $token;
-
-            // Genera nuevo token (invalida el anterior) y resetea la expiración.
-            // El status NO se modifica.
-            $quotation->update([
-                'public_token' => $token,
-                'public_url'   => $publicUrl,
-                'expires_at'   => now()->addHours(72),
-            ]);
+            $quotation = $this->service->withRequest($request)->accept($quotation, $request->user());
 
             return response()->json([
                 'success' => true,
-                'message' => 'Enlace regenerado. El nuevo enlace es válido por 72 horas.',
-                'data'    => $quotation->fresh(),
+                'message' => 'Cotización aceptada.',
+                'data'    => new QuotationResource($quotation),
             ]);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al regenerar el enlace.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+            return $this->serverError($e);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /admin/quotations/{quotation}/reject
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function reject(Request $request, Quotation $quotation): JsonResponse
+    {
+        $this->authorize('reject', $quotation);
+
+        try {
+            $reason    = $request->string('reason')->value() ?: null;
+            $quotation = $this->service->withRequest($request)->reject($quotation, $request->user(), $reason);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cotización rechazada.',
+                'data'    => new QuotationResource($quotation),
+            ]);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
+        } catch (\Exception $e) {
+            return $this->serverError($e);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /admin/quotations/{quotation}/reopen
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function reopen(Request $request, Quotation $quotation): JsonResponse
+    {
+        $this->authorize('reopen', $quotation);
+
+        $request->validate(['reason' => 'nullable|string|max:1000']);
+
+        try {
+            $reason    = $request->string('reason')->value() ?: null;
+            $quotation = $this->service->withRequest($request)->reopen($quotation, $request->user(), $reason);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cotización reabierta. Ahora está en revisión.',
+                'data'    => new QuotationResource($quotation),
+            ]);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
+        } catch (\Exception $e) {
+            return $this->serverError($e);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /admin/quotations/{quotation}/regenerate-link
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function regenerateLink(Request $request, Quotation $quotation): JsonResponse
+    {
+        $this->authorize('regenerateLink', $quotation);
+
+        try {
+            $quotation = $this->service->withRequest($request)->regenerateLink($quotation, $request->user());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Enlace regenerado. Válido por 72 horas.',
+                'data'    => new QuotationResource($quotation),
+            ]);
+        } catch (\DomainException $e) {
+            return $this->domainError($e);
+        } catch (\Exception $e) {
+            return $this->serverError($e);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /admin/quotations/{quotation}/revision
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function createRevision(Request $request, Quotation $quotation): JsonResponse
+    {
+        try {
+            $revision = $this->service->withRequest($request)->createRevision($quotation, $request->user());
+
+            return response()->json([
+                'success' => true,
+                'message' => "Revisión {$revision->revision_number} creada como borrador.",
+                'data'    => new QuotationResource($revision),
+            ], 201);
+        } catch (\Exception $e) {
+            return $this->serverError($e);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function domainError(\DomainException $e): JsonResponse
+    {
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+    }
+
+    private function serverError(\Exception $e): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error interno del servidor.',
+            'debug'   => config('app.debug') ? $e->getMessage() : null,
+        ], 500);
     }
 }

@@ -82,6 +82,12 @@ class EventServiceProvider extends ServiceProvider
         \App\Events\InvoiceStatusChanged::class => [
             \App\Listeners\CreateInvoiceNotification::class . '@handleStatusChanged',
         ],
+
+        // Quotation Events — wire listeners here as needed
+        \App\Events\QuotationAccepted::class => [],
+        \App\Events\QuotationRejected::class => [],
+        \App\Events\QuotationReopened::class => [],
+        \App\Events\QuotationViewed::class   => [],
     ];
 
     /**

@@ -214,13 +214,26 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
 
     // ── Cotizaciones ─────────────────────────────────────────────────────────
     Route::prefix('quotations')->group(function () {
-        Route::get('/',                        [QuotationController::class, 'index']);
-        Route::post('/',                       [QuotationController::class, 'store']);
-        Route::get('/{uuid}',                  [QuotationController::class, 'show']);
-        Route::put('/{uuid}',                  [QuotationController::class, 'update']);
-        Route::delete('/{uuid}',               [QuotationController::class, 'destroy']);
-        Route::post('/{uuid}/send',            [QuotationController::class, 'send']);
-        Route::post('/{uuid}/regenerate-link', [QuotationController::class, 'regenerateLink']);
+        Route::get('/',    [QuotationController::class, 'index']);
+        Route::post('/',   [QuotationController::class, 'store']);
+
+        Route::prefix('/{quotation}')->group(function () {
+            Route::get('/',                [QuotationController::class, 'show']);
+            Route::put('/',                [QuotationController::class, 'update']);
+            Route::delete('/',             [QuotationController::class, 'destroy']);
+
+            // Status transitions
+            Route::post('/send',           [QuotationController::class, 'send']);
+            Route::post('/accept',         [QuotationController::class, 'accept']);
+            Route::post('/reject',         [QuotationController::class, 'reject']);
+            Route::post('/reopen',         [QuotationController::class, 'reopen']);
+
+            // Versioning
+            Route::post('/revision',       [QuotationController::class, 'createRevision']);
+
+            // Link management
+            Route::post('/regenerate-link', [QuotationController::class, 'regenerateLink']);
+        });
     });
 
     // ── Servidores de Juego (Pterodactyl) ────────────────────────────────────

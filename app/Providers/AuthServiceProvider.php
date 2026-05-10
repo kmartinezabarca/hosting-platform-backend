@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\Quotation;
 use App\Models\User;
+use App\Policies\QuotationPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 
@@ -14,7 +16,8 @@ class AuthServiceProvider extends ServiceProvider
      * @var array<class-string, class-string>
      */
     protected $policies = [
-        User::class => UserPolicy::class,
+        User::class      => UserPolicy::class,
+        Quotation::class => QuotationPolicy::class,
     ];
 
     /**

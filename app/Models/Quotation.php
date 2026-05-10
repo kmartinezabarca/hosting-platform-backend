@@ -2,36 +2,25 @@
 
 namespace App\Models;
 
+use App\Enums\QuotationStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class Quotation extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'uuid',
-        'title',
-        'client_name',
-        'client_email',
-        'client_company',
-        'client_phone',
-        'items',
-        'subtotal',
-        'discount_percent',
-        'discount_amount',
-        'tax_percent',
-        'tax_amount',
-        'total',
-        'currency',
-        'notes',
-        'terms',
-        'status',
-        'public_token',
-        'public_url',
-        'expires_at',
-        'sent_at',
+        'uuid', 'title', 'client_name', 'client_email', 'client_company', 'client_phone',
+        'items', 'subtotal', 'discount_percent', 'discount_amount',
+        'tax_percent', 'tax_amount', 'total', 'currency',
+        'notes', 'terms', 'status',
+        'public_token', 'public_url', 'expires_at', 'sent_at',
+        'accepted_at', 'rejected_at', 'reopened_at', 'reopened_reason',
+        'revision_number', 'parent_uuid',
     ];
 
     protected $casts = [
@@ -44,76 +33,103 @@ class Quotation extends Model
         'total'            => 'decimal:2',
         'expires_at'       => 'datetime',
         'sent_at'          => 'datetime',
+        'accepted_at'      => 'datetime',
+        'rejected_at'      => 'datetime',
+        'reopened_at'      => 'datetime',
+        'status'           => QuotationStatus::class,
     ];
-
-    // ── Boot ─────────────────────────────────────────────────────────────────
 
     protected static function boot(): void
     {
         parent::boot();
-
-        static::creating(function (self $model) {
-            if (empty($model->uuid)) {
-                $model->uuid = (string) Str::uuid();
-            }
-        });
+        static::creating(fn(self $m) => $m->uuid ??= (string) Str::uuid());
     }
-
-    // ── Route key ────────────────────────────────────────────────────────────
 
     public function getRouteKeyName(): string
     {
         return 'uuid';
     }
 
-    // ── Helpers de cálculo ───────────────────────────────────────────────────
+    // ── Relations ─────────────────────────────────────────────────────────────
 
-    /**
-     * Recalcula todos los importes a partir del array de items y porcentajes.
-     * Mutaciona los atributos del modelo pero NO llama a save().
-     */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(QuotationActivity::class)->orderByDesc('created_at');
+    }
+
+    // ── Business rule methods ─────────────────────────────────────────────────
+
+    public function canBeModified(): bool
+    {
+        return $this->status->isModifiable();
+    }
+
+    public function canBeDeleted(): bool
+    {
+        return $this->status !== QuotationStatus::Accepted;
+    }
+
+    public function canBeAccepted(): bool
+    {
+        return $this->status->canTransitionTo(QuotationStatus::Accepted);
+    }
+
+    public function canBeRejected(): bool
+    {
+        return $this->status->canTransitionTo(QuotationStatus::Rejected);
+    }
+
+    public function canBeReopened(): bool
+    {
+        return $this->status->canTransitionTo(QuotationStatus::PendingRevision);
+    }
+
+    public function canBeSent(): bool
+    {
+        return $this->status->canTransitionTo(QuotationStatus::Sent);
+    }
+
+    // ── Calculation ───────────────────────────────────────────────────────────
+
     public function recalculate(): void
     {
         $items = collect($this->items ?? []);
 
-        // Calcular subtotal de cada item y el subtotal global
         $items = $items->map(function (array $item) {
-            $qty       = (float) ($item['quantity']   ?? 0);
-            $unitPrice = (float) ($item['unit_price'] ?? 0);
-            $item['subtotal'] = round($qty * $unitPrice, 2);
+            $item['subtotal'] = round(
+                (float) ($item['quantity'] ?? 0) * (float) ($item['unit_price'] ?? 0),
+                2
+            );
             return $item;
         });
 
         $subtotal       = round($items->sum('subtotal'), 2);
         $discountPct    = (float) ($this->discount_percent ?? 0);
-        $taxPct         = (float) ($this->tax_percent      ?? 16);
-
+        $taxPct         = (float) ($this->tax_percent ?? 16);
         $discountAmount = round($subtotal * $discountPct / 100, 2);
         $taxBase        = $subtotal - $discountAmount;
         $taxAmount      = round($taxBase * $taxPct / 100, 2);
-        $total          = round($taxBase + $taxAmount, 2);
 
         $this->items           = $items->values()->all();
         $this->subtotal        = $subtotal;
         $this->discount_amount = $discountAmount;
         $this->tax_amount      = $taxAmount;
-        $this->total           = $total;
+        $this->total           = round($taxBase + $taxAmount, 2);
     }
 
-    // ── Scopes ───────────────────────────────────────────────────────────────
+    // ── Scopes ────────────────────────────────────────────────────────────────
 
     public function scopeSearch($query, ?string $term)
     {
         if (!$term) return $query;
 
-        return $query->where(function ($q) use ($term) {
-            $q->where('title',        'like', "%{$term}%")
-              ->orWhere('client_name',  'like', "%{$term}%")
-              ->orWhere('client_email', 'like', "%{$term}%");
-        });
+        return $query->where(fn($q) => $q
+            ->where('title',        'like', "%{$term}%")
+            ->orWhere('client_name',  'like', "%{$term}%")
+            ->orWhere('client_email', 'like', "%{$term}%"));
     }
 
-    // ── Helpers de estado ────────────────────────────────────────────────────
+    // ── State helpers ─────────────────────────────────────────────────────────
 
     public function isExpired(): bool
     {
