@@ -63,7 +63,7 @@ class NotificationTest extends Command
 
         try {
             DB::table('notifications')->insert([
-                'id'              => (string) Str::uuid(),
+                'uuid'            => (string) Str::uuid(),
                 'type'            => AdminDirect::class,
                 'notifiable_type' => User::class,
                 'notifiable_id'   => $user->id,
