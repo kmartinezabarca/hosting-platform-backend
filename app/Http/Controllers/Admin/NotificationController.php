@@ -21,7 +21,7 @@ class NotificationController extends Controller
     public function dashboard(): JsonResponse
     {
         $admin = Auth::user();
-        
+
         // Estadísticas de notificaciones
         $stats = [
             'unread_count' => $admin->unreadNotifications()->count(),
@@ -61,7 +61,7 @@ class NotificationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $admin = Auth::user();
-        
+
         $notifications = $admin->notifications()
             ->when($request->type, function ($query, $type) {
                 return $query->where('data->type', $type);
@@ -161,48 +161,59 @@ class NotificationController extends Controller
      * Get notification statistics
      */
     public function getStats(): JsonResponse
-    {
-        $admin = Auth::user();
-        
-        // Estadísticas generales
-        $totalNotifications = $admin->notifications()->count();
-        $unreadNotifications = $admin->unreadNotifications()->count();
-        $todayNotifications = $admin->notifications()
-            ->whereDate('created_at', today())
+{
+    $admin = Auth::user();
+
+    // Estadísticas generales
+    $totalNotifications = $admin->notifications()->count();
+
+    $unreadNotifications = $admin->unreadNotifications()->count();
+
+    $todayNotifications = $admin->notifications()
+        ->whereDate('created_at', today())
+        ->count();
+
+    // Notificaciones por tipo últimos 30 días
+    $notificationsByType = $admin->notifications()
+    ->reorder() // <- IMPORTANTE
+    ->where('created_at', '>=', now()->subDays(30))
+    ->selectRaw("
+        JSON_UNQUOTE(JSON_EXTRACT(data, '$.type')) as type,
+        COUNT(*) as count
+    ")
+    ->groupByRaw("
+        JSON_UNQUOTE(JSON_EXTRACT(data, '$.type'))
+    ")
+    ->orderByDesc('count')
+    ->get();
+
+    // Actividad diaria últimos 7 días
+    $dailyActivity = [];
+
+    for ($i = 6; $i >= 0; $i--) {
+        $date = now()->subDays($i);
+
+        $count = $admin->notifications()
+            ->whereDate('created_at', $date)
             ->count();
 
-        // Notificaciones por tipo en los últimos 30 días
-        $notificationsByType = $admin->notifications()
-            ->where('created_at', '>=', now()->subDays(30))
-            ->selectRaw('data->>"$.type" as type, COUNT(*) as count')
-            ->groupBy('type')
-            ->get();
-
-        // Actividad por día en los últimos 7 días
-        $dailyActivity = [];
-        for ($i = 6; $i >= 0; $i--) {
-            $date = now()->subDays($i);
-            $count = $admin->notifications()
-                ->whereDate('created_at', $date)
-                ->count();
-            
-            $dailyActivity[] = [
-                'date' => $date->format('Y-m-d'),
-                'count' => $count,
-            ];
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'total_notifications' => $totalNotifications,
-                'unread_notifications' => $unreadNotifications,
-                'today_notifications' => $todayNotifications,
-                'notifications_by_type' => $notificationsByType,
-                'daily_activity' => $dailyActivity,
-            ],
-        ]);
+        $dailyActivity[] = [
+            'date' => $date->format('Y-m-d'),
+            'count' => $count,
+        ];
     }
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'total_notifications' => $totalNotifications,
+            'unread_notifications' => $unreadNotifications,
+            'today_notifications' => $todayNotifications,
+            'notifications_by_type' => $notificationsByType,
+            'daily_activity' => $dailyActivity,
+        ],
+    ]);
+}
 
     /**
      * Mark notification as read
@@ -210,9 +221,9 @@ class NotificationController extends Controller
     public function markAsRead(Request $request, string $notificationId): JsonResponse
     {
         $admin = Auth::user();
-        
+
         $notification = $admin->notifications()->find($notificationId);
-        
+
         if (!$notification) {
             return response()->json([
                 'success' => false,
@@ -234,7 +245,7 @@ class NotificationController extends Controller
     public function markAllAsRead(): JsonResponse
     {
         $admin = Auth::user();
-        
+
         $admin->unreadNotifications->markAsRead();
 
         return response()->json([
@@ -249,9 +260,9 @@ class NotificationController extends Controller
     public function destroy(string $notificationId): JsonResponse
     {
         $admin = Auth::user();
-        
+
         $notification = $admin->notifications()->find($notificationId);
-        
+
         if (!$notification) {
             return response()->json([
                 'success' => false,

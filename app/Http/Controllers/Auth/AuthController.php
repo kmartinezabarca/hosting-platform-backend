@@ -196,27 +196,32 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        // Revoke current Sanctum token (Bearer token)
+        // Revocar token actual
         if ($user && $user->currentAccessToken()) {
             $user->currentAccessToken()->delete();
         }
 
-        Auth::guard('web')->logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
+        // Log actividad
         if ($user) {
             ActivityLog::record(
                 'Cierre de sesión',
                 'Usuario ' . $user->email . ' ha cerrado sesión.',
                 'authentication',
-                ['user_id' => $user->id, 'email' => $user->email],
+                [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ],
                 $user->id
             );
         }
 
-        return response()->json(['message' => 'Logged out successfully'])
-            ->withCookie(\Cookie::forget('auth_token'));
+        return response()->json([
+            'success' => true,
+            'message' => 'Logout successful.',
+            'code' => 'LOGOUT_SUCCESS',
+        ])->withCookie(
+            cookie()->forget('auth_token')
+        );
     }
 }
 
