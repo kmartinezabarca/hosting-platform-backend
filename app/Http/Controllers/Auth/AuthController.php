@@ -138,9 +138,9 @@ class AuthController extends Controller
 
         return response()->json([
             'message'        => 'Logged in successfully',
+            'access_token'   => $token,
+            'token_type'     => 'Bearer',
             'user'           => $this->userPayload($user),
-            // Si el usuario no tiene username (cuenta anterior a esta feature)
-            // el frontend debe llevarlo a la pantalla de configuración de username.
             'needs_username' => is_null($user->username),
             'redirect_to'    => $this->getRedirectPath($user->role),
         ])->withCookie($cookie);

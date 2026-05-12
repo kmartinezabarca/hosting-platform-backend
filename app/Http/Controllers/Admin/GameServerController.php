@@ -5,12 +5,19 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Service;
 use App\Services\Pterodactyl\GameServerProvisioningService;
+use App\Services\Pterodactyl\PterodactylService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class GameServerController extends Controller
 {
-    public function __construct(private readonly GameServerProvisioningService $provisioner) {}
+    public function __construct(
+        private readonly GameServerProvisioningService $provisioner,
+        private readonly PterodactylService $pterodactyl,
+    ) {}
 
     /**
      * GET /admin/game-servers
@@ -151,6 +158,291 @@ class GameServerController extends Controller
             return response()->json(['success' => true, 'message' => 'Servidor eliminado y servicio terminado.']);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Console / Runtime (admin bypass — sin verificación de propiedad)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * GET /admin/game-servers/{id}/websocket
+     * Credenciales WebSocket de Wings para la consola admin.
+     */
+    public function websocket(int $id): JsonResponse
+    {
+        $service    = Service::findOrFail($id);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'El servidor no tiene identificador de Pterodactyl asignado.'], 404);
+        }
+
+        try {
+            $response = Http::withToken(config('pterodactyl.client_api_key'))
+                ->baseUrl(config('pterodactyl.base_url'))
+                ->withoutVerifying()
+                ->acceptJson()
+                ->get("/api/client/servers/{$identifier}/websocket");
+
+            if ($response->failed()) {
+                Log::error('Admin websocket credentials failed', ['service_id' => $service->id, 'status' => $response->status()]);
+                return response()->json(['success' => false, 'message' => 'No se pudo obtener acceso a la consola.'], 503);
+            }
+
+            $wsData = $response->json('data');
+            $wsData['socket'] = preg_replace(
+                '#^wss?://100\.94\.93\.51:8080#',
+                'wss://mc.rokeindustries.com',
+                $wsData['socket']
+            );
+
+            return response()->json(['success' => true, 'data' => $wsData]);
+        } catch (\Throwable $e) {
+            Log::error('Admin gameServerWebsocket error', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Error al conectar con el panel.'], 503);
+        }
+    }
+
+    /**
+     * GET /admin/game-servers/{id}/usage
+     * Métricas en tiempo real (CPU, RAM, disco).
+     */
+    public function usage(int $id): JsonResponse
+    {
+        $service    = Service::findOrFail($id);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
+        }
+
+        try {
+            $resources = $this->pterodactyl->getServerResources($identifier);
+
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'state'        => $resources['current_state']             ?? 'offline',
+                    'is_suspended' => $resources['is_suspended']              ?? false,
+                    'cpu'          => $resources['resources']['cpu_absolute'] ?? 0,
+                    'memory_bytes' => $resources['resources']['memory_bytes'] ?? 0,
+                    'disk_bytes'   => $resources['resources']['disk_bytes']   ?? 0,
+                    'uptime'       => $resources['resources']['uptime']       ?? 0,
+                    'network'      => $resources['resources']['network']      ?? [],
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
+
+    /**
+     * POST /admin/game-servers/{id}/power
+     * Señal de poder: start | stop | restart | kill
+     */
+    public function power(Request $request, int $id): JsonResponse
+    {
+        $service = Service::findOrFail($id);
+
+        $validated  = $request->validate([
+            'signal' => ['required', Rule::in(['start', 'stop', 'restart', 'kill'])],
+        ]);
+
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 500);
+        }
+
+        try {
+            $this->pterodactyl->sendPowerSignal($identifier, $validated['signal']);
+
+            $labels = [
+                'start'   => 'Servidor iniciando...',
+                'stop'    => 'Servidor deteniéndose...',
+                'restart' => 'Servidor reiniciando...',
+                'kill'    => 'Servidor detenido forzosamente.',
+            ];
+
+            Log::info("Admin power action: {$validated['signal']}", ['service_id' => $service->id]);
+
+            return response()->json(['success' => true, 'message' => $labels[$validated['signal']]]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => 'No se pudo enviar la señal al servidor.'], 503);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // File manager (admin bypass)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /** GET /admin/game-servers/{id}/files/list?directory=... */
+    public function listFiles(Request $request, int $id): JsonResponse
+    {
+        $service    = Service::findOrFail($id);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
+        }
+
+        $directory = $request->get('directory', '/');
+
+        try {
+            $response = Http::withToken(config('pterodactyl.client_api_key'))
+                ->baseUrl(config('pterodactyl.base_url'))
+                ->withoutVerifying()
+                ->acceptJson()
+                ->get("/api/client/servers/{$identifier}/files/list", ['directory' => $directory]);
+
+            if ($response->failed()) {
+                return response()->json(['success' => false, 'message' => 'Error al listar archivos.'], 503);
+            }
+
+            $files = collect($response->json('data', []))
+                ->filter(fn($f) => $f['attributes']['is_file'] ?? false)
+                ->map(fn($f) => [
+                    'name'        => $f['attributes']['name'],
+                    'size'        => $f['attributes']['size'],
+                    'modified_at' => $f['attributes']['modified_at'],
+                    'is_file'     => $f['attributes']['is_file'],
+                    'mimetype'    => $f['attributes']['mimetype'] ?? null,
+                ])->values();
+
+            return response()->json(['success' => true, 'data' => $files]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
+
+    /** GET /admin/game-servers/{id}/files/upload */
+    public function uploadUrl(int $id): JsonResponse
+    {
+        $service    = Service::findOrFail($id);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
+        }
+
+        try {
+            $response = Http::withToken(config('pterodactyl.client_api_key'))
+                ->baseUrl(config('pterodactyl.base_url'))
+                ->withoutVerifying()
+                ->acceptJson()
+                ->get("/api/client/servers/{$identifier}/files/upload");
+
+            if ($response->failed()) {
+                return response()->json(['success' => false, 'message' => 'Error al obtener URL de subida.'], 503);
+            }
+
+            $url = $response->json('attributes.url') ?? $response->json('data.attributes.url');
+            $url = preg_replace('#^https?://100\.94\.93\.51:8080#', 'https://mc.rokeindustries.com', $url);
+
+            return response()->json(['success' => true, 'data' => ['url' => $url]]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
+
+    /** POST /admin/game-servers/{id}/files/delete */
+    public function deleteFiles(Request $request, int $id): JsonResponse
+    {
+        $service    = Service::findOrFail($id);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
+        }
+
+        $validated = $request->validate([
+            'root'    => 'required|string',
+            'files'   => 'required|array',
+            'files.*' => 'required|string',
+        ]);
+
+        try {
+            $response = Http::withToken(config('pterodactyl.client_api_key'))
+                ->baseUrl(config('pterodactyl.base_url'))
+                ->withoutVerifying()
+                ->acceptJson()
+                ->post("/api/client/servers/{$identifier}/files/delete", [
+                    'root'  => $validated['root'],
+                    'files' => $validated['files'],
+                ]);
+
+            if ($response->failed()) {
+                return response()->json(['success' => false, 'message' => 'Error al eliminar archivos.'], 503);
+            }
+
+            return response()->json(['success' => true, 'message' => 'Archivos eliminados.']);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
+
+    /** GET /admin/game-servers/{id}/files/download?file=... */
+    public function downloadUrl(Request $request, int $id): JsonResponse
+    {
+        $service    = Service::findOrFail($id);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
+        }
+
+        $file = $request->get('file');
+
+        try {
+            $response = Http::withToken(config('pterodactyl.client_api_key'))
+                ->baseUrl(config('pterodactyl.base_url'))
+                ->withoutVerifying()
+                ->acceptJson()
+                ->get("/api/client/servers/{$identifier}/files/download", ['file' => $file]);
+
+            if ($response->failed()) {
+                return response()->json(['success' => false, 'message' => 'Error al obtener URL de descarga.'], 503);
+            }
+
+            $url = $response->json('attributes.url') ?? $response->json('data.attributes.url');
+            $url = preg_replace('#^https?://100\.94\.93\.51:8080#', 'https://mc.rokeindustries.com', $url);
+
+            return response()->json(['success' => true, 'data' => ['url' => $url]]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
+
+    /**
+     * POST /admin/game-servers/{id}/command
+     * Envía un comando a la consola del servidor.
+     */
+    public function command(Request $request, int $id): JsonResponse
+    {
+        $service = Service::findOrFail($id);
+
+        $validated  = $request->validate(['command' => 'required|string|max:500']);
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 500);
+        }
+
+        try {
+            $response = Http::withToken(config('pterodactyl.client_api_key'))
+                ->baseUrl(config('pterodactyl.base_url'))
+                ->withoutVerifying()
+                ->acceptJson()
+                ->post("/api/client/servers/{$identifier}/command", ['command' => $validated['command']]);
+
+            if ($response->failed()) {
+                return response()->json(['success' => false, 'message' => 'Error al enviar el comando.'], 503);
+            }
+
+            return response()->json(['success' => true, 'message' => 'Comando enviado.']);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
         }
     }
 }

@@ -70,28 +70,36 @@ class DashboardStatsService
 
     public function invoicesStats(): array
     {
+        $total   = Invoice::count();
+        $paid    = Invoice::where('status', 'paid')->count();
+        $pending = Invoice::whereIn('status', ['sent', 'processing'])->count();
+        $overdue = Invoice::where('status', 'overdue')->count();
+
         return [
-            'total'          => Invoice::count(),
-            'paid'           => Invoice::where('status', 'paid')->count(),
-            'pending'        => Invoice::where('status', 'pending')->count(),
-            'overdue'        => Invoice::where('status', 'overdue')->count(),
+            'total'          => $total,
+            'paid'           => $paid,
+            'pending'        => $pending,
+            'overdue'        => $overdue,
             'cancelled'      => Invoice::where('status', 'cancelled')->count(),
-            'total_amount'   => Invoice::sum('total'),
-            'pending_amount' => Invoice::whereIn('status', ['pending', 'overdue'])->sum('total'),
+            'total_amount'   => (float) Invoice::sum('total'),
+            'pending_amount' => (float) Invoice::whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
+            'total_pending'  => (float) Invoice::whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
+            'paid_percent'   => $total > 0 ? round(($paid / $total) * 100, 1) : 0,
         ];
     }
 
     public function ticketsStats(): array
     {
         return [
-            'total'            => Ticket::count(),
-            'open'             => Ticket::where('status', 'open')->count(),
-            'in_progress'      => Ticket::where('status', 'in_progress')->count(),
-            'resolved'         => Ticket::where('status', 'resolved')->count(),
-            'closed'           => Ticket::where('status', 'closed')->count(),
-            'high_priority'    => Ticket::where('priority', 'high')->count(),
-            'urgent'           => Ticket::where('priority', 'urgent')->count(),
+            'total'             => Ticket::count(),
+            'open'              => Ticket::where('status', 'open')->count(),
+            'in_progress'       => Ticket::where('status', 'in_progress')->count(),
+            'resolved'          => Ticket::whereIn('status', ['resolved', 'closed'])->count(),
+            'closed'            => Ticket::where('status', 'closed')->count(),
+            'high_priority'     => Ticket::where('priority', 'high')->count(),
+            'urgent'            => Ticket::where('priority', 'urgent')->count(),
             'avg_response_time' => $this->avgResponseTime(),
+            'growth_rate'       => $this->growthRate(Ticket::class, 'created_at'),
         ];
     }
 
@@ -151,10 +159,19 @@ class DashboardStatsService
     // Private Helpers
     // ──────────────────────────────────────────────
 
-    private function growthRate(string $model, string $dateField): float
+    private function growthRate(string $model, string $dateField, array $extraWhere = []): float
     {
-        $thisMonth = $model::whereMonth($dateField, now()->month)->whereYear($dateField, now()->year)->count();
-        $lastMonth = $model::whereMonth($dateField, now()->subMonth()->month)->whereYear($dateField, now()->subMonth()->year)->count();
+        $now      = now();
+        $prevMonth = $now->copy()->subMonth();
+
+        $base = fn () => array_reduce(
+            $extraWhere,
+            fn ($q, $w) => $q->where(...$w),
+            $model::query()
+        );
+
+        $thisMonth = $base()->whereMonth($dateField, $now->month)->whereYear($dateField, $now->year)->count();
+        $lastMonth = $base()->whereMonth($dateField, $prevMonth->month)->whereYear($dateField, $prevMonth->year)->count();
 
         if ($lastMonth === 0) {
             return $thisMonth > 0 ? 100.0 : 0.0;
@@ -165,14 +182,17 @@ class DashboardStatsService
 
     private function revenueGrowthRate(): float
     {
+        $now       = now();
+        $prevMonth = $now->copy()->subMonth();
+
         $thisMonth = Invoice::where('status', 'paid')
-            ->whereMonth('created_at', now()->month)
-            ->whereYear('created_at', now()->year)
+            ->whereMonth('created_at', $now->month)
+            ->whereYear('created_at', $now->year)
             ->sum('total');
 
         $lastMonth = Invoice::where('status', 'paid')
-            ->whereMonth('created_at', now()->subMonth()->month)
-            ->whereYear('created_at', now()->subMonth()->year)
+            ->whereMonth('created_at', $prevMonth->month)
+            ->whereYear('created_at', $prevMonth->year)
             ->sum('total');
 
         if ($lastMonth == 0) {

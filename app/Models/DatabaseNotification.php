@@ -4,7 +4,6 @@ namespace App\Models;
 
 use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
 
 /**
  * Custom notification model.
@@ -27,11 +26,13 @@ class DatabaseNotification extends Model
         'notifiable_id',
         'data',
         'read_at',
+        'archived_at',
     ];
 
     protected $casts = [
-        'data'    => 'array',
-        'read_at' => 'datetime',
+        'data'        => 'array',
+        'read_at'     => 'datetime',
+        'archived_at' => 'datetime',
     ];
 
     // ── Relationships ────────────────────────────────────────────────────────
@@ -67,6 +68,27 @@ class DatabaseNotification extends Model
         return $this->read_at === null;
     }
 
+    // ── Archive helpers ──────────────────────────────────────────────────────
+
+    public function archive(): void
+    {
+        if (!$this->isArchived()) {
+            $this->forceFill(['archived_at' => $this->freshTimestamp()])->save();
+        }
+    }
+
+    public function unarchive(): void
+    {
+        if ($this->isArchived()) {
+            $this->forceFill(['archived_at' => null])->save();
+        }
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->archived_at !== null;
+    }
+
     // ── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopeRead($query)
@@ -77,5 +99,15 @@ class DatabaseNotification extends Model
     public function scopeUnread($query)
     {
         return $query->whereNull('read_at');
+    }
+
+    public function scopeArchived($query)
+    {
+        return $query->whereNotNull('archived_at');
+    }
+
+    public function scopeNotArchived($query)
+    {
+        return $query->whereNull('archived_at');
     }
 }

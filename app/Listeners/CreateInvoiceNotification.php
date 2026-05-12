@@ -13,70 +13,56 @@ class CreateInvoiceNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    /**
-     * Handle invoice generated event.
-     */
     public function handleGenerated(InvoiceGenerated $event)
     {
-        $this->createNotification($event->invoice->user, [
-            'title' => 'Nueva Factura Generada',
+        $this->notifyClient($event->invoice->user, [
+            'title'   => 'Nueva Factura Generada',
             'message' => $event->broadcastWith()['message'],
-            'type' => 'invoice_generated',
-            'data' => $event->broadcastWith(),
+            'type'    => 'invoice_generated',
+            'data'    => $event->broadcastWith(),
         ]);
 
-        // Notificar a administradores
         $this->notifyAdmins([
-            'title' => 'Factura Generada',
+            'title'   => 'Factura Generada',
             'message' => "Se generó la factura #{$event->invoice->invoice_number} para {$event->invoice->user->full_name}",
-            'type' => 'admin_invoice_generated',
-            'data' => $event->broadcastWith(),
+            'type'    => 'admin_invoice_generated',
+            'data'    => $event->broadcastWith(),
         ]);
     }
 
-    /**
-     * Handle invoice status changed event.
-     */
     public function handleStatusChanged(InvoiceStatusChanged $event)
     {
-        $this->createNotification($event->invoice->user, [
-            'title' => 'Estado de Factura Actualizado',
+        $this->notifyClient($event->invoice->user, [
+            'title'   => 'Estado de Factura Actualizado',
             'message' => $event->broadcastWith()['message'],
-            'type' => 'invoice_status_changed',
-            'data' => $event->broadcastWith(),
+            'type'    => 'invoice_status_changed',
+            'data'    => $event->broadcastWith(),
         ]);
 
-        // Notificar a administradores si es relevante
         if (in_array($event->newStatus, ['paid', 'cancelled', 'overdue'])) {
             $this->notifyAdmins([
-                'title' => 'Estado de Factura Actualizado',
+                'title'   => 'Estado de Factura Actualizado',
                 'message' => "La factura #{$event->invoice->invoice_number} cambió a estado: {$event->newStatus}",
-                'type' => 'admin_invoice_status',
-                'data' => $event->broadcastWith(),
+                'type'    => 'admin_invoice_status',
+                'data'    => $event->broadcastWith(),
             ]);
         }
     }
 
-    /**
-     * Create notification for a specific user.
-     */
-    private function createNotification(User $user, array $data)
+    private function notifyClient(User $user, array $data): void
     {
-        $user->notify(new ServiceNotification($data));
+        $user->notify(new ServiceNotification(array_merge($data, [
+            'target'   => 'client',
+            '_channel' => 'user.' . $user->uuid,
+        ])));
     }
 
-    /**
-     * Notify all administrators.
-     */
-    private function notifyAdmins(array $data)
+    private function notifyAdmins(array $data): void
     {
-        $admins = User::where('role', 'admin')
-                     ->orWhere('role', 'super_admin')
-                     ->get();
-
-        foreach ($admins as $admin) {
-            $admin->notify(new ServiceNotification($data));
-        }
+        User::where('role', 'admin')->orWhere('role', 'super_admin')->get()
+            ->each(fn ($admin) => $admin->notify(new ServiceNotification(array_merge($data, [
+                'target'   => 'admin',
+                '_channel' => 'admin.notifications',
+            ]))));
     }
 }
-

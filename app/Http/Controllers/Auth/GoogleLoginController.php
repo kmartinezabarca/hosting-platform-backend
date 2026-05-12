@@ -102,6 +102,8 @@ class GoogleLoginController extends Controller
 
         return response()->json([
             'message'             => 'Logged in successfully',
+            'access_token'        => $token,
+            'token_type'          => 'Bearer',
             'two_factor_required' => false,
             'needs_username'      => is_null($user->username),
             'user'                => $this->userPayload($user),

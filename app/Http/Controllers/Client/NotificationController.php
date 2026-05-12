@@ -17,9 +17,8 @@ class NotificationController extends Controller
         $user = Auth::user();
         
         $notifications = $user->notifications()
-            ->when($request->unread_only, function ($query) {
-                return $query->whereNull('read_at');
-            })
+            ->where('data->target', 'client')
+            ->when($request->unread_only, fn ($q) => $q->whereNull('read_at'))
             ->orderBy('created_at', 'desc')
             ->paginate(20);
 
@@ -60,7 +59,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         
-        $user->unreadNotifications->markAsRead();
+        $user->unreadNotifications()->where('data->target', 'client')->update(['read_at' => now()]);
 
         return response()->json([
             'success' => true,
@@ -75,7 +74,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         
-        $count = $user->unreadNotifications()->count();
+        $count = $user->unreadNotifications()->where('data->target', 'client')->count();
 
         return response()->json([
             'success' => true,

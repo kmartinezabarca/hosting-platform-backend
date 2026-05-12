@@ -373,6 +373,31 @@ class AdminController extends Controller
     // Invoices
     // ──────────────────────────────────────────────
 
+    public function getInvoiceStats(): JsonResponse
+    {
+        $now = now();
+
+        $pending = \App\Models\Invoice::whereIn('status', [
+            \App\Models\Invoice::STATUS_SENT,
+            \App\Models\Invoice::STATUS_PROCESS,
+        ])->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'invoices_count'    => \App\Models\Invoice::count(),
+                'total_paid'        => \App\Models\Invoice::where('status', \App\Models\Invoice::STATUS_PAID)->count(),
+                'pending'           => $pending,
+                'total_pending'     => $pending,
+                'total_overdue'     => \App\Models\Invoice::where('status', \App\Models\Invoice::STATUS_OVERDUE)->count(),
+                'revenue_this_month'=> (float) \App\Models\Invoice::where('status', \App\Models\Invoice::STATUS_PAID)
+                    ->whereMonth('updated_at', $now->month)
+                    ->whereYear('updated_at', $now->year)
+                    ->sum('total'),
+            ],
+        ]);
+    }
+
     public function getInvoices(Request $request): JsonResponse
     {
         $perPage = min((int) $request->get('per_page', 15), 100);
@@ -594,6 +619,23 @@ class AdminController extends Controller
     // ──────────────────────────────────────────────
     // Tickets
     // ──────────────────────────────────────────────
+
+    public function getTicketStats(): JsonResponse
+    {
+        $q = \App\Models\Ticket::query();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'total'       => (clone $q)->count(),
+                'open'        => (clone $q)->where('status', 'open')->count(),
+                'in_progress' => (clone $q)->where('status', 'in_progress')->count(),
+                'resolved'    => (clone $q)->whereIn('status', ['resolved', 'closed'])->count(),
+                'urgent'      => (clone $q)->where('priority', 'urgent')->count(),
+                'unassigned'  => (clone $q)->whereNull('assigned_to')->whereNotIn('status', ['resolved', 'closed'])->count(),
+            ],
+        ]);
+    }
 
     public function getTickets(Request $request): JsonResponse
     {

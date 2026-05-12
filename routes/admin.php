@@ -63,6 +63,7 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
     Route::put("/services/{id}/status",  [AdminController::class, "updateServiceStatus"]);
 
     // Invoices management
+    Route::get("/invoices/stats", [AdminController::class, "getInvoiceStats"]);
     Route::get("/invoices", [AdminController::class, "getInvoices"]);
     Route::post("/invoices", [AdminController::class, "createInvoice"]);
     Route::put("/invoices/{id}", [AdminController::class, "updateInvoice"]);
@@ -73,32 +74,34 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
     Route::post("/invoices/{id}/cancel", [AdminController::class, "cancelInvoice"]);
 
     // Tickets management
-    // NOTE: static routes (/tickets/categories) must be declared BEFORE dynamic
-    // routes (/tickets/{id}) so Laravel doesn't swallow them as an {id} value.
-    Route::get("/tickets",                  [AdminController::class, "getTickets"]);
-    Route::post("/tickets",                 [AdminController::class, "createTicket"]);
-    Route::get("/tickets/categories",       [AdminController::class, "getTicketCategories"]);
-    Route::get("/tickets/{id}",             [AdminController::class, "showTicket"]);
-    Route::put("/tickets/{id}",             [AdminController::class, "updateTicket"]);
-    Route::delete("/tickets/{id}",          [AdminController::class, "deleteTicket"]);
-    Route::put("/tickets/{id}/status",      [AdminController::class, "updateTicketStatus"]);
-    Route::put("/tickets/{id}/priority",    [AdminController::class, "updateTicketPriority"]);
-    Route::post("/tickets/{id}/assign",     [AdminController::class, "assignTicket"]);
-    Route::post("/tickets/{id}/reply",      [AdminController::class, "addTicketReply"]);
-    Route::get("/support-agents",           [AdminController::class, "getSupportAgents"]);
+    // NOTE: static routes must be declared BEFORE dynamic routes ({id}) so Laravel doesn't
+    // swallow them as an {id} value. The agents prefix group must also be before /{id}.
+    Route::get("/tickets/stats",              [AdminController::class, "getTicketStats"]);
+    Route::get("/tickets/categories",         [AdminController::class, "getTicketCategories"]);
+    Route::get("/support-agents",             [AdminController::class, "getSupportAgents"]);
 
-    // Agents management - API completa para agentes
+    // Agents management — prefix must come BEFORE /tickets/{id}
     Route::prefix("tickets/agents")->group(function () {
-        Route::get("/", [AgentController::class, "index"]); // Listar agentes con filtros
-        Route::post("/", [AgentController::class, "store"]); // Crear nuevo agente
-        Route::get("/statistics", [AgentController::class, "statistics"]); // Estadísticas de agentes
-        Route::get("/recommended", [AgentController::class, "getRecommendedAgent"]); // Agente recomendado para asignación
-        Route::get("/{uuid}", [AgentController::class, "show"]); // Mostrar agente específico
-        Route::put("/{uuid}", [AgentController::class, "update"]); // Actualizar agente
-        Route::delete("/{uuid}", [AgentController::class, "destroy"]); // Eliminar agente
-        Route::post("/{uuid}/assign-ticket", [AgentController::class, "assignTicket"]); // Asignar ticket a agente
-        Route::get("/{uuid}/tickets", [AgentController::class, "tickets"]); // Tickets del agente
+        Route::get("/",             [AgentController::class, "index"]);
+        Route::post("/",            [AgentController::class, "store"]);
+        Route::get("/statistics",   [AgentController::class, "statistics"]);
+        Route::get("/recommended",  [AgentController::class, "getRecommendedAgent"]);
+        Route::get("/{uuid}",       [AgentController::class, "show"]);
+        Route::put("/{uuid}",       [AgentController::class, "update"]);
+        Route::delete("/{uuid}",    [AgentController::class, "destroy"]);
+        Route::post("/{uuid}/assign-ticket", [AgentController::class, "assignTicket"]);
+        Route::get("/{uuid}/tickets",        [AgentController::class, "tickets"]);
     });
+
+    Route::get("/tickets",                    [AdminController::class, "getTickets"]);
+    Route::post("/tickets",                   [AdminController::class, "createTicket"]);
+    Route::get("/tickets/{id}",               [AdminController::class, "showTicket"]);
+    Route::put("/tickets/{id}",               [AdminController::class, "updateTicket"]);
+    Route::delete("/tickets/{id}",            [AdminController::class, "deleteTicket"]);
+    Route::put("/tickets/{id}/status",        [AdminController::class, "updateTicketStatus"]);
+    Route::put("/tickets/{id}/priority",      [AdminController::class, "updateTicketPriority"]);
+    Route::post("/tickets/{id}/assign",       [AdminController::class, "assignTicket"]);
+    Route::post("/tickets/{id}/reply",        [AdminController::class, "addTicketReply"]);
 
     // Products management
     Route::prefix("products")->group(function () {
@@ -153,8 +156,12 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
         Route::get('/stats', [NotificationController::class, 'getStats'])->name('stats');
         Route::post('/broadcast', [NotificationController::class, 'broadcastToUsers'])->name('broadcast');
         Route::post('/send-to-user/{user}', [NotificationController::class, 'sendToUser'])->name('send-to-user');
-        Route::put('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('mark-as-read');
         Route::put('/mark-all-read', [NotificationController::class, 'markAllAsRead'])->name('mark-all-read');
+        Route::put('/archive-all-read', [NotificationController::class, 'archiveAllRead'])->name('archive-all-read');
+        Route::delete('/archived', [NotificationController::class, 'destroyAllArchived'])->name('destroy-all-archived');
+        Route::put('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/{notification}/archive', [NotificationController::class, 'archive'])->name('archive');
+        Route::put('/{notification}/unarchive', [NotificationController::class, 'unarchive'])->name('unarchive');
         Route::delete('/{notification}', [NotificationController::class, 'destroy'])->name('destroy');
     });
 
@@ -238,13 +245,24 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
 
     // ── Servidores de Juego (Pterodactyl) ────────────────────────────────────
     Route::prefix('game-servers')->group(function () {
-        Route::get('/',                   [GameServerController::class, 'index']);
-        Route::get('/{id}',               [GameServerController::class, 'show']);
-        Route::post('/{id}/provision',    [GameServerController::class, 'provision']);
-        Route::post('/{id}/suspend',      [GameServerController::class, 'suspend']);
-        Route::post('/{id}/unsuspend',    [GameServerController::class, 'unsuspend']);
-        Route::post('/{id}/reinstall',    [GameServerController::class, 'reinstall']);
-        Route::delete('/{id}',            [GameServerController::class, 'terminate']);
+        Route::get('/',                          [GameServerController::class, 'index']);
+        Route::get('/{id}',                      [GameServerController::class, 'show']);
+        // Acciones de administración
+        Route::post('/{id}/provision',           [GameServerController::class, 'provision']);
+        Route::post('/{id}/suspend',             [GameServerController::class, 'suspend']);
+        Route::post('/{id}/unsuspend',           [GameServerController::class, 'unsuspend']);
+        Route::post('/{id}/reinstall',           [GameServerController::class, 'reinstall']);
+        Route::delete('/{id}',                   [GameServerController::class, 'terminate']);
+        // Consola y runtime (admin bypass)
+        Route::get('/{id}/websocket',            [GameServerController::class, 'websocket']);
+        Route::get('/{id}/usage',                [GameServerController::class, 'usage']);
+        Route::post('/{id}/power',               [GameServerController::class, 'power']);
+        Route::post('/{id}/command',             [GameServerController::class, 'command']);
+        // Gestor de archivos (admin bypass)
+        Route::get('/{id}/files/list',           [GameServerController::class, 'listFiles']);
+        Route::get('/{id}/files/upload',         [GameServerController::class, 'uploadUrl']);
+        Route::post('/{id}/files/delete',        [GameServerController::class, 'deleteFiles']);
+        Route::get('/{id}/files/download',       [GameServerController::class, 'downloadUrl']);
     });
 
     // ── Gestión de CFDIs ──────────────────────────────────────────────────────

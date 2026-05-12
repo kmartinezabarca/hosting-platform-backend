@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\User;
 use App\Notifications\AdminDirect;
+use App\Notifications\ServiceNotification;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -49,10 +50,15 @@ class NotificationTest extends Command
             return self::FAILURE;
         }
 
+        $isAdmin  = $user->isAdmin();
+        $target   = $isAdmin ? 'admin' : 'client';
+        $channel  = $isAdmin ? 'admin.notifications' : "user.{$user->uuid}";
+
         $this->line("  ✓ Nombre:  <fg=green>{$user->name}</>");
         $this->line("    Email:   {$user->email}");
         $this->line("    UUID:    {$user->uuid}");
         $this->line("    Rol:     {$user->role}");
+        $this->line("    Target:  <fg=yellow>{$target}</> → canal <fg=yellow>private-{$channel}</>");
 
         $message = $this->option('message') ?: '🧪 Notificación de prueba — ' . now()->format('H:i:s');
 
@@ -64,7 +70,7 @@ class NotificationTest extends Command
         try {
             DB::table('notifications')->insert([
                 'uuid'            => (string) Str::uuid(),
-                'type'            => AdminDirect::class,
+                'type'            => $isAdmin ? AdminDirect::class : ServiceNotification::class,
                 'notifiable_type' => User::class,
                 'notifiable_id'   => $user->id,
                 'data'            => json_encode([
@@ -75,15 +81,18 @@ class NotificationTest extends Command
                     'icon'              => 'bell',
                     'color'             => 'info',
                     'sent_by'           => 'notify:test',
+                    'target'            => $target,
+                    'is_personal'       => true,
                 ]),
                 'read_at'    => null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
-            $total = $user->notifications()->count();
-            $this->line("  ✓ Guardado en DB. Total notificaciones del usuario: <fg=green>{$total}</>");
-            $this->line("    Si la app consulta <fg=cyan>GET /api/notifications</>, esta ya debe aparecer.");
+            $apiPath = $isAdmin ? '/api/admin/notifications' : '/api/notifications';
+            $total   = $user->notifications()->where('data->target', $target)->count();
+            $this->line("  ✓ Guardado en DB con target=<fg=yellow>{$target}</>. Total para este target: <fg=green>{$total}</>");
+            $this->line("    Debe aparecer en <fg=cyan>GET {$apiPath}</>");
         } catch (\Exception $e) {
             $this->error("  ✗ Error al insertar: {$e->getMessage()}");
         }
@@ -106,11 +115,13 @@ class NotificationTest extends Command
                 'sent_by'           => 'notify:test',
             ];
 
-            Notification::sendNow($user, new AdminDirect($notifData));
+            $notification = $isAdmin ? new AdminDirect($notifData) : new ServiceNotification(array_merge($notifData, ['target' => 'client']));
+
+            Notification::sendNow($user, $notification);
 
             $this->line('  ✓ sendNow() completado sin errores.');
-            $this->line("    Canal broadcast: <fg=yellow>private-App.Models.User.{$user->uuid}</>");
-            $this->line('    Si Reverb está corriendo y el frontend está conectado, debe llegar en tiempo real.');
+            $this->line("    Canal broadcast: <fg=yellow>private-{$channel}</>");
+            $this->line('    Si Reverb está corriendo y el frontend está suscrito a ese canal, debe llegar ahora mismo.');
         } catch (\Exception $e) {
             $this->error("  ✗ Error en sendNow(): {$e->getMessage()}");
             $this->line('    Causa probable:');
@@ -137,7 +148,9 @@ class NotificationTest extends Command
                     'sent_by'           => 'notify:test',
                 ];
 
-                $user->notify(new AdminDirect($notifData));
+                $notification = $isAdmin ? new AdminDirect($notifData) : new ServiceNotification(array_merge($notifData, ['target' => 'client']));
+
+                $user->notify($notification);
 
                 $pending = $this->getQueueSize();
                 $this->line("  ✓ Notificación encolada.");
@@ -170,18 +183,26 @@ class NotificationTest extends Command
         );
 
         $this->newLine();
-        $this->comment('Canales que el frontend debe escuchar para este usuario:');
-        $this->line("  <fg=yellow>private-App.Models.User.{$user->uuid}</>  ← notificaciones Laravel estándar");
-        $this->line("  <fg=yellow>private-user.{$user->uuid}</>              ← canal personalizado del proyecto");
+        $this->comment("Canal WebSocket para este usuario ({$user->role}):");
+        $this->line("  <fg=yellow>private-{$channel}</>");
+        $this->newLine();
+        $this->comment('El frontend debe suscribirse así:');
+
+        if ($isAdmin) {
+            $this->line("  <fg=cyan>window.Echo.private('admin.notifications').notification(callback)</>");
+        } else {
+            $this->line("  <fg=cyan>window.Echo.private('user.{$user->uuid}').notification(callback)</>");
+        }
 
         $this->newLine();
-        $this->comment('Verifica la conexión del frontend:');
-        $this->line('  El cliente Echo debe incluir el token en el header de autenticación:');
-        $this->line("  <fg=cyan>window.Echo = new Echo({ auth: { headers: { Authorization: 'Bearer TOKEN' } } })</>");
+        $this->comment('Verifica la conexión del frontend (auth por cookies):');
+        $this->line('  Echo necesita enviar las cookies de sesión al autorizar el canal.');
+        $this->line('  El authorizer debe usar axios con withCredentials: true.');
+        $this->line('  Verifica en DevTools → Network → /broadcasting/auth → debe retornar 200.');
 
         $this->newLine();
-        $this->comment('Últimas 5 notificaciones del usuario en DB:');
-        $user->notifications()->latest()->limit(5)->get()->each(function ($n) {
+        $this->comment("Últimas 5 notificaciones del usuario con target={$target}:");
+        $user->notifications()->where('data->target', $target)->latest()->limit(5)->get()->each(function ($n) {
             $data  = is_array($n->data) ? $n->data : json_decode($n->data, true);
             $read  = $n->read_at ? '<fg=gray>✓ leída</>' : '<fg=green>○ sin leer</>';
             $title = $data['title'] ?? '(sin título)';
@@ -197,11 +218,11 @@ class NotificationTest extends Command
 
     private function runDiagnostics(): void
     {
-        $driver = config('broadcasting.default');
+        $driver   = config('broadcasting.default');
         $driverOk = $driver === 'reverb';
         $this->line('  ' . ($driverOk ? '✓' : '⚠') . " BROADCAST_DRIVER  = <fg=" . ($driverOk ? 'green' : 'yellow') . ">{$driver}</>");
 
-        $queue = config('queue.default');
+        $queue      = config('queue.default');
         $queueColor = $queue === 'sync' ? 'yellow' : 'green';
         $this->line("  ℹ QUEUE_CONNECTION = <fg={$queueColor}>{$queue}</>");
         if ($queue === 'sync') {
