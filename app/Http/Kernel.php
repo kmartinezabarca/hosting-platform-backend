@@ -41,12 +41,14 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
+            \App\Http\Middleware\RequireXhrMiddleware::class,
             \App\Http\Middleware\InjectTokenFromCookie::class,
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             'throttle:api',
             \Illuminate\Routing\Middleware\ThrottleRequests::class.':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\ApiResponseMiddleware::class,
+            \App\Http\Middleware\TrackUserSession::class,
         ],
     ];
 
@@ -69,6 +71,7 @@ class Kernel extends HttpKernel
         'signed' => \App\Http\Middleware\ValidateSignature::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'admin' => \App\Http\Middleware\AdminMiddleware::class,
+        'admin'           => \App\Http\Middleware\AdminMiddleware::class,
+        'session.timeout' => \App\Http\Middleware\SessionTimeoutMiddleware::class,
     ];
 }

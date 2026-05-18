@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-use App\Models\Invoice;
+use App\Models\Receipt;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
@@ -22,7 +22,7 @@ class InvoiceStatusChanged implements ShouldBroadcast
     /**
      * Create a new event instance.
      */
-    public function __construct(Invoice $invoice, string $oldStatus, string $newStatus)
+    public function __construct(Receipt $invoice, string $oldStatus, string $newStatus)
     {
         $this->invoice = $invoice;
         $this->oldStatus = $oldStatus;

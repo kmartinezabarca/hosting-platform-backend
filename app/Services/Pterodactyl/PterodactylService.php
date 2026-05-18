@@ -333,6 +333,109 @@ class PterodactylService
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Client API — Backups (copias de seguridad nativas de Pterodactyl)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Lista los backups del servidor con un formato plano y estable
+     * para el frontend.
+     *
+     * @param  string $identifier  Identificador corto del servidor
+     */
+    public function listBackups(string $identifier): array
+    {
+        $response = $this->clientHttp()->get("/api/client/servers/{$identifier}/backups");
+        $this->assertClientApiOk($response, 'listBackups');
+
+        return collect($response->json('data', []))
+            ->map(fn (array $b) => $b['attributes'] ?? [])
+            ->map(fn (array $a) => [
+                'id'            => $a['uuid'] ?? null,
+                'uuid'          => $a['uuid'] ?? null,
+                'name'          => $a['name'] ?? 'Backup',
+                'bytes'         => $a['bytes'] ?? 0,
+                'size'          => $a['bytes'] ?? 0,
+                'is_successful' => $a['is_successful'] ?? false,
+                'is_locked'     => $a['is_locked'] ?? false,
+                'created_at'    => $a['created_at'] ?? null,
+                'completed_at'  => $a['completed_at'] ?? null,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Crea un backup. Devuelve el backup recién creado (formato plano).
+     *
+     * @param  string      $identifier  Identificador corto del servidor
+     * @param  string|null $name        Nombre opcional del backup
+     */
+    public function createBackup(string $identifier, ?string $name = null): array
+    {
+        $payload = $name ? ['name' => $name] : [];
+
+        $response = $this->clientHttp()->post(
+            "/api/client/servers/{$identifier}/backups",
+            $payload
+        );
+        $this->assertClientApiOk($response, 'createBackup');
+
+        $a = $response->json('attributes', []);
+        return [
+            'id'           => $a['uuid'] ?? null,
+            'uuid'         => $a['uuid'] ?? null,
+            'name'         => $a['name'] ?? ($name ?? 'Backup'),
+            'bytes'        => $a['bytes'] ?? 0,
+            'size'         => $a['bytes'] ?? 0,
+            'is_locked'    => $a['is_locked'] ?? false,
+            'created_at'   => $a['created_at'] ?? null,
+            'completed_at' => $a['completed_at'] ?? null,
+        ];
+    }
+
+    /**
+     * Elimina un backup por su UUID.
+     */
+    public function deleteBackup(string $identifier, string $backupUuid): void
+    {
+        $response = $this->clientHttp()->delete(
+            "/api/client/servers/{$identifier}/backups/{$backupUuid}"
+        );
+
+        if ($response->status() !== 204 && $response->failed()) {
+            $this->assertClientApiOk($response, 'deleteBackup');
+        }
+    }
+
+    /**
+     * Restaura el servidor a partir de un backup.
+     */
+    public function restoreBackup(string $identifier, string $backupUuid): void
+    {
+        $response = $this->clientHttp()->post(
+            "/api/client/servers/{$identifier}/backups/{$backupUuid}/restore",
+            ['truncate' => true]
+        );
+
+        if ($response->status() !== 204 && $response->failed()) {
+            $this->assertClientApiOk($response, 'restoreBackup');
+        }
+    }
+
+    /**
+     * Devuelve una URL firmada para descargar un backup.
+     */
+    public function getBackupDownloadUrl(string $identifier, string $backupUuid): string
+    {
+        $response = $this->clientHttp()->get(
+            "/api/client/servers/{$identifier}/backups/{$backupUuid}/download"
+        );
+        $this->assertClientApiOk($response, 'getBackupDownloadUrl');
+
+        return $this->extractSignedUrl($response, 'getBackupDownloadUrl');
+    }
+
     /**
      * Obtiene una URL firmada para descargar un archivo.
      */

@@ -16,10 +16,10 @@ class CustomerFiscalProfile extends Model
         'user_id',
         'alias',
         'rfc',
-        'razon_social',
-        'codigo_postal',
-        'regimen_fiscal',
-        'uso_cfdi',
+        'business_name',
+        'postal_code',
+        'fiscal_regime_code',
+        'cfdi_use_code',
         'constancia_path',
         'is_default',
     ];
@@ -35,16 +35,14 @@ class CustomerFiscalProfile extends Model
         return $this->belongsTo(User::class);
     }
 
-    // Relación con catálogo de regímenes (por código)
-    public function regimenFiscalInfo()
+    public function fiscalRegimeInfo()
     {
-        return $this->belongsTo(FiscalRegime::class, 'regimen_fiscal', 'code');
+        return $this->belongsTo(FiscalRegime::class, 'fiscal_regime_code', 'code');
     }
 
-    // Relación con catálogo de usos CFDI (por código)
-    public function usoCfdiInfo()
+    public function cfdiUseInfo()
     {
-        return $this->belongsTo(CfdiUse::class, 'uso_cfdi', 'code');
+        return $this->belongsTo(CfdiUse::class, 'cfdi_use_code', 'code');
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────
@@ -84,16 +82,16 @@ class CustomerFiscalProfile extends Model
     }
 
     /**
-     * Retorna los datos en formato listo para poblar un ServiceInvoice.
+     * Retorna los datos en formato listo para poblar un Invoice (CFDI).
      */
-    public function toServiceInvoiceData(): array
+    public function toInvoiceData(): array
     {
         return [
-            'rfc'       => $this->rfc,
-            'name'      => $this->razon_social,
-            'zip'       => $this->codigo_postal,
-            'regimen'   => $this->regimen_fiscal,
-            'uso_cfdi'  => $this->uso_cfdi,
+            'rfc'          => $this->rfc,
+            'name'         => $this->business_name,
+            'zip'          => $this->postal_code,
+            'regimen'      => $this->fiscal_regime_code,
+            'cfdi_use_code' => $this->cfdi_use_code,
         ];
     }
 }

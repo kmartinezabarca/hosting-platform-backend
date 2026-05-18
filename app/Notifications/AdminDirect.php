@@ -39,20 +39,24 @@ class AdminDirect extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $mail = (new MailMessage)
-            ->subject($this->notificationData['title'])
-            ->greeting('¡Hola ' . $notifiable->name . '!')
-            ->line($this->notificationData['message'])
-            ->line('Este mensaje personal fue enviado por: ' . $this->notificationData['sent_by']);
+        $title = $this->notificationData['title'] ?? 'Mensaje directo de Roke Industries';
 
-        if (!empty($this->notificationData['action_url'])) {
-            $mail->action(
-                $this->notificationData['action_text'] ?? 'Ver Más',
-                $this->notificationData['action_url']
-            );
-        }
-
-        return $mail;
+        return (new MailMessage)
+            ->subject($title)
+            ->view('emails.notification', [
+                'notifiable' => $notifiable,
+                'title' => $title,
+                'subtitle' => 'Mensaje personal de Roke Industries',
+                'intro' => $this->notificationData['message'] ?? 'Tienes un nuevo mensaje personal.',
+                'detailsTitle' => 'Detalles del mensaje',
+                'details' => [
+                    'Enviado por' => $this->notificationData['sent_by'] ?? 'Roke Industries',
+                    'Tipo' => $this->notificationData['notification_type'] ?? $this->notificationData['type'] ?? 'Notificación',
+                ],
+                'actionUrl' => $this->notificationData['action_url'] ?? null,
+                'actionText' => $this->notificationData['action_text'] ?? 'Ver detalles',
+                'footerNote' => 'Este mensaje personal fue enviado desde Roke Industries. Si no lo reconoces, contacta a soporte.',
+            ]);
     }
 
     public function toArray(object $notifiable): array

@@ -3,30 +3,82 @@
 namespace App\Http\Controllers\Client;
 
 use Illuminate\Routing\Controller as BaseController;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class ApiDocsController extends BaseController
 {
+    /**
+     * Si la documentación está deshabilitada (típicamente en producción),
+     * respondemos 404 para no exponer la superficie de la API.
+     */
+    private function guard(): void
+    {
+        if (!config('swagger.enabled', false)) {
+            throw new NotFoundHttpException();
+        }
+    }
+
+    /**
+     * Especificación OpenAPI 3.0 en JSON.
+     */
     public function json()
     {
-        $url = env('APP_URL', 'http://localhost:8000');
+        $this->guard();
 
         $spec = [
             'openapi' => '3.0.3',
             'info' => [
-                'title' => 'ROKE Industries API',
-                'version' => '1.0.0',
-                'description' => 'API para la plataforma de hosting de ROKE Industries.',
+                'title'       => config('swagger.title'),
+                'version'     => config('swagger.version'),
+                'description' => config('swagger.description'),
+                'contact'     => [
+                    'name'  => config('swagger.contact.name'),
+                    'email' => config('swagger.contact.email'),
+                ],
             ],
             'servers' => [
-                ['url' => $url.'/api', 'description' => 'Servidor principal'],
+                ['url' => config('swagger.server_url'), 'description' => 'Servidor principal'],
+            ],
+            'tags' => [
+                ['name' => 'Auth',         'description' => 'Registro, inicio de sesión y tokens'],
+                ['name' => 'Catálogos',    'description' => 'Categorías, planes y ciclos de facturación (públicos)'],
+                ['name' => 'Servicios',    'description' => 'Servicios contratados del cliente'],
+                ['name' => 'Facturación',  'description' => 'Facturas y pagos'],
+                ['name' => 'Pagos',        'description' => 'Métodos de pago'],
+                ['name' => 'Soporte',      'description' => 'Tickets y chat de soporte'],
+                ['name' => 'Usuario',      'description' => 'Perfil y cuenta'],
             ],
             'paths' => $this->getPaths(),
             'components' => [
+                'securitySchemes' => [
+                    // Token Bearer emitido por Laravel Sanctum.
+                    'sanctum' => [
+                        'type'         => 'http',
+                        'scheme'       => 'bearer',
+                        'bearerFormat' => 'Sanctum',
+                        'description'  => 'Token personal de acceso. Formato: Authorization: Bearer {token}',
+                    ],
+                ],
                 'schemas' => $this->getSchemas(),
             ],
         ];
 
-        return response()->json($spec);
+        return response()->json($spec, 200, [
+            'Content-Type' => 'application/json; charset=utf-8',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * Interfaz Swagger UI.
+     */
+    public function ui()
+    {
+        $this->guard();
+
+        return response()->view('swagger.index', [
+            'specUrl' => url('api/' . config('swagger.routes.json', 'docs')),
+            'title'   => config('swagger.title'),
+        ]);
     }
 
     private function getPaths(): array

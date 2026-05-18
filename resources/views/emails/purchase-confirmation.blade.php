@@ -1,18 +1,32 @@
 @extends('emails.layout')
 
-@section('title', 'Confirmación de compra — Roke Industries')
+@section('title', 'Confirmación de compra - Roke Industries')
 @section('header_subtitle', '¡Tu compra fue procesada exitosamente!')
 
 @section('content')
+@php
+    $customerName = trim($user->full_name ?? '')
+        ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''))
+        ?: $user->email;
+    $billingCycle = [
+        'monthly' => 'Mensual',
+        'quarterly' => 'Trimestral',
+        'semi_annually' => 'Semestral',
+        'annually' => 'Anual',
+        'one_time' => 'Pago único',
+    ][$service->billing_cycle] ?? $service->billing_cycle;
+    $frontendUrl = rtrim(config('app.frontend_url', config('app.url')), '/');
+    $currency = strtoupper($invoice->currency ?? 'MXN');
+@endphp
 
-<h2>¡Gracias por tu compra, {{ $user->first_name ?? $user->name }}!</h2>
+<h2>Gracias por tu compra, {{ $customerName }}.</h2>
 
-<p>Tu servicio ha sido activado. Aquí están los detalles de tu pedido:</p>
+<p>Tu servicio ha sido activado o quedó en proceso de aprovisionamiento. Aquí tienes el resumen de tu pedido:</p>
 
 <div class="info-box">
     <h3>Resumen del pedido</h3>
-    <p><strong>Folio:</strong> {{ $invoice->invoice_number }}</p>
-    <p><strong>Fecha:</strong> {{ $invoice->paid_at?->format('d/m/Y H:i') }}</p>
+    <p><strong>Folio:</strong> {{ $invoice->invoice_number ?? $invoice->folio ?? 'No disponible' }}</p>
+    <p><strong>Fecha:</strong> {{ ($invoice->paid_at ?? $invoice->created_at ?? now())->format('d/m/Y H:i') }}</p>
     <p><strong>Estado:</strong> <span style="color:#38a169;font-weight:600;">Pagado</span></p>
 </div>
 
@@ -23,22 +37,22 @@
         <div>
             <strong>{{ $service->name }}</strong><br>
             <span style="color:#718096;font-size:14px;">
-                {{ $plan->name }} · {{ ucfirst($service->billing_cycle) }}
+                {{ $plan->name ?? 'Plan no especificado' }} · {{ $billingCycle }}
             </span>
         </div>
         <div style="text-align:right;font-weight:600;">
-            ${{ number_format($invoice->subtotal, 2) }} {{ $invoice->currency }}
+            ${{ number_format($invoice->subtotal ?? 0, 2) }} {{ $currency }}
         </div>
     </div>
 
     <div style="padding:8px 0;display:flex;justify-content:space-between;color:#718096;font-size:14px;">
         <span>IVA (16%)</span>
-        <span>${{ number_format($invoice->tax_amount, 2) }} {{ $invoice->currency }}</span>
+        <span>${{ number_format($invoice->tax_amount ?? 0, 2) }} {{ $currency }}</span>
     </div>
 
     <div style="border-top:2px solid #667eea;padding:12px 0;display:flex;justify-content:space-between;">
         <strong style="font-size:16px;">Total pagado</strong>
-        <strong style="font-size:16px;">${{ number_format($invoice->total, 2) }} {{ $invoice->currency }}</strong>
+        <strong style="font-size:16px;">${{ number_format($invoice->total ?? 0, 2) }} {{ $currency }}</strong>
     </div>
 
 </div>
@@ -60,7 +74,7 @@
 @endif
 
 <div style="text-align:center;margin:30px 0;">
-    <a href="{{ config('app.url') }}/client/services/{{ $service->uuid }}" class="button">
+    <a href="{{ $frontendUrl }}/client/services/{{ $service->uuid }}" class="button">
         Ver mi servicio
     </a>
 </div>

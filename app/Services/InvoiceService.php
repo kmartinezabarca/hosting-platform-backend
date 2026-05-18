@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\InvoiceItem;
 use Illuminate\Support\Facades\DB;
 
@@ -18,11 +18,11 @@ class InvoiceService
      */
     public function generateNumber(): string
     {
-        $prefix = config('app.invoice_prefix', 'INV-');
+        $prefix = config('app.receipt_prefix', 'REC-');
         $year   = now()->format('Y');
         $month  = now()->format('m');
 
-        $last = Invoice::where('invoice_number', 'like', $prefix . $year . $month . '%')
+        $last = Receipt::where('invoice_number', 'like', $prefix . $year . $month . '%')
             ->orderByDesc('invoice_number')
             ->value('invoice_number');
 
@@ -44,16 +44,16 @@ class InvoiceService
      *
      * $items[] keys: description, quantity, unit_price, service_id (optional)
      */
-    public function createWithItems(array $data, array $items): Invoice
+    public function createWithItems(array $data, array $items): Receipt
     {
         return DB::transaction(function () use ($data, $items) {
-            $invoice = Invoice::create(array_merge($data, [
+            $receipt = Receipt::create(array_merge($data, [
                 'invoice_number' => $this->generateNumber(),
             ]));
 
             foreach ($items as $item) {
                 InvoiceItem::create([
-                    'invoice_id'  => $invoice->id,
+                    'invoice_id'  => $receipt->id,
                     'service_id'  => $item['service_id'] ?? null,
                     'description' => $item['description'],
                     'quantity'    => (int) $item['quantity'],
@@ -62,7 +62,7 @@ class InvoiceService
                 ]);
             }
 
-            return $invoice->load('items');
+            return $receipt->load('items');
         });
     }
 
@@ -75,16 +75,31 @@ class InvoiceService
      */
     public function getStatsForUser(int $userId): array
     {
-        $base = fn() => Invoice::where('user_id', $userId);
+        $base = fn() => Receipt::where('user_id', $userId);
+
+        // Total realmente FACTURADO = recibos del usuario que ya tienen
+        // su CFDI timbrado (factura fiscal emitida).
+        $invoicedAmount = $base()
+            ->whereHas('invoice', fn ($q) => $q->where('cfdi_status', 'stamped'))
+            ->sum('total');
+
+        $stampedCount = \App\Models\Invoice::whereHas('receipt', fn ($q) => $q->where('user_id', $userId))
+            ->where('cfdi_status', 'stamped')
+            ->count();
 
         return [
             'total_invoices'   => $base()->count(),
             'paid_invoices'    => $base()->where('status', 'paid')->count(),
             'pending_invoices' => $base()->whereIn('status', ['draft', 'sent'])->count(),
             'overdue_invoices' => $base()->where('status', 'overdue')->count(),
+            // Montos de RECIBOS (pagos)
             'total_amount'     => $base()->sum('total'),
             'paid_amount'      => $base()->where('status', 'paid')->sum('total'),
             'pending_amount'   => $base()->whereIn('status', ['draft', 'sent', 'overdue'])->sum('total'),
+            // Alias claros + métrica fiscal real
+            'total_paid'       => $base()->where('status', 'paid')->sum('total'),
+            'total_invoiced'   => $invoicedAmount,   // solo CFDI timbrados
+            'stamped_count'    => $stampedCount,
         ];
     }
 }

@@ -3,7 +3,7 @@
 namespace App\Services\Factura;
 
 use App\Models\Invoice;
-use App\Models\ServiceInvoice;
+use App\Models\Receipt;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -19,24 +19,24 @@ class CfdiService
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Timbra un ServiceInvoice ante el SAT vía Facturama.
+     * Timbra un Invoice (CFDI) ante el SAT vía Facturama.
      *
      * Si tiene éxito actualiza el registro con cfdi_status = 'stamped' y guarda
      * el UUID SAT, XML, ruta del PDF y el ID interno de Facturama.
      *
      * @throws RuntimeException  si el timbrado falla (el estado queda 'failed')
      */
-    public function stamp(ServiceInvoice $si): void
+    public function stamp(Invoice $si): void
     {
-        // Necesitamos la factura interna para obtener los importes
-        $invoice = $this->resolveInvoice($si);
+        // Necesitamos el comprobante interno para obtener los importes e ítems
+        $receipt = $this->resolveReceipt($si);
 
-        if (!$invoice) {
-            throw new RuntimeException("No se encontró Invoice para ServiceInvoice #{$si->id}.");
+        if (!$receipt) {
+            throw new RuntimeException("No se encontró Receipt para Invoice #{$si->id}.");
         }
 
         try {
-            $payload  = $this->buildPayload($si, $invoice);
+            $payload  = $this->buildPayload($si, $receipt);
             $response = $this->facturama->createCfdi($payload);
 
             // Descargar y guardar el PDF
@@ -50,7 +50,7 @@ class CfdiService
                 'cfdi_uuid'    => $response['Complement']['TaxStamp']['Uuid'] ?? $response['CfdiData']['Complemento']['TimbreFiscalDigital']['UUID'] ?? null,
                 'cfdi_xml'     => $this->fetchXml($response['Id'] ?? null),
                 'cfdi_pdf_path'=> $pdfPath,
-                'cfdi_status'  => ServiceInvoice::CFDI_STAMPED,
+                'cfdi_status'  => Invoice::CFDI_STAMPED,
                 'cfdi_error'   => null,
                 'stamped_at'   => now(),
             ]);
@@ -62,19 +62,19 @@ class CfdiService
             }
 
             Log::info('CFDI timbrado exitosamente', [
-                'service_invoice_id' => $si->id,
-                'cfdi_uuid'          => $si->cfdi_uuid,
-                'facturama_id'       => $si->facturama_id,
+                'invoice_id'   => $si->id,
+                'cfdi_uuid'    => $si->cfdi_uuid,
+                'facturama_id' => $si->facturama_id,
             ]);
         } catch (\Throwable $e) {
             $si->update([
-                'cfdi_status' => ServiceInvoice::CFDI_FAILED,
+                'cfdi_status' => Invoice::CFDI_FAILED,
                 'cfdi_error'  => $e->getMessage(),
             ]);
 
             Log::error('Error al timbrar CFDI', [
-                'service_invoice_id' => $si->id,
-                'error'              => $e->getMessage(),
+                'invoice_id' => $si->id,
+                'error'      => $e->getMessage(),
             ]);
 
             throw $e;
@@ -90,26 +90,26 @@ class CfdiService
      *
      * @param string $motivo  Código SAT: 01,02,03,04 (default 02 = error sin relación)
      */
-    public function cancel(ServiceInvoice $si, string $motivo = '02', ?string $folioSustituto = null): void
+    public function cancel(Invoice $si, string $motivo = '02', ?string $folioSustituto = null): void
     {
         if (!$si->facturama_id) {
             throw new RuntimeException('Este CFDI no tiene ID de Facturama; no se puede cancelar.');
         }
 
-        if ($si->cfdi_status !== ServiceInvoice::CFDI_STAMPED) {
+        if ($si->cfdi_status !== Invoice::CFDI_STAMPED) {
             throw new RuntimeException('Solo se pueden cancelar CFDIs en estado "stamped".');
         }
 
         $this->facturama->cancelCfdi($si->facturama_id, $motivo, $folioSustituto);
 
         $si->update([
-            'cfdi_status' => ServiceInvoice::CFDI_CANCELLED,
+            'cfdi_status' => Invoice::CFDI_CANCELLED,
         ]);
 
         Log::info('CFDI cancelado', [
-            'service_invoice_id' => $si->id,
-            'facturama_id'       => $si->facturama_id,
-            'motivo'             => $motivo,
+            'invoice_id'   => $si->id,
+            'facturama_id' => $si->facturama_id,
+            'motivo'       => $motivo,
         ]);
     }
 
@@ -118,7 +118,7 @@ class CfdiService
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Devuelve el contenido binario del PDF. */
-    public function getPdfContent(ServiceInvoice $si): string
+    public function getPdfContent(Invoice $si): string
     {
         // Si ya lo tenemos guardado localmente, lo leemos
         if ($si->cfdi_pdf_path && Storage::exists($si->cfdi_pdf_path)) {
@@ -133,7 +133,7 @@ class CfdiService
     }
 
     /** Devuelve el contenido XML del CFDI. */
-    public function getXmlContent(ServiceInvoice $si): string
+    public function getXmlContent(Invoice $si): string
     {
         if ($si->cfdi_xml) {
             return $si->cfdi_xml;
@@ -150,12 +150,12 @@ class CfdiService
     // Construcción del payload CFDI 4.0
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function buildPayload(ServiceInvoice $si, Invoice $invoice): array
+    public function buildPayload(Invoice $si, Receipt $receipt): array
     {
         $cfg         = config('facturama');
         $taxRate     = (float) $cfg['tasa_iva'];
         $folio       = $si->folio ?? $si->id;
-        $items       = $invoice->items()->get();
+        $items       = $receipt->items()->get();
 
         // Construir conceptos
         $conceptos = [];
@@ -171,8 +171,8 @@ class CfdiService
             $totalIva  += $iva;
 
             $conceptos[] = [
-                'ClaveProdServ' => $cfg['clave_prod_serv'],
-                'ClaveUnidad'   => $cfg['clave_unidad'],
+                'ClaveProdServ' => $item->sat_clave_prod_serv ?? $cfg['clave_prod_serv'],
+                'ClaveUnidad'   => $item->sat_clave_unidad    ?? $cfg['clave_unidad'],
                 'Cantidad'      => '1',
                 'Unidad'        => $cfg['unidad'],
                 'Descripcion'   => mb_substr($item->description, 0, 1000),
@@ -182,11 +182,11 @@ class CfdiService
                 'ObjetoImp'     => '02',  // Sí objeto de impuesto
                 'Impuestos'     => [
                     'Traslados' => [[
-                        'Base'         => $base,
-                        'Impuesto'     => '002',        // IVA
-                        'TipoFactor'   => 'Tasa',
-                        'TasaOCuota'   => number_format($taxRate, 6, '.', ''),
-                        'Importe'      => $iva,
+                        'Base'       => $base,
+                        'Impuesto'   => '002',        // IVA
+                        'TipoFactor' => 'Tasa',
+                        'TasaOCuota' => number_format($taxRate, 6, '.', ''),
+                        'Importe'    => $iva,
                     ]],
                 ],
             ];
@@ -200,7 +200,7 @@ class CfdiService
             'Serie'              => $cfg['serie'],
             'Folio'              => (string) $folio,
             'Fecha'              => now()->format('Y-m-d\TH:i:s'),
-            'FormaPago'          => $this->resolveFormaPago($invoice),
+            'FormaPago'          => $this->resolveFormaPago($receipt),
             'MetodoPago'         => $cfg['metodo_pago'],
             'LugarExpedicion'    => $cfg['issuer']['lugar_expedicion'],
             'Moneda'             => $cfg['moneda'],
@@ -208,26 +208,26 @@ class CfdiService
             'Total'              => $total,
             'TipoDeComprobante'  => $cfg['tipo_comprobante'],
             'Emisor' => [
-                'Rfc'            => strtoupper($cfg['issuer']['rfc']),
-                'Nombre'         => strtoupper($cfg['issuer']['name']),
-                'RegimenFiscal'  => $cfg['issuer']['regimen_fiscal'],
+                'Rfc'           => strtoupper($cfg['issuer']['rfc']),
+                'Nombre'        => strtoupper($cfg['issuer']['name']),
+                'RegimenFiscal' => $cfg['issuer']['fiscal_regime'],
             ],
             'Receptor' => [
-                'Rfc'                      => strtoupper($si->rfc),
-                'Nombre'                   => strtoupper($si->name),
-                'DomicilioFiscalReceptor'  => $si->zip,
-                'RegimenFiscalReceptor'    => $si->regimen,
-                'UsoCfdi'                  => $si->uso_cfdi,
+                'Rfc'                     => strtoupper($si->rfc),
+                'Nombre'                  => strtoupper($si->name),
+                'DomicilioFiscalReceptor' => $si->zip,
+                'RegimenFiscalReceptor'   => $si->regimen,
+                'UsoCfdi'                 => $si->cfdi_use_code,
             ],
             'Conceptos' => $conceptos,
             'Impuestos' => [
                 'TotalImpuestosTrasladados' => $ivaTotal,
                 'Traslados' => [[
-                    'Base'         => $subtotal,
-                    'Impuesto'     => '002',
-                    'TipoFactor'   => 'Tasa',
-                    'TasaOCuota'   => number_format($taxRate, 6, '.', ''),
-                    'Importe'      => $ivaTotal,
+                    'Base'       => $subtotal,
+                    'Impuesto'   => '002',
+                    'TipoFactor' => 'Tasa',
+                    'TasaOCuota' => number_format($taxRate, 6, '.', ''),
+                    'Importe'    => $ivaTotal,
                 ]],
             ],
         ];
@@ -237,56 +237,71 @@ class CfdiService
     // Helpers privados
     // ─────────────────────────────────────────────────────────────────────────
 
-    private function resolveInvoice(ServiceInvoice $si): ?Invoice
+    /**
+     * Obtiene el comprobante de pago (Receipt) asociado al CFDI Invoice.
+     */
+    private function resolveReceipt(Invoice $si): ?Receipt
     {
-        // Primero por FK directa (si ya existe el campo)
+        // Primero por FK directa invoice_id → receipts.id
         if ($si->invoice_id) {
-            return Invoice::find($si->invoice_id);
+            return Receipt::find($si->invoice_id);
         }
 
-        // Fallback: invoice más reciente del mismo servicio
-        return Invoice::where('service_id', $si->service_id)
-            ->latest()
-            ->first();
+        // Fallback: comprobante más reciente del mismo servicio
+        if ($si->service_id) {
+            return Receipt::where('service_id', $si->service_id)->latest()->first();
+        }
+
+        return null;
     }
 
     /**
-     * Mapea el método de pago de Stripe/sistema al código SAT de FormaPago.
+     * Mapea el método de pago al código SAT de FormaPago.
      *
      * Códigos SAT más comunes:
+     *  01 = Efectivo | 03 = Transferencia | 04 = Tarjeta de crédito | 28 = Débito
+     */
+    /**
+     * Mapea el método de pago al código SAT de FormaPago.
+     *
+     * Códigos SAT:
      *  01 = Efectivo
-     *  02 = Cheque nominativo
      *  03 = Transferencia electrónica
      *  04 = Tarjeta de crédito
      *  28 = Tarjeta de débito
-     *  99 = Por definir (cuando no se sabe al momento de emitir)
+     *  99 = Por definir
+     *
+     * El campo payment_method almacena valores descriptivos como:
+     *  "Tarjeta de crédito (Visa ****1234)"
+     *  "Tarjeta de débito (Mastercard ****5678)"
      */
-    private function resolveFormaPago(Invoice $invoice): string
+    private function resolveFormaPago(Receipt $receipt): string
     {
-        // Intentar mapear desde el método de pago registrado
-        $method = strtolower($invoice->payment_method ?? '');
+        $method = strtolower($receipt->payment_method ?? '');
 
         return match (true) {
-            str_contains($method, 'credit') => '04',
-            str_contains($method, 'debit')  => '28',
-            str_contains($method, 'stripe') => '04',  // Stripe default = tarjeta
-            str_contains($method, 'transfer') => '03',
-            str_contains($method, 'cash')   => '01',
-            default                         => config('facturama.forma_pago', '03'),
+            str_contains($method, 'crédito')  || str_contains($method, 'credito')  => '04',
+            str_contains($method, 'débito')   || str_contains($method, 'debito')   => '28',
+            str_contains($method, 'prepago')  || str_contains($method, 'prepaid')  => '28',
+            str_contains($method, 'transferencia') || str_contains($method, 'transfer') => '03',
+            str_contains($method, 'efectivo') || str_contains($method, 'cash')     => '01',
+            // Legado: si quedó como 'stripe' asumir tarjeta de crédito
+            str_contains($method, 'stripe')                                        => '04',
+            default => config('facturama.forma_pago', '04'),
         };
     }
 
-    private function savePdf(string $facturamaId, ServiceInvoice $si): ?string
+    private function savePdf(string $facturamaId, Invoice $si): ?string
     {
         try {
-            $content  = base64_decode($this->facturama->downloadPdfBase64($facturamaId));
-            $path     = "cfdis/{$si->service_id}/{$si->id}.pdf";
+            $content = base64_decode($this->facturama->downloadPdfBase64($facturamaId));
+            $path    = "cfdis/{$si->service_id}/{$si->id}.pdf";
             Storage::put($path, $content);
             return $path;
         } catch (\Throwable $e) {
             Log::warning('No se pudo guardar el PDF del CFDI', [
-                'service_invoice_id' => $si->id,
-                'error'              => $e->getMessage(),
+                'invoice_id' => $si->id,
+                'error'      => $e->getMessage(),
             ]);
             return null;
         }
@@ -304,7 +319,7 @@ class CfdiService
         }
     }
 
-    private function notifyStamped(User $user, ServiceInvoice $si): void
+    private function notifyStamped(User $user, Invoice $si): void
     {
         try {
             Notification::send($user, new \App\Notifications\ServiceNotification([
@@ -312,8 +327,8 @@ class CfdiService
                 'message' => 'Tu CFDI ha sido timbrado exitosamente. Ya puedes descargarlo desde tu portal.',
                 'type'    => 'invoice.stamped',
                 'data'    => [
-                    'service_invoice_id' => $si->id,
-                    'cfdi_uuid'          => $si->cfdi_uuid,
+                    'invoice_id' => $si->id,
+                    'cfdi_uuid'  => $si->cfdi_uuid,
                 ],
             ]));
         } catch (\Throwable $e) {

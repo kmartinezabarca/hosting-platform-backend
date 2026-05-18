@@ -34,6 +34,29 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/pterodactyl-sync.log'));
 
+        // Expiración de servicios en periodo de prueba (trial).
+        // Se ejecuta cada hora; suspende servicios cuyo trial_ends_at haya vencido.
+        $schedule->command('services:expire-trials')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/trial-expiration.log'));
+
+        // roke.pet — recordatorios: vacunas, desparasitaciones y consultas (email + push)
+        $schedule->command('rokepet:send-pet-reminders')
+            ->dailyAt('08:00')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/rokepet-reminders.log'));
+
+        // Historial de ping (latencia) de servidores de juego.
+        // Muestrea el SLP de cada game server activo y persiste en game_server_pings.
+        $schedule->command('game-servers:collect-pings')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/game-server-pings.log'));
+
         // Monitoreo de salud de servidores de juego.
         // Cada 5 minutos escanea todos los servidores activos; si alguno está offline
         // encola CheckAndFixJavaCompatibilityJob para auto-detección y corrección de Java.
@@ -42,6 +65,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/game-server-health.log'));
+
+        // Respaldos programados al NAS + retención.
+        // Corre cada 10 min y dispara las programaciones vencidas.
+        $schedule->command('backups:run-scheduled')
+            ->everyTenMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/backups.log'));
     }
 
     /**

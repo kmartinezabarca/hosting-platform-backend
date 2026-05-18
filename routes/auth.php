@@ -4,6 +4,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\GoogleLoginController;
+use App\Http\Controllers\Auth\AdminGoogleLoginController;
 use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\Auth\UsernameController;
 use App\Http\Controllers\Auth\PasswordResetController;
@@ -22,7 +23,8 @@ use App\Http\Controllers\Auth\PasswordResetController;
 // Public authentication routes (initial login/registration, no session required yet)
 Route::middleware('throttle:10,1')->group(function () {
     Route::post("auth/register",          [AuthController::class,      "register"]);
-    Route::post("auth/google/callback",   [GoogleLoginController::class, "handleGoogleCallback"]);
+    Route::post("auth/google/callback",         [GoogleLoginController::class,      "handleGoogleCallback"]);
+    Route::post("admin/auth/google/callback",   [AdminGoogleLoginController::class, "handleAdminGoogleCallback"]);
     // Username — endpoints públicos
     Route::get ("auth/username/check",    [UsernameController::class,  "check"]);           // ?username=xxx
     Route::post("auth/complete-profile",  [UsernameController::class,  "completeGoogleProfile"]); // setup_token + username

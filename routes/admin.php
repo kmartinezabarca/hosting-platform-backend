@@ -17,12 +17,15 @@ use App\Http\Controllers\Admin\BlogSubscriptionController;
 use App\Http\Controllers\Admin\DocumentationController;
 use App\Http\Controllers\Admin\ApiDocumentationController;
 use App\Http\Controllers\Admin\SystemStatusController;
+use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\DocumentationRequestController;
 use App\Http\Controllers\Admin\FiscalController;
 use App\Http\Controllers\Admin\CfdiController;
 use App\Http\Controllers\Admin\GameServerController;
 use App\Http\Controllers\Admin\QuotationController;
 use App\Http\Controllers\Admin\PterodactylEggController;
+use App\Http\Controllers\Admin\GlobalSearchController;
+use App\Http\Controllers\Admin\GameSoftwareVersionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,9 +38,24 @@ use App\Http\Controllers\Admin\PterodactylEggController;
 |
 */
 
-Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function () {
+Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")->group(function () {
+    // Global search — popular must be before /search to avoid route collision
+    Route::middleware('throttle:search')->group(function () {
+        Route::get("/search/popular", [GlobalSearchController::class, "popular"]);
+        Route::get("/search",         [GlobalSearchController::class, "search"]);
+    });
+
     // Dashboard routes
     Route::get("/dashboard/stats", [AdminController::class, "getDashboardStats"]);
+
+    // ── Versiones de software de servidores de juego ──────────────────────
+    Route::prefix("game-versions")->group(function () {
+        Route::get    ('/',              [GameSoftwareVersionController::class, 'index']);
+        Route::post   ('/',              [GameSoftwareVersionController::class, 'store']);
+        Route::post   ('/bulk/{action}', [GameSoftwareVersionController::class, 'bulk']);
+        Route::put    ('/{id}',          [GameSoftwareVersionController::class, 'update']);
+        Route::delete ('/{id}',          [GameSoftwareVersionController::class, 'destroy']);
+    });
 
     // ── Catálogo de juegos Pterodactyl ─────────────────────────────────────
     Route::prefix("pterodactyl")->group(function () {
@@ -55,12 +73,13 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
     Route::put("/users/{id}/status", [AdminController::class, "updateUserStatus"]);
 
     // Services management
-    Route::get("/services",              [AdminController::class, "getServices"]);
-    Route::post("/services",             [AdminController::class, "createService"]);
-    Route::get("/services/{id}",         [AdminController::class, "getService"]);
-    Route::put("/services/{id}",         [AdminController::class, "updateService"]);
-    Route::delete("/services/{id}",      [AdminController::class, "deleteService"]);
-    Route::put("/services/{id}/status",  [AdminController::class, "updateServiceStatus"]);
+    Route::get("/services",                [AdminController::class, "getServices"]);
+    Route::post("/services",               [AdminController::class, "createService"]);
+    Route::get("/services/{uuid}/support-overview", [AdminController::class, "getServiceSupportOverview"]);
+    Route::get("/services/{uuid}",         [AdminController::class, "getService"]);
+    Route::put("/services/{uuid}",         [AdminController::class, "updateService"]);
+    Route::delete("/services/{uuid}",      [AdminController::class, "deleteService"]);
+    Route::put("/services/{uuid}/status",  [AdminController::class, "updateServiceStatus"]);
 
     // Invoices management
     Route::get("/invoices/stats", [AdminController::class, "getInvoiceStats"]);
@@ -72,6 +91,8 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
     Route::post("/invoices/{id}/mark-paid", [AdminController::class, "markInvoiceAsPaid"]);
     Route::post("/invoices/{id}/send-reminder", [AdminController::class, "sendInvoiceReminder"]);
     Route::post("/invoices/{id}/cancel", [AdminController::class, "cancelInvoice"]);
+    Route::get("/invoices/{uuid}/receipt", [AdminController::class, "downloadReceipt"]);
+    Route::get('/invoices/{serviceId}',[AdminController::class, 'getInvoicesByService']);
 
     // Tickets management
     // NOTE: static routes must be declared BEFORE dynamic routes ({id}) so Laravel doesn't
@@ -173,9 +194,28 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
         Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
         Route::get('/{chatRoom}/messages', [ChatController::class, 'getMessages'])->name('messages');
         Route::post('/{chatRoom}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
+        Route::put('/{chatRoom}/read', [ChatController::class, 'markAsRead'])->name('mark-as-read');
         Route::put('/{chatRoom}/assign', [ChatController::class, 'assignToAgent'])->name('assign');
         Route::put('/{chatRoom}/close', [ChatController::class, 'closeRoom'])->name('close');
         Route::put('/{chatRoom}/reopen', [ChatController::class, 'reopenRoom'])->name('reopen');
+    });
+
+    // Rutas de Backups / Respaldos (NAS)
+    Route::prefix('backups')->name('admin.backups.')->group(function () {
+        Route::get('/',        [BackupController::class, 'index'])->name('index');
+        Route::get('/stats',   [BackupController::class, 'stats'])->name('stats');
+        Route::post('/',       [BackupController::class, 'store'])->name('store');
+        Route::post('/bulk-delete', [BackupController::class, 'bulkDestroy'])->name('bulk-delete');
+
+        // Programaciones (antes de {backup} para no chocar con el binding)
+        Route::get('/schedules',  [BackupController::class, 'schedules'])->name('schedules.index');
+        Route::post('/schedules', [BackupController::class, 'storeSchedule'])->name('schedules.store');
+        Route::put('/schedules/{schedule}', [BackupController::class, 'updateSchedule'])->name('schedules.update');
+        Route::delete('/schedules/{schedule}', [BackupController::class, 'destroySchedule'])->name('schedules.destroy');
+        Route::post('/schedules/{schedule}/run', [BackupController::class, 'runSchedule'])->name('schedules.run');
+
+        Route::get('/{backup}/download', [BackupController::class, 'download'])->name('download');
+        Route::delete('/{backup}',       [BackupController::class, 'destroy'])->name('destroy');
     });
 
     // Blog Categories Routes
@@ -246,7 +286,7 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
     // ── Servidores de Juego (Pterodactyl) ────────────────────────────────────
     Route::prefix('game-servers')->group(function () {
         Route::get('/',                          [GameServerController::class, 'index']);
-        Route::get('/{id}',                      [GameServerController::class, 'show']);
+        Route::get('/{uuid}',                      [GameServerController::class, 'show']);
         // Acciones de administración
         Route::post('/{id}/provision',           [GameServerController::class, 'provision']);
         Route::post('/{id}/suspend',             [GameServerController::class, 'suspend']);
@@ -296,4 +336,3 @@ Route::middleware(["auth:sanctum", "admin"])->prefix("admin")->group(function ()
         Route::delete("/{id}", [DocumentationRequestController::class, "destroy"]);
     });
 });
-

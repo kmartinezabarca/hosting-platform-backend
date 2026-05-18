@@ -4,12 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Str;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     protected $appends = ['avatar_full_url', 'is_google_account'];
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
@@ -115,7 +116,7 @@ class User extends Authenticatable
      */
     public function getFullNameAttribute()
     {
-        return $this->first_name . ' ' . $this->last_name;
+        return trim(($this->first_name ?? '') . ' ' . ($this->last_name ?? ''));
     }
 
     /**
@@ -151,11 +152,12 @@ class User extends Authenticatable
     }
 
     /**
-     * Get the invoices for the user.
+     * Get the receipts (comprobantes de pago) for the user.
+     * Se usa "invoices" como alias para compatibilidad con withCount en el admin.
      */
     public function invoices()
     {
-        return $this->hasMany(Invoice::class);
+        return $this->hasMany(Receipt::class);
     }
 
     /**

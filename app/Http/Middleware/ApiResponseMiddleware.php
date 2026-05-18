@@ -32,16 +32,31 @@ class ApiResponseMiddleware
 
         // Si la respuesta no es JSON pero debería serlo (para rutas API o web)
         if (($request->is('api/*') || $request->is('/')) && !$response instanceof \Illuminate\Http\JsonResponse) {
+            // Dejar pasar sin modificar respuestas binarias / de descarga
+            $contentType = $response->headers->get('Content-Type', '');
+            $disposition  = $response->headers->get('Content-Disposition', '');
+            $binaryTypes  = ['application/pdf', 'application/xml', 'text/xml', 'application/octet-stream', 'image/'];
+
+            foreach ($binaryTypes as $type) {
+                if (str_starts_with($contentType, $type)) {
+                    return $response;
+                }
+            }
+
+            if (str_contains($disposition, 'attachment') || str_contains($disposition, 'inline')) {
+                return $response;
+            }
+
             // Convertir respuestas no-JSON a JSON para rutas API
             $content = $response->getContent();
-            
+
             if (empty($content)) {
                 return response()->json([
                     'message' => 'Success',
                     'status_code' => $response->getStatusCode()
                 ], $response->getStatusCode());
             }
-            
+
             // Si el contenido no es JSON válido, envolverlo
             if (!$this->isJson($content)) {
                 return response()->json([

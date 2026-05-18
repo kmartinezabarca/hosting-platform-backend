@@ -78,6 +78,23 @@ return [
             'sslmode' => 'prefer',
         ],
 
+        'roke_pet' => [
+            'driver'    => 'mysql',
+            'host'      => env('ROKEPET_DB_HOST', '127.0.0.1'),
+            'port'      => env('ROKEPET_DB_PORT', '3306'),
+            'database'  => env('ROKEPET_DB_DATABASE', 'roke_pet'),
+            'username'  => env('ROKEPET_DB_USERNAME', 'forge'),
+            'password'  => env('ROKEPET_DB_PASSWORD', ''),
+            'charset'   => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix'    => '',
+            'strict'    => true,
+            'engine'    => null,
+            'options'   => extension_loaded('pdo_mysql') ? array_filter([
+                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DATABASE_URL'),

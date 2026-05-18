@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\ServiceInvoice;
+use App\Models\Invoice;
 use App\Services\Factura\CfdiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,7 +20,7 @@ class CfdiController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = ServiceInvoice::with(['service.user:id,uuid,first_name,last_name,email'])
+        $query = Invoice::with(['service.user:id,uuid,first_name,last_name,email'])
             ->when($request->filled('status'), fn($q) => $q->where('cfdi_status', $request->get('status')))
             ->when($request->filled('rfc'),    fn($q) => $q->where('rfc', 'like', '%' . $request->get('rfc') . '%'))
             ->when($request->filled('service_id'), fn($q) => $q->where('service_id', $request->get('service_id')))
@@ -40,7 +40,7 @@ class CfdiController extends Controller
     {
         $statuses = ['scheduled', 'pending_stamp', 'stamped', 'failed', 'cancelled'];
 
-        $counts = ServiceInvoice::selectRaw('cfdi_status, COUNT(*) as total')
+        $counts = Invoice::selectRaw('cfdi_status, COUNT(*) as total')
             ->groupBy('cfdi_status')
             ->pluck('total', 'cfdi_status');
 
@@ -56,7 +56,33 @@ class CfdiController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $si = ServiceInvoice::with(['service.user', 'invoice'])->findOrFail($id);
+        $si = Invoice::with([
+            'service.user',
+            'service.plan',
+            'receipt.items',
+        ])->findOrFail($id);
+
+        // Fallback: si invoice_id está vacío, buscar el receipt por service_id
+        if (!$si->receipt && $si->service_id) {
+            $receipt = \App\Models\Receipt::where('service_id', $si->service_id)
+                ->with('items')
+                ->latest()
+                ->first();
+            $si->setRelation('receipt', $receipt);
+        }
+
+        // Adjuntar config del emisor para facilitar la facturación manual
+        $si->emisor = [
+            'rfc'             => config('facturama.issuer.rfc'),
+            'nombre'          => config('facturama.issuer.name'),
+            'fiscal_regime'   => config('facturama.issuer.fiscal_regime'),
+            'lugar_expedicion'=> config('facturama.issuer.lugar_expedicion'),
+            'serie'           => config('facturama.serie'),
+            'metodo_pago'     => config('facturama.metodo_pago'),
+            'forma_pago'      => config('facturama.forma_pago'),
+            'moneda'          => config('facturama.moneda'),
+            'tasa_iva'        => config('facturama.tasa_iva'),
+        ];
 
         return response()->json(['success' => true, 'data' => $si]);
     }
@@ -67,12 +93,12 @@ class CfdiController extends Controller
      */
     public function retry(int $id): JsonResponse
     {
-        $si = ServiceInvoice::findOrFail($id);
+        $si = Invoice::findOrFail($id);
 
-        if (!in_array($si->cfdi_status, [ServiceInvoice::CFDI_FAILED, ServiceInvoice::CFDI_PENDING_STAMP])) {
+        if (!in_array($si->cfdi_status, [Invoice::CFDI_FAILED, Invoice::CFDI_PENDING_STAMP, Invoice::CFDI_SCHEDULED])) {
             return response()->json([
                 'success' => false,
-                'message' => "No se puede reintentar un CFDI en estado '{$si->cfdi_status}'.",
+                'message' => "No se puede timbrar un CFDI en estado '{$si->cfdi_status}'.",
             ], 422);
         }
 
@@ -98,7 +124,7 @@ class CfdiController extends Controller
      */
     public function cancel(Request $request, int $id): JsonResponse
     {
-        $si = ServiceInvoice::findOrFail($id);
+        $si = Invoice::findOrFail($id);
 
         $validated = $request->validate([
             'motivo'           => ['required', Rule::in(['01', '02', '03', '04'])],
@@ -128,9 +154,9 @@ class CfdiController extends Controller
      */
     public function download(int $id, string $format): Response
     {
-        $si = ServiceInvoice::findOrFail($id);
+        $si = Invoice::findOrFail($id);
 
-        if ($si->cfdi_status !== ServiceInvoice::CFDI_STAMPED) {
+        if ($si->cfdi_status !== Invoice::CFDI_STAMPED) {
             abort(422, 'El CFDI aún no ha sido timbrado.');
         }
 

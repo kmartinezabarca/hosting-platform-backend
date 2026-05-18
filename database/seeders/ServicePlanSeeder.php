@@ -583,6 +583,26 @@ class ServicePlanSeeder extends Seeder
             }
 
             foreach ($plans as $planData) {
+                $provisioner = isset($planData['game'])
+                    ? 'pterodactyl'
+                    : ($categorySlug === 'hosting' ? 'hestia' : null);
+
+                $provisionerConfig = match ($provisioner) {
+                    'pterodactyl' => [
+                        'egg' => $planData['game']['software'] ?? null,
+                        'version' => 'latest',
+                        'environment' => [],
+                    ],
+                    'hestia' => [
+                        'package' => $planData['hestia_package'] ?? config('hestia.default_package', 'default'),
+                        'web_template' => $planData['hestia_web_template'] ?? 'default',
+                        'dns_template' => $planData['hestia_dns_template'] ?? 'default',
+                        'mail_enabled' => $planData['hestia_mail_enabled'] ?? true,
+                        'db_enabled' => $planData['hestia_db_enabled'] ?? true,
+                    ],
+                    default => null,
+                };
+
                 $servicePlan = ServicePlan::updateOrCreate(
                     ['slug' => $planData['id']],
                     [
@@ -594,7 +614,11 @@ class ServicePlanSeeder extends Seeder
                         'specifications' => $planData['specs'],
                         'is_active'      => true,
                         // Aprovisionamiento
-                        'provisioner'              => isset($planData['game']) ? 'pterodactyl' : 'none',
+                        'provisioner'              => $provisioner,
+                        'provisioner_config'       => $provisionerConfig,
+                        'hestia_package'           => $categorySlug === 'hosting'
+                            ? ($provisionerConfig['package'] ?? config('hestia.default_package', 'default'))
+                            : null,
                         'game_type'                => $planData['game']['type']         ?? null,
                         'game_runtime_options'     => isset($planData['game'])
                             ? ['software' => $planData['game']['software']]

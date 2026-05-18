@@ -46,6 +46,15 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        $cookie = cookie(
+            'auth_token', $token, 1440,
+            '/', null,
+            config('app.env') === 'production',
+            true,
+            false,
+            'strict'
+        );
+
         ActivityLog::record(
             'Registro de usuario',
             'Nuevo usuario registrado: ' . $user->email,
@@ -56,10 +65,10 @@ class AuthController extends Controller
 
         return response()->json([
             'message'      => 'Usuario registrado exitosamente.',
-            'access_token' => $token,
+            'access_token' => $token,   // Para clientes móviles (Bearer)
             'token_type'   => 'Bearer',
             'user'         => $this->userPayload($user),
-        ], 201);
+        ], 201)->withCookie($cookie);
     }
 
     public function login(Request $request)
@@ -125,7 +134,17 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        $cookie = cookie('auth_token', $token, config('sanctum.expiration'), null, null, config('session.secure'), true, false, config('session.same_site', 'lax'));
+        // TTL: admin/support → 8h, client → 24h
+        $ttlMinutes = in_array($user->role, ['super_admin', 'admin', 'support']) ? 480 : 1440;
+
+        $cookie = cookie(
+            'auth_token', $token, $ttlMinutes,
+            '/', null,
+            config('app.env') === 'production', // Secure solo en producción
+            true,                                // HttpOnly — JS nunca puede leerla
+            false,
+            'strict'                             // SameSite=Strict — no se envía en navegación directa
+        );
 
         // Registrar inicio de sesión exitoso
         ActivityLog::record(
@@ -138,7 +157,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message'        => 'Logged in successfully',
-            'access_token'   => $token,
+            'access_token'   => $token,   // Para clientes móviles (Bearer)
             'token_type'     => 'Bearer',
             'user'           => $this->userPayload($user),
             'needs_username' => is_null($user->username),

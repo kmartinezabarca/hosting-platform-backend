@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             ServicePlanSeeder::class,
             MarketingServiceSeeder::class,
             SatCatalogSeeder::class,
+            GameSoftwareVersionSeeder::class,
         ]);
 
         // \App\Models\User::factory(10)->create();

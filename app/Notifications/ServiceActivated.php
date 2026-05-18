@@ -44,12 +44,21 @@ class ServiceActivated extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->subject('¡Tu servicio está activo!')
-            ->greeting('¡Hola ' . $notifiable->name . '!')
-            ->line("Tu servicio '{$this->service->name}' está ahora activo y listo para usar.")
-            ->line('Puedes acceder a los detalles de tu servicio desde tu panel de control.')
-            ->action('Ver Servicio', url('/dashboard/services/' . $this->service->uuid))
-            ->line('¡Gracias por confiar en nosotros!');
+            ->subject('Tu servicio está activo - Roke Industries')
+            ->view('emails.notification', [
+                'notifiable' => $notifiable,
+                'title' => 'Tu servicio está activo',
+                'subtitle' => 'Servicio listo para usar',
+                'intro' => "Tu servicio '{$this->service->name}' está activo y listo para usar.",
+                'detailsTitle' => 'Detalles del servicio',
+                'details' => [
+                    'Servicio' => $this->service->name,
+                    'Estado' => $this->service->status ?? 'active',
+                    'Fecha de activación' => $this->service->activated_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i'),
+                ],
+                'actionUrl' => '/client/services/' . $this->service->uuid,
+                'actionText' => 'Ver servicio',
+            ]);
     }
 
     /**
@@ -61,10 +70,10 @@ class ServiceActivated extends Notification implements ShouldQueue
             'type' => 'service_activated',
             'service_id' => $this->service->uuid,
             'service_name' => $this->service->name,
-            'title' => '¡Servicio Activado!',
+            'title' => 'Servicio activado',
             'message' => "Tu servicio '{$this->service->name}' está ahora activo y listo para usar.",
             'action_url' => '/dashboard/services/' . $this->service->uuid,
-            'action_text' => 'Ver Servicio',
+            'action_text' => 'Ver servicio',
             'icon' => 'check-circle',
             'color' => 'success',
         ];
@@ -79,14 +88,13 @@ class ServiceActivated extends Notification implements ShouldQueue
             'type' => 'service_activated',
             'service_id' => $this->service->uuid,
             'service_name' => $this->service->name,
-            'title' => '¡Servicio Activado!',
+            'title' => 'Servicio activado',
             'message' => "Tu servicio '{$this->service->name}' está ahora activo y listo para usar.",
             'action_url' => '/dashboard/services/' . $this->service->uuid,
-            'action_text' => 'Ver Servicio',
+            'action_text' => 'Ver servicio',
             'icon' => 'check-circle',
             'color' => 'success',
             'timestamp' => now()->toISOString(),
         ]);
     }
 }
-

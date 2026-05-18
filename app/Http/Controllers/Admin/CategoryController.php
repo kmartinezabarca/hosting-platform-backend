@@ -12,26 +12,51 @@ use Illuminate\Support\Facades\Validator;
 class CategoryController extends Controller
 {
     /**
-     * Get all active categories
+     * Get all categories for admin (including inactive), with pagination and filters
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Category::active();
+            $query = Category::query()->withCount('servicePlans');
 
-            $categories = $query->orderBy('sort_order')
-                              ->orderBy('name')
-                              ->get();
+            // Search by name or slug
+            if ($search = $request->input('search')) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('slug', 'like', "%{$search}%");
+                });
+            }
+
+            // Filter by status
+            if ($request->filled('is_active')) {
+                $query->where('is_active', filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN));
+            }
+
+            $perPage = (int) $request->input('per_page', 15);
+            $perPage = min(max($perPage, 5), 100);
+
+            $categories = $query
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->paginate($perPage);
 
             return response()->json([
                 'success' => true,
-                'data' => $categories
+                'data'    => $categories->items(),
+                'meta'    => [
+                    'current_page' => $categories->currentPage(),
+                    'last_page'    => $categories->lastPage(),
+                    'per_page'     => $categories->perPage(),
+                    'total'        => $categories->total(),
+                    'from'         => $categories->firstItem(),
+                    'to'           => $categories->lastItem(),
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error retrieving categories',
-                'debug' => config('app.debug') ? $e->getMessage() : null
+                'debug'   => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
     }

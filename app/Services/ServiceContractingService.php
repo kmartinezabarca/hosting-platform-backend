@@ -2,12 +2,12 @@
 
 namespace App\Services;
 
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\InvoiceItem;
+use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Service;
 use App\Models\ServiceAddOn;
-use App\Models\ServiceInvoice;
 use App\Models\CustomerFiscalProfile;
 use App\Models\Subscription;
 use App\Models\Transaction;
@@ -16,6 +16,10 @@ use App\Models\ServicePlan;
 use App\Models\PterodactylEgg;
 use App\Models\ActivityLog;
 use App\Services\Factura\CfdiService;
+use App\Services\Coolify\HostingProvisioningService;
+use App\Services\PaymentReceiptService;
+use App\Services\Pterodactyl\GameServerProvisioningService;
+use App\Services\InvoiceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -46,6 +50,11 @@ class ServiceContractingService
      */
     public function contract(User $user, ServicePlan $plan, array $validated): array
     {
+        // ── Desviar planes gratis/trial al flujo sin cobro ───────────────────
+        if ($plan->isNoCharge()) {
+            return $this->contractFree($user, $plan, $validated);
+        }
+
         // ── Egg (juego) seleccionado — solo para planes de game server ───
         // El campo `egg_id` es obligatorio cuando provisioner=pterodactyl.
         // Validamos aquí (antes del cobro) para no cobrar si el egg no existe.
@@ -165,35 +174,35 @@ class ServiceContractingService
             $fiscalData = $this->resolveFiscalData($user, $validated);
 
             if ($fiscalData) {
-                $serviceInvoice = ServiceInvoice::create([
+                $cfdiInvoice = Invoice::create([
                     'service_id'         => $service->id,
                     'rfc'                => strtoupper(trim($fiscalData['rfc'])),
                     'name'               => strtoupper(trim($fiscalData['name'])),
                     'zip'                => $fiscalData['zip'],
                     'regimen'            => $fiscalData['regimen'],
-                    'uso_cfdi'           => $fiscalData['uso_cfdi'],
+                    'cfdi_use_code'      => $fiscalData['cfdi_use_code'],
                     'constancia'         => $fiscalData['constancia'] ?? null,
-                    'cfdi_status'        => ServiceInvoice::CFDI_PENDING_STAMP,
+                    'cfdi_status'        => Invoice::CFDI_PENDING_STAMP,
                     'is_publico_general' => false,
                 ]);
             } else {
                 // Sin datos fiscales → Público en General, se timbra automáticamente a las 72 h
-                // Mientras tanto, notificamos al usuario para que ingrese sus datos
-                $serviceInvoice = ServiceInvoice::create(
-                    ServiceInvoice::publicoGeneralDefaults($service->id)
+                $cfdiInvoice = Invoice::create(
+                    Invoice::publicoGeneralDefaults($service->id)
                 );
             }
 
-            // 3) Invoice
-            $invoice = $this->invoiceService->createWithItems(
+            // 3) Receipt (comprobante de pago interno)
+            $receipt = $this->invoiceService->createWithItems(
                 [
                     'user_id'             => $user->id,
                     'service_id'          => $service->id,
                     'status'              => 'paid',
                     'due_date'            => now(),
                     'paid_at'             => now(),
-                    'payment_method'      => 'stripe',
+                    'payment_method'      => $this->resolvePaymentMethodLabel($cardMeta),
                     'payment_reference'   => $paymentIntentId,
+                    'gateway'             => 'stripe',
                     'notes'               => 'Pago por contratación de servicio',
                     'currency'            => $currency,
                     'subtotal'            => $subtotal,
@@ -203,16 +212,21 @@ class ServiceContractingService
                 ],
                 array_merge(
                     [[
-                        'service_id'  => $service->id,
-                        'description' => sprintf('%s (%s)', $plan->name, strtoupper($validated['billing_cycle'])),
-                        'quantity'    => 1,
-                        'unit_price'  => $planNet,
+                        'service_id'          => $service->id,
+                        'description'         => sprintf('%s (%s)', $plan->name, strtoupper($validated['billing_cycle'])),
+                        'quantity'            => 1,
+                        'unit_price'          => $planNet,
+                        'sat_clave_prod_serv' => $plan->sat_clave_prod_serv ?? config('facturama.clave_prod_serv'),
+                        'sat_clave_unidad'    => $plan->sat_clave_unidad    ?? config('facturama.clave_unidad', 'E48'),
                     ]],
                     $selectedAddOns->map(fn($a) => [
-                        'service_id'  => $service->id,
-                        'description' => $a->name,
-                        'quantity'    => 1,
-                        'unit_price'  => round((float) $a->price * $multiplier, 2),
+                        'service_id'          => $service->id,
+                        'description'         => $a->name,
+                        'quantity'            => 1,
+                        'unit_price'          => round((float) $a->price * $multiplier, 2),
+                        // Los add-ons heredan la clave del plan principal
+                        'sat_clave_prod_serv' => $plan->sat_clave_prod_serv ?? config('facturama.clave_prod_serv'),
+                        'sat_clave_unidad'    => $plan->sat_clave_unidad    ?? config('facturama.clave_unidad', 'E48'),
                     ])->values()->all()
                 )
             );
@@ -221,7 +235,7 @@ class ServiceContractingService
             Transaction::create([
                 'uuid'                    => (string) Str::uuid(),
                 'user_id'                 => $user->id,
-                'invoice_id'              => $invoice->id,
+                'invoice_id'              => $receipt->id,
                 'payment_method_id'       => $localPaymentMethodId,
                 'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
                 'provider_transaction_id' => $paymentIntentId,
@@ -242,23 +256,23 @@ class ServiceContractingService
                         ? 'Pago con método guardado del cliente.'
                         : 'Pago con tarjeta no guardada (one-off).',
                 ],
-                'description'  => 'Pago de contratación de servicio',
+                'description'    => 'Pago de contratación de servicio',
                 'failure_reason' => null,
-                'processed_at' => now(),
+                'processed_at'   => now(),
             ]);
 
             ActivityLog::record(
                 'Pago de servicio',
                 $plan->name,
                 'payment',
-                ['invoice_id' => $invoice->id, 'service_id' => $service->id, 'amount' => $total, 'currency' => $currency],
+                ['receipt_id' => $receipt->id, 'service_id' => $service->id, 'amount' => $total, 'currency' => $currency],
                 $user->id
             );
 
-            // 5) Post-commit: broadcasts, notificaciones y timbrado CFDI
-            DB::afterCommit(function () use ($user, $invoice, $service, $serviceInvoice, $total, $fiscalData) {
+            // 5) Post-commit: broadcasts, notificaciones, comprobante PDF y timbrado CFDI
+            DB::afterCommit(function () use ($user, $receipt, $service, $cfdiInvoice, $total, $fiscalData) {
                 broadcast(new \App\Events\ServicePurchased($service->fresh('user'), (float) $total));
-                broadcast(new \App\Events\InvoiceGenerated($invoice));
+                broadcast(new \App\Events\ReceiptGenerated($receipt));
                 \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\ServiceNotification([
                     'title'   => 'Compra realizada',
                     'message' => "¡Gracias por tu compra! Tu servicio '{$service->name}' ha sido adquirido exitosamente.",
@@ -266,48 +280,66 @@ class ServiceContractingService
                     'data'    => ['service_id' => $service->uuid ?? $service->id, 'amount' => $total],
                 ]));
 
+                // ── Comprobante de pago (PDF interno) ───────────────────────
+                try {
+                    app(PaymentReceiptService::class)->generate($receipt->fresh(['user', 'items', 'service.plan']));
+                    \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\PaymentReceiptNotification($receipt->fresh(['user', 'items'])));
+                } catch (\Throwable $e) {
+                    Log::error('Comprobante de pago: error al generar o notificar (no fatal)', [
+                        'receipt_id' => $receipt->id,
+                        'error'      => $e->getMessage(),
+                    ]);
+                }
+
                 // ── CFDI ────────────────────────────────────────────────────
-                // Vinculamos el ServiceInvoice con la Invoice interna
-                $serviceInvoice->update(['invoice_id' => $invoice->id]);
+                $cfdiInvoice->update(['invoice_id' => $receipt->id]);
 
                 if ($fiscalData) {
-                    // Datos fiscales disponibles → timbrar inmediatamente
                     try {
-                        app(CfdiService::class)->stamp($serviceInvoice->fresh());
+                        app(CfdiService::class)->stamp($cfdiInvoice->fresh());
                     } catch (\Throwable $e) {
-                        // No fatal: el CFDI queda en 'failed' y el admin puede reintentarlo
                         Log::error('Timbrado inmediato fallido (no fatal)', [
-                            'service_invoice_id' => $serviceInvoice->id,
-                            'error'              => $e->getMessage(),
+                            'invoice_id' => $cfdiInvoice->id,
+                            'error'      => $e->getMessage(),
                         ]);
                     }
                 } else {
-                    // Sin datos → notificar al cliente que tiene 72 h para ingresar RFC
                     \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\ServiceNotification([
                         'title'   => 'Completa tus datos de facturación',
                         'message' => 'Tu compra fue exitosa. Tienes 72 horas para ingresar tus datos fiscales; de lo contrario, tu factura se emitirá a nombre de "Público en General".',
                         'type'    => 'invoice.needs_fiscal_data',
                         'data'    => [
-                            'service_id'          => $service->uuid ?? $service->id,
-                            'service_invoice_id'  => $serviceInvoice->id,
-                            'deadline'            => $serviceInvoice->stamp_scheduled_at,
+                            'service_id' => $service->uuid ?? $service->id,
+                            'invoice_id' => $cfdiInvoice->id,
+                            'deadline'   => $cfdiInvoice->stamp_scheduled_at,
                         ],
                     ]));
                 }
             });
 
-            return compact('service', 'invoice', 'serviceInvoice');
+            return ['service' => $service, 'receipt' => $receipt, 'invoice' => $cfdiInvoice];
         });
 
-        // ── 6) Pterodactyl — FUERA del transaction ───────────────────────────
-        // Si el plan tiene provisioner = pterodactyl, crear el servidor automáticamente.
+        // ── 6) Provisioning — FUERA del transaction ──────────────────────────
         // Igual que Stripe: nunca dentro del transaction, fallo no es fatal.
         if ($result['service']->plan->isPterodactylManaged()) {
             try {
-                app(\App\Services\Pterodactyl\GameServerProvisioningService::class)
+                app(GameServerProvisioningService::class)
                     ->provision($result['service']->fresh(['plan', 'user']));
             } catch (\Throwable $e) {
                 Log::error('Aprovisionamiento Pterodactyl fallido (no fatal)', [
+                    'service_id' => $result['service']->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($result['service']->plan->isCoolifyManaged()) {
+            try {
+                app(HostingProvisioningService::class)
+                    ->provision($result['service']->fresh(['plan', 'user']));
+            } catch (\Throwable $e) {
+                Log::error('Aprovisionamiento Coolify fallido (no fatal)', [
                     'service_id' => $result['service']->id,
                     'error'      => $e->getMessage(),
                 ]);
@@ -353,6 +385,198 @@ class ServiceContractingService
     }
 
     // ──────────────────────────────────────────────
+    // Free / Trial Flow (sin cobro)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Contrata un plan free o trial sin pasar por Stripe.
+     *
+     * - Crea el servicio con status 'active'.
+     * - Para trial: fija trial_ends_at = now() + trial_days.
+     * - Crea un Receipt con total = 0 (registro contable, sin CFDI).
+     * - No genera Invoice/CFDI (no hay importe fiscal que declarar).
+     * - Dispara las mismas notificaciones que el flujo paid.
+     */
+    public function contractFree(User $user, ServicePlan $plan, array $validated): array
+    {
+        // ── Egg validation (game servers) ────────────────────────────────────
+        $selectedEgg        = null;
+        $resolvedMaxPlayers = null;
+
+        if ($plan->isPterodactylManaged()) {
+            if (empty($validated['egg_id'])) {
+                throw new \RuntimeException('Debes seleccionar un juego para este plan de servidor.');
+            }
+            $selectedEgg = PterodactylEgg::active()->find((int) $validated['egg_id']);
+            if (!$selectedEgg) {
+                throw new \RuntimeException('El juego seleccionado no está disponible.');
+            }
+            if (!empty($plan->allowed_nest_ids)
+                && !in_array($selectedEgg->ptero_nest_id, $plan->allowed_nest_ids, true)) {
+                throw new \RuntimeException('El juego seleccionado no está permitido en este plan.');
+            }
+            $resolvedMaxPlayers = $this->resolveMaxPlayers($plan);
+        }
+
+        // ── Multiplicador de precio (siempre 0 para free/trial) ──────────────
+        $multiplier      = match ($validated['billing_cycle']) {
+            'monthly'       => 1,
+            'quarterly'     => 3,
+            'semi_annually' => 6,
+            'annually'      => 12,
+            default         => 1,
+        };
+        $nextBillingDate = $plan->isTrial()
+            ? now()->addDays($plan->trial_days ?? 14)
+            : now()->addMonths($multiplier);
+
+        $selectedAddOns = $this->resolveAddOns($plan, $validated['add_ons'] ?? []);
+
+        $result = DB::transaction(function () use (
+            $user, $plan, $validated, $selectedAddOns,
+            $multiplier, $nextBillingDate,
+            $selectedEgg, $resolvedMaxPlayers
+        ) {
+            // 1) Service
+            $service = Service::create([
+                'plan_id'         => $plan->id,
+                'user_id'         => $user->id,
+                'price'           => 0,
+                'name'            => $validated['service_name'],
+                'status'          => 'active',
+                'billing_cycle'   => $validated['billing_cycle'],
+                'domain'          => $validated['domain'] ?? null,
+                'configuration'   => $validated['additional_options'] ?? null,
+                'next_due_date'   => $nextBillingDate,
+                'trial_ends_at'   => $plan->isTrial() ? $nextBillingDate : null,
+                'plan_type'       => $plan->plan_type,
+                'selected_egg_id' => $selectedEgg?->id,
+                'max_players'     => $resolvedMaxPlayers,
+            ]);
+
+            // 1.1) Add-on snapshots
+            foreach ($selectedAddOns as $addOn) {
+                ServiceAddOn::create([
+                    'service_id'  => $service->id,
+                    'add_on_id'   => $addOn->id,
+                    'add_on_uuid' => $addOn->uuid,
+                    'name'        => $addOn->name,
+                    'unit_price'  => 0,
+                    'quantity'    => 1,
+                ]);
+            }
+
+            // 2) Receipt $0 (registro contable, sin CFDI — no hay importe fiscal)
+            $paymentLabel = $plan->isTrial()
+                ? 'Periodo de prueba gratuito'
+                : 'Plan gratuito';
+
+            $receipt = $this->invoiceService->createWithItems(
+                [
+                    'user_id'           => $user->id,
+                    'service_id'        => $service->id,
+                    'status'            => 'paid',
+                    'due_date'          => now(),
+                    'paid_at'           => now(),
+                    'payment_method'    => $paymentLabel,
+                    'payment_reference' => null,
+                    'gateway'           => null,
+                    'notes'             => $plan->isTrial()
+                        ? "Trial de {$plan->trial_days} días — vence {$nextBillingDate->format('d/m/Y')}"
+                        : 'Plan gratuito sin costo',
+                    'currency'          => 'MXN',
+                    'subtotal'          => 0,
+                    'tax_rate'          => 0,
+                    'tax_amount'        => 0,
+                    'total'             => 0,
+                ],
+                $selectedAddOns->map(fn($a) => [
+                    'service_id'          => $service->id,
+                    'description'         => $a->name,
+                    'quantity'            => 1,
+                    'unit_price'          => 0,
+                    'sat_clave_prod_serv' => $plan->sat_clave_prod_serv ?? config('facturama.clave_prod_serv'),
+                    'sat_clave_unidad'    => $plan->sat_clave_unidad    ?? config('facturama.clave_unidad', 'E48'),
+                ])->prepend([
+                    'service_id'          => $service->id,
+                    'description'         => sprintf('%s (%s)', $plan->name, strtoupper($validated['billing_cycle'])),
+                    'quantity'            => 1,
+                    'unit_price'          => 0,
+                    'sat_clave_prod_serv' => $plan->sat_clave_prod_serv ?? config('facturama.clave_prod_serv'),
+                    'sat_clave_unidad'    => $plan->sat_clave_unidad    ?? config('facturama.clave_unidad', 'E48'),
+                ])->values()->all()
+            );
+
+            ActivityLog::record(
+                $plan->isTrial() ? 'Activación de trial' : 'Activación de plan gratuito',
+                $plan->name,
+                'service',
+                ['receipt_id' => $receipt->id, 'service_id' => $service->id, 'plan_type' => $plan->plan_type],
+                $user->id
+            );
+
+            // 3) Post-commit: notificaciones
+            DB::afterCommit(function () use ($user, $receipt, $service, $plan, $nextBillingDate) {
+                broadcast(new \App\Events\ServicePurchased($service->fresh('user'), 0.0));
+                broadcast(new \App\Events\ReceiptGenerated($receipt));
+
+                $message = $plan->isTrial()
+                    ? "Tu periodo de prueba de '{$service->name}' ha comenzado. Vence el {$nextBillingDate->format('d/m/Y')}."
+                    : "Tu servicio gratuito '{$service->name}' ha sido activado exitosamente.";
+
+                \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\ServiceNotification([
+                    'title'   => $plan->isTrial() ? 'Trial activado' : 'Servicio activado',
+                    'message' => $message,
+                    'type'    => $plan->isTrial() ? 'service.trial_started' : 'service.activated',
+                    'data'    => [
+                        'service_id'    => $service->uuid ?? $service->id,
+                        'trial_ends_at' => $service->trial_ends_at?->toIso8601String(),
+                    ],
+                ]));
+
+                // Comprobante PDF (puede ser $0, útil como acuse de activación)
+                try {
+                    app(PaymentReceiptService::class)->generate($receipt->fresh(['user', 'items', 'service.plan']));
+                } catch (\Throwable $e) {
+                    Log::warning('Comprobante $0: no se pudo generar (no fatal)', [
+                        'receipt_id' => $receipt->id,
+                        'error'      => $e->getMessage(),
+                    ]);
+                }
+            });
+
+            return ['service' => $service, 'receipt' => $receipt, 'invoice' => null];
+        });
+
+        // ── Provisioning ─────────────────────────────────────────────────────
+        if ($result['service']->plan->isPterodactylManaged()) {
+            try {
+                app(GameServerProvisioningService::class)
+                    ->provision($result['service']->fresh(['plan', 'user']));
+            } catch (\Throwable $e) {
+                Log::error('Aprovisionamiento Pterodactyl fallido en plan gratuito (no fatal)', [
+                    'service_id' => $result['service']->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($result['service']->plan->isCoolifyManaged()) {
+            try {
+                app(HostingProvisioningService::class)
+                    ->provision($result['service']->fresh(['plan', 'user']));
+            } catch (\Throwable $e) {
+                Log::error('Aprovisionamiento Coolify fallido en plan gratuito (no fatal)', [
+                    'service_id' => $result['service']->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $result;
+    }
+
+    // ──────────────────────────────────────────────
     // Private Helpers
     // ──────────────────────────────────────────────
 
@@ -383,7 +607,7 @@ class ServiceContractingService
      *  2. invoice{}            → datos crudos del request
      *  3. null                 → sin datos (Público en General)
      *
-     * @return array{rfc,name,zip,regimen,uso_cfdi,constancia}|null
+     * @return array{rfc,name,zip,regimen,cfdi_use_code,constancia}|null
      */
     private function resolveFiscalData(User $user, array $validated): ?array
     {
@@ -394,7 +618,7 @@ class ServiceContractingService
                 ->first();
 
             if ($profile) {
-                return $profile->toServiceInvoiceData();
+                return $profile->toInvoiceData();
             }
         }
 
@@ -405,7 +629,7 @@ class ServiceContractingService
                 'name'       => $validated['invoice']['name'],
                 'zip'        => $validated['invoice']['zip'],
                 'regimen'    => $validated['invoice']['regimen'],
-                'uso_cfdi'   => $validated['invoice']['uso_cfdi'],
+                'cfdi_use_code' => $validated['invoice']['cfdi_use_code'],
                 'constancia' => $validated['invoice']['constancia'] ?? null,
             ];
         }
@@ -415,7 +639,7 @@ class ServiceContractingService
             ->where('is_default', true)
             ->first();
 
-        return $defaultProfile?->toServiceInvoiceData();
+        return $defaultProfile?->toInvoiceData();
     }
 
     private function resolveLocalPaymentMethodId(User $user, array $validated): ?int
@@ -522,9 +746,44 @@ class ServiceContractingService
             'last4'     => $c->last4,
             'exp_month' => $c->exp_month,
             'exp_year'  => $c->exp_year,
-            'funding'   => $c->funding,
+            'funding'   => $c->funding,   // 'credit' | 'debit' | 'prepaid' | 'unknown'
             'country'   => $c->country ?? null,
         ];
+    }
+
+    /**
+     * Convierte los metadatos de la tarjeta Stripe al tipo de pago descriptivo.
+     * Stripe es el gateway, no el método; el método es la tarjeta.
+     *
+     * Ejemplos:
+     *   credit + visa      → "Tarjeta de crédito (Visa ****1234)"
+     *   debit  + mastercard→ "Tarjeta de débito (Mastercard ****5678)"
+     */
+    private function resolvePaymentMethodLabel(?array $cardMeta): string
+    {
+        if (!$cardMeta) {
+            return 'Tarjeta';
+        }
+
+        $type  = match (strtolower($cardMeta['funding'] ?? '')) {
+            'credit'  => 'Tarjeta de crédito',
+            'debit'   => 'Tarjeta de débito',
+            'prepaid' => 'Tarjeta prepago',
+            default   => 'Tarjeta',
+        };
+
+        $brand = ucfirst(strtolower($cardMeta['brand'] ?? ''));
+        $last4 = $cardMeta['last4'] ?? null;
+
+        if ($brand && $last4) {
+            return "{$type} ({$brand} ****{$last4})";
+        }
+
+        if ($brand) {
+            return "{$type} ({$brand})";
+        }
+
+        return $type;
     }
 
     /**

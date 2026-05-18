@@ -15,8 +15,17 @@ use App\Http\Controllers\Client\DomainController;
 use App\Http\Controllers\Client\NotificationController;
 use App\Http\Controllers\Client\SupportChatController;
 use App\Http\Controllers\Client\FiscalController;
+use App\Http\Controllers\Client\ClientSearchController;
+use App\Http\Controllers\Client\InfrastructureController;
+use App\Http\Controllers\Auth\EmailVerificationController;
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
+
+    // ── Búsqueda global del cliente ───────────────────────────────────────────
+    Route::middleware('throttle:30,1')->group(function () {
+        Route::get('search',         [ClientSearchController::class, 'search']);
+        Route::get('search/popular', [ClientSearchController::class, 'popular']);
+    });
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
     Route::prefix('dashboard')->group(function () {
@@ -32,6 +41,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post  ('/avatar',            [ProfileController::class, 'updateAvatar']);
         Route::put   ('/email',             [ProfileController::class, 'updateEmail']);
         Route::put   ('/password',          [ProfileController::class, 'updatePassword']);
+        Route::post  ('/email/verification-notification', [EmailVerificationController::class, 'sendNotification'])
+            ->middleware('throttle:verification-notification');
         Route::get   ('/devices',           [ProfileController::class, 'getSessions']);
         Route::get   ('/security',          [ProfileController::class, 'getSecurityOverview']);
         Route::delete('/account',           [ProfileController::class, 'deleteAccount']);
@@ -43,10 +54,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('services')->group(function () {
 
         // Globales (sin UUID)
-        Route::get ('/plans',   [ServiceController::class, 'getServicePlans']);
-        Route::post('/contract',[ServiceController::class, 'contractService']);
-        Route::get ('/user',    [ServiceController::class, 'getUserServices']);
-        Route::get ('/metrics', [GameServerController::class, 'getAllServicesMetrics']);
+        Route::get ('/plans',             [ServiceController::class, 'getServicePlans']);
+        Route::post('/contract',          [ServiceController::class, 'contractService']);
+        Route::get ('/user',              [ServiceController::class, 'getUserServices']);
+        Route::get ('/upcoming-charges',  [ServiceController::class, 'upcomingCharges']);
+        Route::get ('/metrics',           [GameServerController::class, 'getAllServicesMetrics']);
         Route::get ('/game-servers/{nest_id}/eggs', [GameServerController::class, 'listEggs']);
 
         // Por servicio
@@ -62,9 +74,12 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post  ('/reactivate',    [ServiceController::class, 'reactivateService']);
 
             // ── Backups ──────────────────────────────────────────────────────
-            Route::get ('/backups',                      [ServiceController::class, 'getServiceBackups']);
-            Route::post('/backups',                      [ServiceController::class, 'createServiceBackup']);
-            Route::post('/backups/{backupId}/restore',   [ServiceController::class, 'restoreServiceBackup']);
+            Route::get   ('/backups',                      [ServiceController::class, 'getServiceBackups']);
+            Route::post  ('/backups',                      [ServiceController::class, 'createServiceBackup']);
+            Route::post  ('/backups/{backupId}/restore',   [ServiceController::class, 'restoreServiceBackup']);
+            Route::get   ('/backups/{backupId}/download',  [ServiceController::class, 'downloadServiceBackup']);
+            Route::get   ('/backups/{backupId}/file',      [ServiceController::class, 'streamServiceBackup']);
+            Route::delete('/backups/{backupId}',           [ServiceController::class, 'deleteServiceBackup']);
 
             // ── Archivos ─────────────────────────────────────────────────────
             Route::prefix('files')->group(function () {
@@ -94,10 +109,16 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get ('/java-check',        [GameServerController::class, 'checkJavaCompatibility']);
                 Route::post('/java-autofix',      [GameServerController::class, 'autoFixJavaCompatibility']);
                 Route::get ('/java-requirements', [GameServerController::class, 'javaRequirements']);
+                // Logs & lightweight status
+                Route::get ('/logs',             [GameServerController::class, 'getLogs']);
+                Route::get ('/status',           [GameServerController::class, 'getStatus']);
+                // Ping history (last 24 h, sampled every 5 min by scheduler)
+                Route::get ('/pings',            [GameServerController::class, 'getPingHistory']);
             });
         });
     });
 
+    // ── Payments ──────────────────────────────────────────────────────────────
     // ── Payments ──────────────────────────────────────────────────────────────
     Route::prefix('payments')->group(function () {
         Route::get   ('/methods',       [PaymentController::class, 'getPaymentMethods']);
@@ -133,8 +154,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Invoices ──────────────────────────────────────────────────────────────
     Route::prefix('invoices')->group(function () {
         Route::get('/',                     [InvoiceController::class, 'index']);
+        Route::get('/cfdi',                 [InvoiceController::class, 'cfdi']);
         Route::get('/stats',                [InvoiceController::class, 'getStats']);
         Route::get('/{uuid}',               [InvoiceController::class, 'show']);
+        Route::get('/{uuid}/receipt',       [InvoiceController::class, 'downloadReceipt']);
         Route::get('/{uuid}/pdf',           [InvoiceController::class, 'downloadPdf']);
         Route::get('/{uuid}/xml',           [InvoiceController::class, 'downloadXml']);
         Route::put('/{uuid}/fiscal-data',   [InvoiceController::class, 'updateFiscalData']);
@@ -184,6 +207,9 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::put   ('/{uuid}/set-default', [FiscalController::class, 'setDefault']);
         });
     });
+
+    // ── Infrastructure / Network Topology ────────────────────────────────────
+    Route::get('/infrastructure', [InfrastructureController::class, 'index']);
 
     // ── Support Chat ──────────────────────────────────────────────────────────
     Route::prefix('chat')->name('client.chat.')->group(function () {

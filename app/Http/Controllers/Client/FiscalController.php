@@ -87,17 +87,17 @@ class FiscalController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'alias'          => ['nullable', 'string', 'max:100'],
-            'rfc'            => ['required', 'string', 'min:12', 'max:13', 'regex:/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/i'],
-            'razon_social'   => ['required', 'string', 'max:255'],
-            'codigo_postal'  => ['required', 'string', 'digits:5'],
-            'regimen_fiscal' => ['required', 'string', 'exists:fiscal_regimes,code'],
-            'uso_cfdi'       => ['required', 'string', 'exists:cfdi_uses,code'],
-            'is_default'     => ['sometimes', 'boolean'],
+            'alias'         => ['nullable', 'string', 'max:100'],
+            'rfc'           => ['required', 'string', 'min:12', 'max:13', 'regex:/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/i'],
+            'business_name'      => ['required', 'string', 'max:255'],
+            'postal_code'        => ['required', 'string', 'digits:5'],
+            'fiscal_regime_code' => ['required', 'string', 'exists:fiscal_regimes,code'],
+            'cfdi_use_code'      => ['required', 'string', 'exists:cfdi_uses,code'],
+            'is_default'         => ['sometimes', 'boolean'],
         ], [
-            'rfc.regex'              => 'El RFC no tiene un formato válido.',
-            'regimen_fiscal.exists'  => 'El régimen fiscal no es válido.',
-            'uso_cfdi.exists'        => 'El uso de CFDI no es válido.',
+            'rfc.regex'                 => 'RFC format is invalid.',
+            'fiscal_regime_code.exists' => 'The fiscal regime code is not valid.',
+            'cfdi_use_code.exists'      => 'The CFDI use code is not valid.',
         ]);
 
         $user = Auth::user();
@@ -151,17 +151,17 @@ class FiscalController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
-            'alias'          => ['sometimes', 'nullable', 'string', 'max:100'],
-            'rfc'            => ['sometimes', 'string', 'min:12', 'max:13', 'regex:/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/i'],
-            'razon_social'   => ['sometimes', 'string', 'max:255'],
-            'codigo_postal'  => ['sometimes', 'string', 'digits:5'],
-            'regimen_fiscal' => ['sometimes', 'string', 'exists:fiscal_regimes,code'],
-            'uso_cfdi'       => ['sometimes', 'string', 'exists:cfdi_uses,code'],
-            'is_default'     => ['sometimes', 'boolean'],
+            'alias'         => ['sometimes', 'nullable', 'string', 'max:100'],
+            'rfc'           => ['sometimes', 'string', 'min:12', 'max:13', 'regex:/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/i'],
+            'business_name'      => ['sometimes', 'string', 'max:255'],
+            'postal_code'        => ['sometimes', 'string', 'digits:5'],
+            'fiscal_regime_code' => ['sometimes', 'string', 'exists:fiscal_regimes,code'],
+            'cfdi_use_code'      => ['sometimes', 'string', 'exists:cfdi_uses,code'],
+            'is_default'         => ['sometimes', 'boolean'],
         ], [
-            'rfc.regex'             => 'El RFC no tiene un formato válido.',
-            'regimen_fiscal.exists' => 'El régimen fiscal no es válido.',
-            'uso_cfdi.exists'       => 'El uso de CFDI no es válido.',
+            'rfc.regex'                 => 'RFC format is invalid.',
+            'fiscal_regime_code.exists' => 'The fiscal regime code is not valid.',
+            'cfdi_use_code.exists'      => 'The CFDI use code is not valid.',
         ]);
 
         $profile->update($validated);

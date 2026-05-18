@@ -46,14 +46,34 @@ class TicketReplied implements ShouldBroadcast
     public function broadcastWith(): array
     {
         $isFromStaff = $this->reply->isFromStaff();
+        $author      = $this->reply->user;
 
         return [
             'ticket_id'      => $this->ticket->uuid,
             'ticket_subject' => $this->ticket->subject,
             'reply_id'       => $this->reply->id,
             'reply_message'  => $this->reply->message,
-            'reply_by'       => $this->reply->user?->full_name ?? 'Soporte',
+            'reply_by'       => $author?->full_name ?? 'Soporte',
             'is_from_staff'  => $isFromStaff,
+
+            // Objeto reply completo para renderizar el mensaje en tiempo real
+            // sin tener que hacer un refetch (incluye adjuntos con URL).
+            'reply' => [
+                'id'          => $this->reply->id,
+                'ticket_id'   => $this->ticket->id,
+                'message'     => $this->reply->message,
+                'attachments' => $this->reply->attachments, // accessor añade `url`
+                'is_internal' => (bool) $this->reply->is_internal,
+                'created_at'  => $this->reply->created_at?->toISOString(),
+                'user'        => $author ? [
+                    'id'         => $author->id,
+                    'first_name' => $author->first_name,
+                    'last_name'  => $author->last_name,
+                    'avatar_url' => $author->avatar_url,
+                    'role'       => $isFromStaff ? 'admin' : 'client',
+                ] : null,
+            ],
+
             'message'        => $isFromStaff
                 ? "El equipo de soporte ha respondido a tu ticket: {$this->ticket->subject}"
                 : "Nueva respuesta del cliente en el ticket: {$this->ticket->subject}",

@@ -2,7 +2,7 @@
 
 namespace App\Notifications;
 
-use App\Models\Invoice;
+use App\Models\Receipt;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -18,7 +18,7 @@ class InvoiceReady extends Notification implements ShouldQueue
     /**
      * Create a new notification instance.
      */
-    public function __construct(Invoice $invoice)
+    public function __construct(Receipt $invoice)
     {
         $this->invoice = $invoice;
     }
@@ -43,14 +43,26 @@ class InvoiceReady extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
+        $amount = number_format((float) ($this->invoice->total ?? 0), 2);
+        $currency = strtoupper($this->invoice->currency ?? 'MXN');
+
         return (new MailMessage)
-            ->subject('Nueva Factura Disponible')
-            ->greeting('¡Hola ' . $notifiable->name . '!')
-            ->line("Tu factura #{$this->invoice->invoice_number} está lista.")
-            ->line("Monto: {$this->invoice->total_amount} {$this->invoice->currency}")
-            ->line("Fecha de vencimiento: {$this->invoice->due_date->format('d/m/Y')}")
-            ->action('Ver Factura', url('/dashboard/billing/invoices/' . $this->invoice->uuid))
-            ->line('Puedes descargar tu factura desde tu panel de control.');
+            ->subject("Comprobante de pago #{$this->invoice->invoice_number} disponible - Roke Industries")
+            ->view('emails.notification', [
+                'notifiable' => $notifiable,
+                'title' => 'Comprobante de pago disponible',
+                'subtitle' => 'Tu comprobante de pago está listo',
+                'intro' => "Tu comprobante #{$this->invoice->invoice_number} está listo para revisar y descargar desde tu panel.",
+                'detailsTitle' => 'Detalles del comprobante',
+                'details' => [
+                    'Folio' => $this->invoice->invoice_number,
+                    'Total' => "\${$amount} {$currency}",
+                    'Fecha de vencimiento' => $this->invoice->due_date?->format('d/m/Y') ?? 'No disponible',
+                    'Estado' => $this->invoice->status_text ?? 'Enviada',
+                ],
+                'actionUrl' => '/client/invoices/' . $this->invoice->uuid,
+                'actionText' => 'Ver comprobante',
+            ]);
     }
 
     /**
@@ -62,13 +74,13 @@ class InvoiceReady extends Notification implements ShouldQueue
             'type' => 'invoice_ready',
             'invoice_id' => $this->invoice->uuid,
             'invoice_number' => $this->invoice->invoice_number,
-            'amount' => $this->invoice->total_amount,
+            'amount' => $this->invoice->total,
             'currency' => $this->invoice->currency,
-            'due_date' => $this->invoice->due_date->toDateString(),
-            'title' => 'Nueva Factura',
-            'message' => "Tu factura #{$this->invoice->invoice_number} por {$this->invoice->total_amount} {$this->invoice->currency} está lista.",
-            'action_url' => '/dashboard/billing/invoices/' . $this->invoice->uuid,
-            'action_text' => 'Ver Factura',
+            'due_date' => $this->invoice->due_date?->toDateString(),
+            'title' => 'Nuevo comprobante de pago',
+            'message' => "Tu comprobante #{$this->invoice->invoice_number} por {$this->invoice->total} {$this->invoice->currency} está listo.",
+            'action_url' => '/client/invoices/' . $this->invoice->uuid,
+            'action_text' => 'Ver comprobante',
             'icon' => 'document-text',
             'color' => 'info',
         ];
@@ -83,17 +95,16 @@ class InvoiceReady extends Notification implements ShouldQueue
             'type' => 'invoice_ready',
             'invoice_id' => $this->invoice->uuid,
             'invoice_number' => $this->invoice->invoice_number,
-            'amount' => $this->invoice->total_amount,
+            'amount' => $this->invoice->total,
             'currency' => $this->invoice->currency,
-            'due_date' => $this->invoice->due_date->toDateString(),
-            'title' => 'Nueva Factura',
-            'message' => "Tu factura #{$this->invoice->invoice_number} por {$this->invoice->total_amount} {$this->invoice->currency} está lista.",
-            'action_url' => '/dashboard/billing/invoices/' . $this->invoice->uuid,
-            'action_text' => 'Ver Factura',
+            'due_date' => $this->invoice->due_date?->toDateString(),
+            'title' => 'Nuevo comprobante de pago',
+            'message' => "Tu comprobante #{$this->invoice->invoice_number} por {$this->invoice->total} {$this->invoice->currency} está listo.",
+            'action_url' => '/client/invoices/' . $this->invoice->uuid,
+            'action_text' => 'Ver comprobante',
             'icon' => 'document-text',
             'color' => 'info',
             'timestamp' => now()->toISOString(),
         ]);
     }
 }
-

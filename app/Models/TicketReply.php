@@ -18,12 +18,14 @@ class TicketReply extends Model
         'user_id',
         'message',
         'is_internal',
-        'attachments'
+        'attachments',
+        'read_at',
     ];
 
     protected $casts = [
         'is_internal' => 'boolean',
         'attachments' => 'array',
+        'read_at'     => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime'
@@ -46,12 +48,16 @@ class TicketReply extends Model
      */
     public function getAttachmentsAttribute($value)
     {
-        $attachments = json_decode($value, true); // Decodificar el JSON de la DB
+        // Soporta tanto el valor recién asignado en memoria (array) como el
+        // JSON crudo almacenado en la base de datos (string).
+        $attachments = is_array($value) ? $value : json_decode($value, true);
 
         if (is_array($attachments)) {
             return array_map(function ($attachment) {
-                // Añadir la URL completa a cada adjunto
-                $attachment['url'] = Storage::disk('public')->url($attachment['path']);
+                if (is_array($attachment) && !empty($attachment['path'])) {
+                    // Añadir la URL completa a cada adjunto
+                    $attachment['url'] = Storage::disk('public')->url($attachment['path']);
+                }
                 return $attachment;
             }, $attachments);
         }
@@ -73,6 +79,12 @@ class TicketReply extends Model
     public function scopeByUser($query, $userId)
     {
         return $query->where('user_id', $userId);
+    }
+
+    /** Respuestas públicas aún no leídas por su destinatario. */
+    public function scopeUnread($query)
+    {
+        return $query->whereNull('read_at')->where('is_internal', false);
     }
 
     // Métodos

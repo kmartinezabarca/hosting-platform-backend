@@ -37,6 +37,20 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
+    'google' => [
+        'client_id'     => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect'      => env('GOOGLE_REDIRECT_URL'),
+    ],
+
+    // roke.pet — planes de suscripción (Stripe Price IDs)
+    'rokepet' => [
+        'frontend_url'        => env('ROKEPET_FRONTEND_URL', 'https://roke.pet'),
+        'stripe_price_starter'=> env('ROKEPET_STRIPE_PRICE_STARTER'),
+        'stripe_price_pro'    => env('ROKEPET_STRIPE_PRICE_PRO'),
+        'trial_days'          => (int) env('ROKEPET_TRIAL_DAYS', 14),
+    ],
+
     'pterodactyl' => [
         'url' => env('PTERODACTYL_URL', 'https://panel.rokeindustries.net'),
         'key' => env('PTERODACTYL_API_KEY'),

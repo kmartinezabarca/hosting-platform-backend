@@ -25,6 +25,7 @@ class BlogPost extends Model
         'image',
         'read_time',
         'is_featured',
+        'is_published',
         'published_at',
     ];
 

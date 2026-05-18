@@ -45,12 +45,15 @@ class GameServerController extends Controller
     }
 
     /**
-     * GET /admin/game-servers/{id}
+     * GET /admin/game-servers/{uuid}
      * Detalle del servicio + estado en tiempo real de Pterodactyl.
      */
-    public function show(int $id): JsonResponse
+    public function show(string $uuid): JsonResponse
     {
-        $service = Service::with(['user', 'plan'])->findOrFail($id);
+
+        $service = Service::with(['user', 'plan'])
+    ->where('uuid', $uuid)
+    ->firstOrFail();
 
         $pterodactylStatus = null;
         if ($service->pterodactyl_server_id) {

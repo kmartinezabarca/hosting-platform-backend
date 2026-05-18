@@ -12,17 +12,20 @@ use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\TicketResource;
 use App\Http\Resources\UserResource;
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\InvoiceItem;
 use App\Models\Service;
 use App\Models\Ticket;
 use App\Models\TicketReply;
 use App\Models\User;
 use App\Notifications\InvoiceReady;
+use App\Services\Admin\ServiceSupportOverviewService;
 use App\Services\DashboardStatsService;
 use App\Services\InvoiceService;
+use App\Services\PaymentReceiptService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -33,6 +36,8 @@ class AdminController extends Controller
     public function __construct(
         private readonly DashboardStatsService $dashboardStats,
         private readonly InvoiceService $invoiceService,
+        private readonly PaymentReceiptService $receiptService,
+        private readonly ServiceSupportOverviewService $serviceSupportOverview,
     ) {
     }
 
@@ -162,7 +167,16 @@ class AdminController extends Controller
         $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
         $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
 
-        $services = Service::with(['user', 'plan'])
+        $services = Service::with([
+                'user:id,first_name,last_name,email',
+                'plan:id,name,slug,base_price,category_id',
+                'plan.category:id,slug,name',
+            ])
+            ->select([
+                'id', 'uuid', 'user_id', 'plan_id',
+                'name', 'domain', 'status', 'price',
+                'billing_cycle', 'next_due_date', 'created_at',
+            ])
             ->when($search, fn($q) => $q->where(fn($q) =>
                 $q->where('name',   'like', "%{$search}%")
                   ->orWhere('domain', 'like', "%{$search}%")
@@ -180,11 +194,25 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $services]);
     }
 
-    public function getService(int $id): JsonResponse
+    public function getService(string $uuid): JsonResponse
     {
-        $service = Service::with(['user', 'plan.category', 'plan.features', 'plan.pricing.billingCycle'])->findOrFail($id);
+        $service = Service::with([
+            'user:id,first_name,last_name,email,phone',
+            'plan:id,name,slug,base_price,setup_fee,category_id,specifications',
+            'plan.category:id,slug,name',
+            'selectedEgg:id,egg_name,egg_description,display_name',
+            'serverNode:id,name,ip_address',
+        ])->where('uuid', $uuid)->firstOrFail();
 
         return response()->json(['success' => true, 'data' => $service]);
+    }
+
+    public function getServiceSupportOverview(string $uuid): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $this->serviceSupportOverview->build($uuid),
+        ]);
     }
 
     public function createService(StoreServiceRequest $request): JsonResponse
@@ -262,9 +290,9 @@ class AdminController extends Controller
         ], 201);
     }
 
-    public function updateService(Request $request, int $id): JsonResponse
+    public function updateService(Request $request, string $uuid): JsonResponse
     {
-        $service = Service::with('plan.category')->findOrFail($id);
+        $service = Service::with('plan.category')->where('uuid', $uuid)->firstOrFail();
         $categorySlug = $service->plan?->category?->slug ?? '';
         $isInfra      = in_array($categorySlug, Service::INFRA_SLUGS, true);
 
@@ -329,9 +357,9 @@ class AdminController extends Controller
         ]);
     }
 
-    public function deleteService(int $id): JsonResponse
+    public function deleteService(string $uuid): JsonResponse
     {
-        $service = Service::findOrFail($id);
+        $service = Service::where('uuid', $uuid)->firstOrFail();
 
         if ($service->status === 'active') {
             return response()->json([
@@ -348,9 +376,9 @@ class AdminController extends Controller
         ]);
     }
 
-    public function updateServiceStatus(Request $request, int $serviceId): JsonResponse
+    public function updateServiceStatus(Request $request, string $uuid): JsonResponse
     {
-        $service = Service::findOrFail($serviceId);
+        $service = Service::where('uuid', $uuid)->firstOrFail();
 
         $validated = $request->validate([
             'status' => ['required', Rule::in(['active', 'suspended', 'maintenance', 'cancelled'])],
@@ -377,20 +405,20 @@ class AdminController extends Controller
     {
         $now = now();
 
-        $pending = \App\Models\Invoice::whereIn('status', [
-            \App\Models\Invoice::STATUS_SENT,
-            \App\Models\Invoice::STATUS_PROCESS,
+        $pending = \App\Models\Receipt::whereIn('status', [
+            \App\Models\Receipt::STATUS_SENT,
+            \App\Models\Receipt::STATUS_PROCESS,
         ])->count();
 
         return response()->json([
             'success' => true,
             'data' => [
-                'invoices_count'    => \App\Models\Invoice::count(),
-                'total_paid'        => \App\Models\Invoice::where('status', \App\Models\Invoice::STATUS_PAID)->count(),
+                'invoices_count'    => \App\Models\Receipt::count(),
+                'total_paid'        => \App\Models\Receipt::where('status', \App\Models\Receipt::STATUS_PAID)->count(),
                 'pending'           => $pending,
                 'total_pending'     => $pending,
-                'total_overdue'     => \App\Models\Invoice::where('status', \App\Models\Invoice::STATUS_OVERDUE)->count(),
-                'revenue_this_month'=> (float) \App\Models\Invoice::where('status', \App\Models\Invoice::STATUS_PAID)
+                'total_overdue'     => \App\Models\Receipt::where('status', \App\Models\Receipt::STATUS_OVERDUE)->count(),
+                'revenue_this_month'=> (float) \App\Models\Receipt::where('status', \App\Models\Receipt::STATUS_PAID)
                     ->whereMonth('updated_at', $now->month)
                     ->whereYear('updated_at', $now->year)
                     ->sum('total'),
@@ -407,7 +435,7 @@ class AdminController extends Controller
         $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
         $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
 
-        $invoices = Invoice::with(['user', 'items'])
+        $invoices = Receipt::with(['user', 'items'])
             ->when($search, fn($q) => $q->where(fn($q) =>
                 $q->where('invoice_number', 'like', "%{$search}%")
                   ->orWhereHas('user', fn($u) =>
@@ -421,6 +449,73 @@ class AdminController extends Controller
             ->paginate($perPage);
 
         return response()->json(['success' => true, 'data' => $invoices]);
+    }
+
+    public function getInvoicesByService(Request $request, string $serviceId): JsonResponse
+{
+    $perPage = min((int) $request->get('per_page', 15), 100);
+    $search  = $request->get('search');
+
+    $allowedSort = [
+        'created_at',
+        'invoice_number',
+        'total',
+        'due_date',
+        'paid_at',
+        'status'
+    ];
+
+    $sortBy = in_array($request->get('sort_by'), $allowedSort)
+        ? $request->get('sort_by')
+        : 'created_at';
+
+    $sortOrder = $request->get('sort_order') === 'asc'
+        ? 'asc'
+        : 'desc';
+
+    $invoices = Receipt::with(['user', 'items', 'service'])
+        ->where('service_id', $serviceId)
+        ->when($search, function ($q) use ($search) {
+            $q->where(function ($q) use ($search) {
+                $q->where('invoice_number', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($u) use ($search) {
+                        $u->where('first_name', 'like', "%{$search}%")
+                            ->orWhere('last_name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%");
+                    });
+            });
+        })
+        ->when($request->get('status'), fn($q, $v) => $q->where('status', $v))
+        ->orderBy($sortBy, $sortOrder)
+        ->paginate($perPage);
+
+    return response()->json([
+        'success' => true,
+        'data' => $invoices
+    ]);
+}
+
+    /**
+     * GET /api/admin/invoices/{uuid}/receipt
+     * Admin descarga el comprobante de pago (PDF interno) de cualquier factura.
+     */
+    public function downloadReceipt(string $uuid): Response|JsonResponse
+    {
+        $invoice = Receipt::where('uuid', $uuid)->with(['user', 'items', 'service.plan'])->firstOrFail();
+
+        $content = $this->receiptService->getContent($invoice);
+
+        if (!$content) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo generar el comprobante de pago.',
+            ], 500);
+        }
+
+        return response($content, 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => "attachment; filename=\"comprobante-{$invoice->invoice_number}.pdf\"",
+        ]);
     }
 
     public function createInvoice(StoreInvoiceRequest $request): JsonResponse
@@ -444,7 +539,7 @@ class AdminController extends Controller
             'tax_amount' => $taxAmount,
             'total'      => $total,
             'currency'   => $data['currency'] ?? config('billing.currency', 'MXN'),
-            'paid_at'    => ($data['status'] === Invoice::STATUS_PAID) ? now() : null,
+            'paid_at'    => ($data['status'] === Receipt::STATUS_PAID) ? now() : null,
         ]);
 
         $invoice = $this->invoiceService->createWithItems($invoiceData, $items);
@@ -458,16 +553,16 @@ class AdminController extends Controller
 
     public function updateInvoice(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::with('items')->findOrFail($id);
+        $invoice = Receipt::with('items')->findOrFail($id);
 
         $validated = $request->validate([
             'status'            => ['sometimes', Rule::in([
-                                        Invoice::STATUS_DRAFT,
-                                        Invoice::STATUS_SENT,
-                                        Invoice::STATUS_PROCESS,
-                                        Invoice::STATUS_PAID,
-                                        Invoice::STATUS_OVERDUE,
-                                        Invoice::STATUS_CANCELLED,
+                                        Receipt::STATUS_DRAFT,
+                                        Receipt::STATUS_SENT,
+                                        Receipt::STATUS_PROCESS,
+                                        Receipt::STATUS_PAID,
+                                        Receipt::STATUS_OVERDUE,
+                                        Receipt::STATUS_CANCELLED,
                                     ])],
             'due_date'          => ['sometimes', 'date'],
             'notes'             => ['nullable', 'string', 'max:1000'],
@@ -513,7 +608,7 @@ class AdminController extends Controller
             }
 
             // Marcar paid_at cuando cambia estado a pagado
-            if (isset($validated['status']) && $validated['status'] === Invoice::STATUS_PAID && ! $invoice->paid_at) {
+            if (isset($validated['status']) && $validated['status'] === Receipt::STATUS_PAID && ! $invoice->paid_at) {
                 $validated['paid_at'] = now();
             }
 
@@ -529,9 +624,9 @@ class AdminController extends Controller
 
     public function deleteInvoice(int $id): JsonResponse
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = Receipt::findOrFail($id);
 
-        if ($invoice->status === Invoice::STATUS_PAID) {
+        if ($invoice->status === Receipt::STATUS_PAID) {
             return response()->json([
                 'success' => false,
                 'message' => 'No se puede eliminar una factura que ya ha sido pagada. Usa cancelar en su lugar.',
@@ -549,7 +644,7 @@ class AdminController extends Controller
 
     public function updateInvoiceStatus(Request $request, int $invoiceId): JsonResponse
     {
-        $invoice = Invoice::findOrFail($invoiceId);
+        $invoice = Receipt::findOrFail($invoiceId);
 
         $validated = $request->validate([
             'status' => ['required', Rule::in(['pending', 'paid', 'overdue', 'cancelled'])],
@@ -571,7 +666,7 @@ class AdminController extends Controller
 
     public function markInvoiceAsPaid(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = Receipt::findOrFail($id);
 
         $invoice->update([
             'status'         => 'paid',
@@ -589,7 +684,7 @@ class AdminController extends Controller
 
     public function sendInvoiceReminder(int $id): JsonResponse
     {
-        $invoice = Invoice::with('user')->findOrFail($id);
+        $invoice = Receipt::with('user')->findOrFail($id);
 
         if (!$invoice->user) {
             return response()->json(['success' => false, 'message' => 'Usuario no encontrado.'], 404);
@@ -597,12 +692,12 @@ class AdminController extends Controller
 
         $invoice->user->notify(new InvoiceReady($invoice));
 
-        return response()->json(['success' => true, 'message' => 'Recordatorio de factura enviado.']);
+        return response()->json(['success' => true, 'message' => 'Recordatorio de comprobante enviado.']);
     }
 
     public function cancelInvoice(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = Receipt::findOrFail($id);
 
         $invoice->update([
             'status' => 'cancelled',

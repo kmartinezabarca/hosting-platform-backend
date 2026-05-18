@@ -22,6 +22,13 @@ class ServicePlanResource extends JsonResource
             'is_active' => $this->is_active,
             'sort_order' => $this->sort_order,
             'specifications' => $this->specifications ?? [],
+            'provisioner' => $this->provisioner,
+            'provisioner_config' => $this->normalizedProvisionerConfig(),
+            'pterodactyl_egg' => $this->pterodactyl_egg,
+            'pterodactyl_version' => $this->pterodactyl_version,
+            'pterodactyl_environment' => $this->pterodactyl_environment ?? data_get($this->provisioner_config, 'environment'),
+            'coolify_build_pack' => $this->when($this->provisioner === 'coolify', $this->coolify_build_pack),
+            'coolify_db_enabled' => $this->when($this->provisioner === 'coolify', $this->coolify_db_enabled),
             'game_type' => $this->game_type,
             'game_runtime_options' => $this->when($request->is('api/admin/*'), $this->game_runtime_options ?? []),
             'game_config_schema' => $this->when($request->is('api/admin/*'), $this->game_config_schema ?? []),
@@ -63,6 +70,11 @@ class ServicePlanResource extends JsonResource
                 'environment' => $this->pterodactyl_environment ?? [],
                 'docker_image' => $this->pterodactyl_docker_image,
                 'startup' => $this->pterodactyl_startup,
+            ]),
+
+            'coolify' => $this->when($this->provisioner === 'coolify', fn () => [
+                'build_pack' => $this->coolify_build_pack ?? 'static',
+                'db_enabled' => $this->coolify_db_enabled ?? false,
             ]),
         ];
     }

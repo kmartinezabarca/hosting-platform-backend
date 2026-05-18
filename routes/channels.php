@@ -14,14 +14,6 @@ use App\Models\User;
 |
 */
 
-Broadcast::channel('admin.chat.status', function (User $user) {
-    return $user->isAdmin();
-});
-
-Broadcast::channel('admin.chat', function (User $user) {
-    return $user->isAdmin(); // sólo administradores
-});
-
 // Canal general para usuarios autenticados
 Broadcast::channel('App.Models.User.{uuid}', function (User $user, $uuid) {
     return $user->uuid === $uuid;

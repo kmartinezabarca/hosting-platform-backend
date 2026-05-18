@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\InvoiceGenerated;
 use App\Events\InvoiceStatusChanged;
+use App\Events\ReceiptGenerated;
 use App\Models\User;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -13,27 +14,34 @@ class CreateInvoiceNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    public function handleGenerated(InvoiceGenerated $event)
+    /**
+     * Handles both InvoiceGenerated and ReceiptGenerated events.
+     */
+    public function handleGenerated(InvoiceGenerated|ReceiptGenerated $event)
     {
-        $this->notifyClient($event->invoice->user, [
-            'title'   => 'Nueva Factura Generada',
-            'message' => $event->broadcastWith()['message'],
-            'type'    => 'invoice_generated',
-            'data'    => $event->broadcastWith(),
+        $receipt = $event instanceof ReceiptGenerated ? $event->receipt : $event->invoice;
+
+        $broadcastData = $event->broadcastWith();
+
+        $this->notifyClient($receipt->user, [
+            'title'   => 'Nuevo Comprobante Generado',
+            'message' => $broadcastData['message'],
+            'type'    => 'receipt_generated',
+            'data'    => $broadcastData,
         ]);
 
         $this->notifyAdmins([
-            'title'   => 'Factura Generada',
-            'message' => "Se generó la factura #{$event->invoice->invoice_number} para {$event->invoice->user->full_name}",
-            'type'    => 'admin_invoice_generated',
-            'data'    => $event->broadcastWith(),
+            'title'   => 'Comprobante Generado',
+            'message' => "Se generó el comprobante #{$receipt->invoice_number} para {$receipt->user->full_name}",
+            'type'    => 'admin_receipt_generated',
+            'data'    => $broadcastData,
         ]);
     }
 
     public function handleStatusChanged(InvoiceStatusChanged $event)
     {
         $this->notifyClient($event->invoice->user, [
-            'title'   => 'Estado de Factura Actualizado',
+            'title'   => 'Estado de Comprobante Actualizado',
             'message' => $event->broadcastWith()['message'],
             'type'    => 'invoice_status_changed',
             'data'    => $event->broadcastWith(),
@@ -41,8 +49,8 @@ class CreateInvoiceNotification implements ShouldQueue
 
         if (in_array($event->newStatus, ['paid', 'cancelled', 'overdue'])) {
             $this->notifyAdmins([
-                'title'   => 'Estado de Factura Actualizado',
-                'message' => "La factura #{$event->invoice->invoice_number} cambió a estado: {$event->newStatus}",
+                'title'   => 'Estado de Comprobante Actualizado',
+                'message' => "El comprobante #{$event->invoice->invoice_number} cambió a estado: {$event->newStatus}",
                 'type'    => 'admin_invoice_status',
                 'data'    => $event->broadcastWith(),
             ]);

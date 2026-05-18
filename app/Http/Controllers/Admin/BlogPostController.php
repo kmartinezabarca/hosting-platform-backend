@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class BlogPostController extends Controller
 {
@@ -56,7 +57,7 @@ class BlogPostController extends Controller
     public function store(BlogPostRequest $request): JsonResponse
     {
         $data = $request->validated();
-        
+
         // Si no se proporciona un author_name, usar el nombre del usuario autenticado o 'ROKE Industries'
         if (empty($data["author_name"])) {
             $data["author_name"] = auth()->check() ? auth()->user()->name : 'ROKE Industries';
@@ -74,10 +75,6 @@ class BlogPostController extends Controller
         // Convertir blog_category_id (UUID) a ID interno
         $category = \App\Models\BlogCategory::where("uuid", $data["blog_category_id"])->firstOrFail();
         $data["blog_category_id"] = $category->id;
-
-        if ($request->hasFile("image")) {
-            $data["image"] = $request->file("image")->store("blog_images", "public");
-        }
 
         $post = BlogPost::create($data);
 
@@ -108,7 +105,7 @@ class BlogPostController extends Controller
     {
         $post = BlogPost::where("uuid", $uuid)->firstOrFail();
         $data = $request->validated();
-        
+      
         // Si no se proporciona un author_name, usar el nombre del usuario autenticado o 'ROKE Industries'
         if (empty($data["author_name"])) {
             $data["author_name"] = auth()->check() ? auth()->user()->name : 'ROKE Industries';
@@ -126,13 +123,6 @@ class BlogPostController extends Controller
         // Convertir blog_category_id (UUID) a ID interno
         $category = \App\Models\BlogCategory::where("uuid", $data["blog_category_id"])->firstOrFail();
         $data["blog_category_id"] = $category->id;
-
-        if ($request->hasFile("image")) {
-            if ($post->image) {
-                Storage::disk("public")->delete($post->image);
-            }
-            $data["image"] = $request->file("image")->store("blog_images", "public");
-        }
 
         $post->update($data);
 

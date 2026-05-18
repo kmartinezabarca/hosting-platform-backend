@@ -28,7 +28,7 @@ return [
     'issuer' => [
         'rfc'            => env('FACTURAMA_ISSUER_RFC', ''),
         'name'           => env('FACTURAMA_ISSUER_NAME', ''),
-        'regimen_fiscal' => env('FACTURAMA_ISSUER_REGIMEN', '601'),
+        'fiscal_regime'  => env('FACTURAMA_ISSUER_REGIMEN', '601'),
         'lugar_expedicion' => env('FACTURAMA_ISSUER_ZIP', ''),  // CP del domicilio fiscal
     ],
 

@@ -1,18 +1,24 @@
 @extends('emails.layout')
 
-@section('title', 'Restablecer Contraseña - Roke Industries')
+@section('title', 'Restablecer contraseña - Roke Industries')
 
 @section('header_subtitle', 'Solicitud de restablecimiento de contraseña')
 
 @section('content')
-    <h2>Hola {{ $user->name }},</h2>
+    @php
+        $customerName = trim($user->full_name ?? '')
+            ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''))
+            ?: $user->email;
+    @endphp
+
+    <h2>Hola {{ $customerName }},</h2>
     
     <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en <strong>Roke Industries</strong>.</p>
     
     <p>Si solicitaste este cambio, puedes restablecer tu contraseña haciendo clic en el siguiente botón:</p>
     
     <div style="text-align: center;">
-        <a href="{{ $resetUrl }}" class="button">Restablecer Contraseña</a>
+        <a href="{{ $resetUrl }}" class="button">Restablecer contraseña</a>
     </div>
     
     <div class="info-box">
@@ -26,7 +32,7 @@
     
     <div class="divider"></div>
     
-    <p style="color: #e53e3e; font-weight: 600;">⚠️ Importante:</p>
+    <p style="color: #e53e3e; font-weight: 600;">Importante:</p>
     <ul style="color: #4a5568; padding-left: 20px; margin-bottom: 20px;">
         <li style="margin-bottom: 8px;">Si no solicitaste este cambio, puedes ignorar este correo</li>
         <li style="margin-bottom: 8px;">Tu contraseña actual permanecerá sin cambios</li>
@@ -46,4 +52,3 @@
         <strong>El equipo de seguridad de Roke Industries</strong>
     </p>
 @endsection
-

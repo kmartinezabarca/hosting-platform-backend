@@ -10,6 +10,13 @@ class ServicePlan extends Model
 {
     use HasFactory;
 
+    protected $appends = [
+        'pterodactyl_egg',
+        'pterodactyl_version',
+        'coolify_build_pack',
+        'coolify_db_enabled',
+    ];
+
     /**
      * The attributes that are mass assignable.
      *
@@ -31,6 +38,8 @@ class ServicePlan extends Model
         'specifications',
         // Aprovisionamiento automático
         'provisioner',
+        'provisioner_config',
+
         'game_type',
         'game_runtime_options',
         'game_config_schema',
@@ -46,6 +55,13 @@ class ServicePlan extends Model
         // Multi-game: nest IDs permitidos para este plan y max jugadores
         'allowed_nest_ids',
         'max_players',
+        // Claves SAT para CFDI
+        'sat_clave_prod_serv',
+        'sat_clave_unidad',
+        // Tipo de plan y trial
+        'plan_type',
+        'trial_days',
+        'converts_to_plan_id',
     ];
 
     /**
@@ -59,6 +75,7 @@ class ServicePlan extends Model
         'is_popular'                 => 'boolean',
         'is_active'                  => 'boolean',
         'specifications'             => 'array',
+        'provisioner_config'         => 'array',
         'game_runtime_options'        => 'array',
         'game_config_schema'          => 'array',
         'pterodactyl_limits'         => 'array',
@@ -66,6 +83,8 @@ class ServicePlan extends Model
         'pterodactyl_environment'    => 'array',
         'allowed_nest_ids'           => 'array',
         'max_players'                => 'integer',
+        'trial_days'                 => 'integer',
+        'converts_to_plan_id'        => 'integer',
     ];
 
     /**
@@ -173,14 +192,145 @@ class ServicePlan extends Model
         return $formatted;
     }
 
+    // ── Plan type constants ───────────────────────────────────────────────────
+    public const TYPE_PAID  = 'paid';
+    public const TYPE_FREE  = 'free';
+    public const TYPE_TRIAL = 'trial';
+
+    // ── Plan type helpers ────────────────────────────────────────────────────
+
+    /** Plan de pago normal — requiere tarjeta/Stripe. */
+    public function isPaid(): bool
+    {
+        return ($this->plan_type ?? self::TYPE_PAID) === self::TYPE_PAID;
+    }
+
+    /** Plan gratuito permanente — nunca requiere pago. */
+    public function isFree(): bool
+    {
+        return $this->plan_type === self::TYPE_FREE;
+    }
+
+    /** Plan de prueba — gratuito por `trial_days` días, luego suspende/convierte. */
+    public function isTrial(): bool
+    {
+        return $this->plan_type === self::TYPE_TRIAL;
+    }
+
+    /** ¿El plan no requiere cobro al contratar? */
+    public function isNoCharge(): bool
+    {
+        return $this->isFree() || $this->isTrial();
+    }
+
+    /** Relación con el plan de pago al que se convierte al terminar el trial. */
+    public function convertsToPlan()
+    {
+        return $this->belongsTo(ServicePlan::class, 'converts_to_plan_id');
+    }
+
     public function isPterodactylManaged(): bool
     {
         return $this->provisioner === 'pterodactyl';
     }
 
+    public function isCoolifyManaged(): bool
+    {
+        return $this->provisioner === 'coolify';
+    }
+
     public function isGameServerPlan(): bool
     {
         return $this->provisioner === 'pterodactyl' && !empty($this->game_type);
+    }
+
+    public function normalizedProvisionerConfig(): ?array
+    {
+        $config = $this->provisioner_config ?? [];
+
+        if ($this->provisioner === 'pterodactyl') {
+            return array_filter([
+                'egg' => $config['egg'] ?? null,
+                'version' => $config['version'] ?? null,
+                'environment' => $config['environment'] ?? $this->pterodactyl_environment ?? null,
+            ], fn ($value) => $value !== null);
+        }
+
+        if ($this->provisioner === 'coolify') {
+            return [
+                'build_pack' => $config['build_pack'] ?? 'static',
+                'db_enabled' => (bool) ($config['db_enabled'] ?? false),
+                'db_type'    => $config['db_type'] ?? 'mariadb',
+            ];
+        }
+
+        return empty($config) ? null : $config;
+    }
+
+    public function getProvisionerConfigAttribute(mixed $value): ?array
+    {
+        $config = $this->decodeJsonAttribute($value);
+
+        if (! empty($config)) {
+            return $config;
+        }
+
+        $provisioner = $this->attributes['provisioner'] ?? null;
+
+        if ($provisioner === 'pterodactyl') {
+            $environment = $this->decodeJsonAttribute($this->attributes['pterodactyl_environment'] ?? null);
+
+            return array_filter([
+                'environment' => $environment ?: null,
+            ], fn ($item) => $item !== null);
+        }
+
+        if ($provisioner === 'coolify') {
+            return [
+                'build_pack' => 'static',
+                'db_enabled' => false,
+                'db_type'    => 'mariadb',
+            ];
+        }
+
+        return null;
+    }
+
+    public function getPterodactylEggAttribute(): ?string
+    {
+        return $this->provisioner_config['egg'] ?? null;
+    }
+
+    public function getPterodactylVersionAttribute(): ?string
+    {
+        return $this->provisioner_config['version'] ?? null;
+    }
+
+    public function getCoolifyBuildPackAttribute(): ?string
+    {
+        return $this->provisioner_config['build_pack'] ?? null;
+    }
+
+    public function getCoolifyDbEnabledAttribute(): ?bool
+    {
+        return array_key_exists('db_enabled', $this->provisioner_config ?? [])
+            ? (bool) $this->provisioner_config['db_enabled']
+            : null;
+    }
+
+    private function decodeJsonAttribute(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**

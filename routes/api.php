@@ -15,6 +15,7 @@ use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\ServicePlanController;
 use App\Http\Controllers\Client\SystemStatusController;
 use App\Http\Controllers\Client\GameEggController;
+use App\Http\Controllers\Client\HostingController;
 use App\Http\Controllers\Common\StripeWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -39,7 +40,8 @@ Route::prefix('game-eggs')->group(function () {
 });
 
 // Swagger/OpenAPI Documentation
-Route::get('/docs', [ApiDocsController::class, 'json']);
+Route::get('/docs', [ApiDocsController::class, 'json'])->name('api.docs.json');
+Route::get('/swagger', [ApiDocsController::class, 'ui'])->name('api.docs.ui');
 
 // Product routes (public)
 Route::get('/products', [ProductController::class, 'index']);
@@ -108,3 +110,19 @@ Route::prefix('quotations/public')->group(function () {
 
 // Postal Codes API
 Route::get('/postal-codes/{code}', [App\Http\Controllers\Api\PostalCodeController::class, 'search']);
+
+// Hosting — cliente autenticado
+Route::middleware(['auth:sanctum', 'session.timeout'])->prefix('hosting')->group(function () {
+    Route::get('/{uuid}/info',       [HostingController::class, 'info']);
+    Route::get('/{uuid}/files',      [HostingController::class, 'files']);
+    Route::get('/{uuid}/databases',  [HostingController::class, 'databases']);
+    Route::post('/{uuid}/databases', [HostingController::class, 'createDatabase']);
+    Route::delete('/{uuid}/databases/{db}', [HostingController::class, 'deleteDatabase']);
+    Route::get('/{uuid}/emails',     [HostingController::class, 'emails']);
+    Route::post('/{uuid}/emails',    [HostingController::class, 'createEmail']);
+    Route::delete('/{uuid}/emails/{account}', [HostingController::class, 'deleteEmail']);
+    Route::get('/{uuid}/domains',    [HostingController::class, 'domains']);
+    Route::post('/{uuid}/domains',   [HostingController::class, 'createDomain']);
+    Route::delete('/{uuid}/domains/{domain}', [HostingController::class, 'deleteDomain']);
+    Route::get('/{uuid}/stats',      [HostingController::class, 'stats']);
+});

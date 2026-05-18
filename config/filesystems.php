@@ -56,6 +56,37 @@ return [
             'throw' => false,
         ],
 
+        /*
+        | Disco del NAS (Mac mini) donde viven los respaldos.
+        |
+        | Como la conexión aún no está definida, el enfoque recomendado y
+        | más portable es montar el share del Mac mini en el servidor
+        | (SMB/NFS/AFP) y apuntar NAS_ROOT a esa ruta — así el driver
+        | "local" lee/escribe directamente sobre el NAS sin dependencias.
+        |
+        | Si en el futuro se prefiere SFTP, basta instalar
+        | league/flysystem-sftp-v3 y cambiar NAS_DRIVER=sftp con las
+        | variables NAS_SFTP_*.
+        */
+        'nas' => env('NAS_DRIVER', 'local') === 'sftp'
+            ? [
+                'driver'   => 'sftp',
+                'host'     => env('NAS_SFTP_HOST'),
+                'username' => env('NAS_SFTP_USERNAME'),
+                'password' => env('NAS_SFTP_PASSWORD'),
+                'privateKey' => env('NAS_SFTP_PRIVATE_KEY'),
+                'port'     => (int) env('NAS_SFTP_PORT', 22),
+                'root'     => env('NAS_ROOT', '/backups'),
+                'timeout'  => 30,
+                'throw'    => true,
+            ]
+            : [
+                'driver'     => 'local',
+                'root'       => env('NAS_ROOT', storage_path('app/nas-backups')),
+                'visibility' => 'private',
+                'throw'      => true,
+            ],
+
     ],
 
     /*

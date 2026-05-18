@@ -48,10 +48,12 @@ class ChatController extends Controller
             });
         }
 
-        // Indicador “unread para admin”: 1 si el último en responder fue el cliente
-        $query->addSelect([
-            'unread_for_admin' => DB::raw('CASE WHEN tickets.last_reply_by = tickets.user_id THEN 1 ELSE 0 END'),
-        ]);
+        // Conteo real de mensajes del cliente sin leer por sala (badge admin)
+        $query->withCount(['replies as unread_count' => function ($q) {
+            $q->whereNull('read_at')
+              ->where('is_internal', false)
+              ->whereColumn('ticket_replies.user_id', 'tickets.user_id');
+        }]);
 
         $rooms = $query->paginate((int)($request->get('per_page', 20)));
 
@@ -126,16 +128,41 @@ class ChatController extends Controller
      */
     public function getMessages(Ticket $ticket): JsonResponse
     {
+        // Al abrir la conversación, el staff "lee" los mensajes del cliente.
+        $this->markCustomerRepliesAsRead($ticket);
+
         $messages = TicketReply::with('user:id,first_name,last_name,avatar_url')
             ->where('ticket_id', $ticket->id)
             ->orderBy('created_at', 'asc')
             ->paginate(50);
 
-        // No hay read_at en ticket_replies -> no marcamos leído aquí.
         return response()->json([
             'success' => true,
             'data'    => $messages,
         ]);
+    }
+
+    /**
+     * Marca como leídas las respuestas del cliente (entrantes para el staff)
+     * que aún no tienen read_at en el ticket dado.
+     */
+    private function markCustomerRepliesAsRead(Ticket $ticket): void
+    {
+        TicketReply::where('ticket_id', $ticket->id)
+            ->where('is_internal', false)
+            ->whereNull('read_at')
+            ->where('user_id', $ticket->user_id) // del cliente dueño
+            ->update(['read_at' => now()]);
+    }
+
+    /**
+     * PUT /admin/chat/{ticket}/read — marca leídos los mensajes del cliente.
+     */
+    public function markAsRead(Ticket $ticket): JsonResponse
+    {
+        $this->markCustomerRepliesAsRead($ticket);
+
+        return response()->json(['success' => true, 'message' => 'OK']);
     }
 
     /**
@@ -147,16 +174,19 @@ class ChatController extends Controller
         $admin = Auth::user();
 
         $validated = $request->validate([
-            'message'     => 'required|string|max:2000',
-            'attachments' => 'nullable|array',
+            'message'       => 'required_without:attachments|nullable|string|max:2000',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:20480|mimes:jpg,jpeg,png,webp,gif,pdf,txt,zip',
         ]);
+
+        $stored = $this->storeAttachments($request, $ticket);
 
         $reply = TicketReply::create([
             'ticket_id'   => $ticket->id,
             'user_id'     => $admin->id,
-            'message'     => $validated['message'],
+            'message'     => $validated['message'] ?? '',
             'is_internal' => false,
-            'attachments' => $validated['attachments'] ?? null,
+            'attachments' => $stored ?: null,
         ]);
 
         $ticket->update([
@@ -166,12 +196,14 @@ class ChatController extends Controller
             'status'        => 'waiting_customer',
         ]);
 
-        // Broadcast del evento
+        $reply->load('user:id,first_name,last_name,avatar_url');
+
+        // Broadcast del evento (con el reply completo + adjuntos)
         event(new \App\Events\TicketReplied($ticket, $reply));
 
         return response()->json([
             'success' => true,
-            'data'    => $reply->load('user:id,first_name,last_name,avatar_url'),
+            'data'    => $reply,
             'message' => 'Mensaje enviado.',
         ]);
     }
@@ -260,6 +292,33 @@ class ChatController extends Controller
     }
 
     /**
+     * Guarda los archivos adjuntos subidos en el disco público y devuelve
+     * el arreglo [{path, name, mime, size}] que se persiste en el reply.
+     */
+    private function storeAttachments(Request $request, Ticket $ticket): array
+    {
+        if (!$request->hasFile('attachments')) {
+            return [];
+        }
+
+        $stored = [];
+        foreach ($request->file('attachments') as $file) {
+            if (!$file->isValid()) {
+                continue;
+            }
+            $path = $file->store('chat-attachments/' . $ticket->id, 'public');
+            $stored[] = [
+                'path' => $path,
+                'name' => $file->getClientOriginalName(),
+                'mime' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+            ];
+        }
+
+        return $stored;
+    }
+
+    /**
      * GET /admin/chat/stats
      */
     public function getStats(): JsonResponse
@@ -321,9 +380,15 @@ class ChatController extends Controller
     {
         $activeStatuses = ['open','in_progress','waiting_customer'];
 
-        $count = Ticket::whereIn('status', $activeStatuses)
-            ->whereColumn('last_reply_by', 'user_id')
-            ->count();
+        // Respuestas del cliente (entrantes para el staff) sin leer
+        // en tickets activos.
+        $count = TicketReply::query()
+            ->join('tickets', 'tickets.id', '=', 'ticket_replies.ticket_id')
+            ->where('ticket_replies.is_internal', false)
+            ->whereNull('ticket_replies.read_at')
+            ->whereIn('tickets.status', $activeStatuses)
+            ->whereColumn('ticket_replies.user_id', '=', 'tickets.user_id')
+            ->count('ticket_replies.id');
 
         return response()->json([
             'success'      => true,

@@ -2,150 +2,107 @@
 
 namespace App\Models;
 
+use App\Traits\HasUuidColumn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Casts\Attribute;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Str;
-use Carbon\Carbon;
 
+/**
+ * Factura electrónica CFDI 4.0 ante el SAT.
+ * Tabla: invoices (antes service_invoices).
+ */
 class Invoice extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuidColumn;
 
-    /** Estados válidos (útil para reglas de validación y enums) */
-    public const STATUS_DRAFT     = 'draft';
-    public const STATUS_SENT      = 'sent';
-    public const STATUS_PROCESS   = 'processing';
-    public const STATUS_PAID      = 'paid';
-    public const STATUS_OVERDUE   = 'overdue';
-    public const STATUS_CANCELLED = 'cancelled';
-    public const STATUS_REFUNDED  = 'refunded';
+    protected $table = 'invoices';
+
+    // ── Estados CFDI ────────────────────────────────────────────────────────
+    public const CFDI_SCHEDULED     = 'scheduled';
+    public const CFDI_PENDING_STAMP = 'pending_stamp';
+    public const CFDI_STAMPED       = 'stamped';
+    public const CFDI_FAILED        = 'failed';
+    public const CFDI_CANCELLED     = 'cancelled';
+
+    // ── Defaults Público en General (CFDI 4.0) ───────────────────────────────
+    public const PUBLICO_GENERAL_RFC     = 'XAXX010101000';
+    public const PUBLICO_GENERAL_NAME    = 'PUBLICO EN GENERAL';
+    public const PUBLICO_GENERAL_ZIP     = '99999';
+    public const PUBLICO_GENERAL_REGIMEN = '616';
+    public const PUBLICO_GENERAL_USO     = 'S01';
 
     protected $fillable = [
         'uuid',
-        'user_id',
+        'facturama_id',
+        'folio',
+        'invoice_id',
         'service_id',
-        'invoice_number',
-        'provider_invoice_id',
-        'status',
-        'subtotal',
-        'tax_rate',
-        'tax_amount',
-        'total',
-        'currency',
-        'due_date',
-        'paid_at',
-        'payment_method',
-        'payment_reference',
-        'pdf_path',
-        'xml_path',
-        'notes',
+        'rfc',
+        'name',
+        'zip',
+        'regimen',
+        'cfdi_use_code',
+        'constancia',
+        'cfdi_status',
+        'stamp_scheduled_at',
+        'is_publico_general',
+        'cfdi_uuid',
+        'cfdi_xml',
+        'cfdi_pdf_path',
+        'cfdi_error',
+        'stamped_at',
     ];
 
     protected $casts = [
-        'subtotal'  => 'decimal:2',
-        'tax_rate'  => 'decimal:2',
-        'tax_amount'=> 'decimal:2',
-        'total'     => 'decimal:2',
-        'due_date'  => 'date',
-        'paid_at'   => 'datetime',
+        'is_publico_general' => 'boolean',
+        'stamp_scheduled_at' => 'datetime',
+        'stamped_at'         => 'datetime',
     ];
 
-    /*----------------------------------------
-    | Boot - set UUID & sequential folio
-    |---------------------------------------*/
-    protected static function boot(): void
-    {
-        parent::boot();
+    // ── Relationships ────────────────────────────────────────────────────────
 
-        static::creating(function (self $invoice) {
-            $invoice->uuid ??= (string) Str::uuid();
-
-            // Si no viene folio, generamos uno secuencial por mes (INV-202508-0001)
-            if (empty($invoice->invoice_number)) {
-                $prefix = 'INV-'.now()->format('Ym');
-                $last = self::where('invoice_number', 'like', "{$prefix}-%")
-                    ->orderByDesc('invoice_number')->value('invoice_number');
-
-                $seq = 1;
-                if ($last && preg_match('/-(\d+)$/', $last, $m)) {
-                    $seq = (int) $m[1] + 1;
-                }
-                $invoice->invoice_number = sprintf('%s-%04d', $prefix, $seq);
-            }
-        });
-    }
-
-    /*----------------------------------------
-    | Relationships
-    |---------------------------------------*/
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class);
-    }
-
-    public function service(): BelongsTo
+    public function service()
     {
         return $this->belongsTo(Service::class);
     }
 
-    public function items(): HasMany
+    /** El comprobante de pago interno al que está vinculada esta factura CFDI. */
+    public function receipt()
     {
-        return $this->hasMany(InvoiceItem::class);
+        return $this->belongsTo(Receipt::class, 'invoice_id');
     }
 
-    public function transactions(): HasMany
+    // ── Scopes ───────────────────────────────────────────────────────────────
+
+    public function scopeDueForStamping($query)
     {
-        return $this->hasMany(Transaction::class);
+        return $query->where('cfdi_status', self::CFDI_SCHEDULED)
+                     ->where('stamp_scheduled_at', '<=', now());
     }
 
-    /*----------------------------------------
-    | Accessors / Helpers
-    |---------------------------------------*/
-    /** Color útil para Badge/Tailwind */
-    public function statusColor(): Attribute
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    public function isStamped(): bool
     {
-        return Attribute::get(fn () => match ($this->status) {
-            self::STATUS_PAID      => 'success',
-            self::STATUS_SENT,
-            self::STATUS_PROCESS   => 'info',
-            self::STATUS_OVERDUE   => 'error',
-            self::STATUS_CANCELLED => 'muted',
-            self::STATUS_REFUNDED  => 'warning',
-            default                => 'muted',
-        });
+        return $this->cfdi_status === self::CFDI_STAMPED;
     }
 
-    /** Texto legible (es-MX) */
-    public function statusText(): Attribute
+    public function isScheduledForPublicoGeneral(): bool
     {
-        return Attribute::get(fn () => match ($this->status) {
-            self::STATUS_DRAFT     => 'Borrador',
-            self::STATUS_SENT      => 'Enviada',
-            self::STATUS_PROCESS   => 'Procesando',
-            self::STATUS_PAID      => 'Pagada',
-            self::STATUS_OVERDUE   => 'Vencida',
-            self::STATUS_CANCELLED => 'Cancelada',
-            self::STATUS_REFUNDED  => 'Reembolsada',
-            default                => 'Desconocido',
-        });
+        return $this->cfdi_status === self::CFDI_SCHEDULED && $this->is_publico_general;
     }
 
-    public function isOverdue(): bool
+    public static function publicoGeneralDefaults(int $serviceId): array
     {
-        return ! $this->isPaid() && $this->due_date instanceof Carbon
-            && $this->due_date->isPast();
-    }
-
-    public function isPaid(): bool
-    {
-        return $this->status === self::STATUS_PAID;
-    }
-
-    public function canBePaid(): bool
-    {
-        return in_array($this->status, [self::STATUS_SENT, self::STATUS_OVERDUE, self::STATUS_PROCESS], true);
+        return [
+            'service_id'         => $serviceId,
+            'rfc'                => self::PUBLICO_GENERAL_RFC,
+            'name'               => self::PUBLICO_GENERAL_NAME,
+            'zip'                => self::PUBLICO_GENERAL_ZIP,
+            'regimen'            => self::PUBLICO_GENERAL_REGIMEN,
+            'uso_cfdi'           => self::PUBLICO_GENERAL_USO,
+            'cfdi_status'        => self::CFDI_SCHEDULED,
+            'stamp_scheduled_at' => now()->addHours(72),
+            'is_publico_general' => true,
+        ];
     }
 }

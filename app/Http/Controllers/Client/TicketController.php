@@ -270,6 +270,9 @@ class TicketController extends Controller
         // 3. Cargar la relación del usuario para la respuesta JSON
         $reply->load('user');
 
+        // 4. Broadcast en tiempo real (cliente y admins suscritos al canal)
+        event(new \App\Events\TicketReplied($ticket, $reply));
+
         return response()->json([
             'success' => true,
             'message' => 'Respuesta añadida correctamente.',

@@ -35,11 +35,20 @@ class PaymentNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
+        $title = $this->notificationData['title'] ?? 'Notificación de pago';
+
         return (new MailMessage)
-            ->subject($this->notificationData['title'])
-            ->line($this->notificationData['message'])
-            ->action('Ver Detalles', url('/dashboard/payments'))
-            ->line('Gracias por usar nuestra plataforma.');
+            ->subject($title . ' - Roke Industries')
+            ->view('emails.notification', [
+                'notifiable' => $notifiable,
+                'title' => $title,
+                'subtitle' => 'Información de pagos',
+                'intro' => $this->notificationData['message'] ?? 'Tienes una actualización relacionada con tus pagos.',
+                'detailsTitle' => 'Detalles',
+                'details' => $this->notificationData['data'] ?? [],
+                'actionUrl' => '/client/invoices',
+                'actionText' => 'Ver pagos',
+            ]);
     }
 
     public function toArray(object $notifiable): array

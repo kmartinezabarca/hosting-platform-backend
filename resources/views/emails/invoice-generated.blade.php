@@ -1,57 +1,67 @@
 @extends('emails.layout')
 
-@section('title', 'Nueva Factura Generada - Roke Industries')
+@section('title', 'Nueva factura generada - Roke Industries')
 
 @section('header_subtitle', 'Tu factura está lista para descargar')
 
 @section('content')
-    <h2>Hola {{ $user->name }},</h2>
+    @php
+        $customerName = trim($user->full_name ?? '')
+            ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''))
+            ?: $user->email;
+        $currency = strtoupper($invoice->currency ?? 'MXN');
+        $invoiceNumber = $invoice->invoice_number ?? $invoice->number ?? $invoice->folio ?? 'No disponible';
+        $statusLabels = [
+            'draft' => ['label' => 'Borrador', 'color' => '#718096'],
+            'sent' => ['label' => 'Enviada', 'color' => '#3182ce'],
+            'processing' => ['label' => 'Procesando', 'color' => '#d69e2e'],
+            'paid' => ['label' => 'Pagada', 'color' => '#38a169'],
+            'overdue' => ['label' => 'Vencida', 'color' => '#e53e3e'],
+            'cancelled' => ['label' => 'Cancelada', 'color' => '#718096'],
+            'refunded' => ['label' => 'Reembolsada', 'color' => '#d69e2e'],
+        ];
+        $status = $invoice->status ?? 'sent';
+        $statusMeta = $statusLabels[$status] ?? ['label' => ucfirst((string) $status), 'color' => '#718096'];
+        $panelUrl = rtrim(config('app.frontend_url', config('app.url')), '/') . '/client/invoices';
+    @endphp
+
+    <h2>Hola {{ $customerName }},</h2>
     
     <p>Se ha generado una nueva factura para tu cuenta. Puedes revisarla y descargarla cuando gustes.</p>
     
     <div class="info-box">
-        <h3>Detalles de la Factura</h3>
-        <p><strong>Número:</strong> {{ $invoice->number ?? 'INV-' . date('Y') . '-' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT) }}</p>
+        <h3>Detalles de la factura</h3>
+        <p><strong>Número:</strong> {{ $invoiceNumber }}</p>
         <p><strong>Fecha de emisión:</strong> {{ ($invoice->created_at ?? now())->format('d/m/Y') }}</p>
         <p><strong>Fecha de vencimiento:</strong> {{ ($invoice->due_date ?? now()->addDays(30))->format('d/m/Y') }}</p>
-        <p><strong>Monto total:</strong> ${{ number_format($invoice->total ?? 0, 2) }}</p>
+        <p><strong>Monto total:</strong> ${{ number_format($invoice->total ?? 0, 2) }} {{ $currency }}</p>
         <p><strong>Estado:</strong> 
-            @if(isset($invoice->status))
-                @if($invoice->status === 'paid')
-                    <span style="color: #38a169; font-weight: 600;">Pagada</span>
-                @elseif($invoice->status === 'pending')
-                    <span style="color: #d69e2e; font-weight: 600;">Pendiente</span>
-                @else
-                    <span style="color: #e53e3e; font-weight: 600;">{{ ucfirst($invoice->status) }}</span>
-                @endif
-            @else
-                <span style="color: #38a169; font-weight: 600;">Pagada</span>
-            @endif
+            <span style="color: {{ $statusMeta['color'] }}; font-weight: 600;">{{ $statusMeta['label'] }}</span>
         </p>
     </div>
     
-    <h3>Resumen de Servicios Facturados</h3>
+        <h3>Resumen de servicios facturados</h3>
     <div style="background-color: #f7fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
         @if(isset($invoiceItems) && is_array($invoiceItems))
             @foreach($invoiceItems as $item)
             <div style="border-bottom: 1px solid #e2e8f0; padding: 15px 0; display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <h4 style="color: #2d3748; margin-bottom: 5px;">{{ $item['description'] ?? 'Servicio' }}</h4>
+                    <h4 style="color: #2d3748; margin-bottom: 5px;">{{ data_get($item, 'description', 'Servicio') }}</h4>
                     <p style="color: #718096; font-size: 14px; margin: 0;">
-                        Período: {{ $item['period'] ?? 'N/A' }}
+                        Período: {{ data_get($item, 'period', 'No especificado') }}
                     </p>
-                    @if(isset($item['quantity']) && $item['quantity'] > 1)
-                    <p style="color: #718096; font-size: 14px; margin: 0;">Cantidad: {{ $item['quantity'] }}</p>
+                    @if(data_get($item, 'quantity') && data_get($item, 'quantity') > 1)
+                    <p style="color: #718096; font-size: 14px; margin: 0;">Cantidad: {{ data_get($item, 'quantity') }}</p>
                     @endif
                 </div>
                 <div style="text-align: right;">
-                    <p style="font-weight: 600; color: #2d3748; margin: 0;">${{ number_format($item['amount'] ?? 0, 2) }}</p>
+                    <p style="font-weight: 600; color: #2d3748; margin: 0;">${{ number_format(data_get($item, 'amount', data_get($item, 'total', 0)), 2) }} {{ $currency }}</p>
                 </div>
             </div>
             @endforeach
         @else
             <div style="padding: 15px 0;">
-                <h4 style="color: #2d3748; margin-bottom: 5px;">Servicios de Hosting</h4>
+                <h4 style="color: #2d3748; margin-bottom: 5px;">Servicios de hosting</h4>
                 <p style="color: #718096; font-size: 14px; margin: 0;">
                     Período: {{ ($invoice->period_start ?? now()->startOfMonth())->format('d/m/Y') }} - {{ ($invoice->period_end ?? now()->endOfMonth())->format('d/m/Y') }}
                 </p>
@@ -63,30 +73,30 @@
             @if(isset($invoice->subtotal))
             <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                 <span>Subtotal:</span>
-                <span>${{ number_format($invoice->subtotal, 2) }}</span>
+                <span>${{ number_format($invoice->subtotal, 2) }} {{ $currency }}</span>
             </div>
             @endif
-            @if(isset($invoice->tax) && $invoice->tax > 0)
+            @if(($invoice->tax_amount ?? $invoice->tax ?? 0) > 0)
             <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                 <span>Impuestos:</span>
-                <span>${{ number_format($invoice->tax, 2) }}</span>
+                <span>${{ number_format($invoice->tax_amount ?? $invoice->tax, 2) }} {{ $currency }}</span>
             </div>
             @endif
             <div style="display: flex; justify-content: space-between; border-top: 2px solid #667eea; padding-top: 10px; font-weight: 600; font-size: 18px;">
                 <span>Total:</span>
-                <span>${{ number_format($invoice->total ?? 0, 2) }}</span>
+                <span>${{ number_format($invoice->total ?? 0, 2) }} {{ $currency }}</span>
             </div>
         </div>
         @endif
     </div>
     
     <div style="text-align: center;">
-        <a href="{{ $downloadUrl ?? url('/dashboard/invoices/' . ($invoice->id ?? '1') . '/download') }}" class="button">Descargar Factura PDF</a>
+        <a href="{{ $downloadUrl ?? $panelUrl }}" class="button">Ver factura</a>
     </div>
     
-    @if(isset($invoice->status) && $invoice->status === 'pending')
+    @if(in_array($status, ['sent', 'processing', 'overdue'], true))
     <div class="info-box" style="border-left-color: #d69e2e;">
-        <h3>⏰ Pago Pendiente</h3>
+        <h3>Pago pendiente</h3>
         <p>Esta factura aún está pendiente de pago. El pago se procesará automáticamente si tienes configurado un método de pago automático.</p>
         <p>Si necesitas actualizar tu método de pago, puedes hacerlo desde tu panel de control.</p>
     </div>
@@ -94,7 +104,7 @@
     
     <div class="divider"></div>
     
-    <h3>Información Adicional</h3>
+    <h3>Información adicional</h3>
     <ul style="color: #4a5568; padding-left: 20px; margin-bottom: 20px;">
         <li style="margin-bottom: 8px;">Puedes descargar todas tus facturas desde el panel de control</li>
         <li style="margin-bottom: 8px;">Las facturas se conservan por tiempo indefinido</li>
@@ -111,4 +121,3 @@
         <strong>El equipo de facturación de Roke Industries</strong>
     </p>
 @endsection
-

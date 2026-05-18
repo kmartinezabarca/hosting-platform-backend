@@ -27,8 +27,8 @@ class InvoiceItem extends Model
         'total' => 'decimal:2'
     ];
 
-    public function invoice(): BelongsTo
+    public function receipt(): BelongsTo
     {
-        return $this->belongsTo(Invoice::class);
+        return $this->belongsTo(Receipt::class, 'invoice_id');
     }
 }

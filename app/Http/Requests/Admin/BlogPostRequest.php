@@ -26,12 +26,13 @@ class BlogPostRequest extends FormRequest
             'slug' => ['nullable', 'string', 'max:255', \Illuminate\Validation\Rule::unique('blog_posts', 'slug')->ignore($this->route('blog_post'), 'uuid')],
             'excerpt' => ['required', 'string', 'max:500'],
             'content' => ['required', 'string'],
-            'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg', 'max:2048'],
+            'image' => ['nullable', 'url'],
             'published_at' => ['nullable', 'date'],
             'user_id' => ['nullable', 'exists:users,id'],
             'author_name' => ['nullable', 'string', 'max:255'],
             'blog_category_id' => ['required', 'uuid', 'exists:blog_categories,uuid'],
             'is_featured' => ['boolean'],
+            'is_published' => ['integer'],
             'read_time' => ['nullable', 'integer', 'min:1'],
         ];
     }

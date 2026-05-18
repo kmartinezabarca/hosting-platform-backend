@@ -43,14 +43,26 @@ class PaymentSuccessful extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
+        $amount = number_format((float) ($this->transaction->amount ?? 0), 2);
+        $currency = strtoupper($this->transaction->currency ?? 'MXN');
+
         return (new MailMessage)
-            ->subject('Pago Procesado Exitosamente')
-            ->greeting('¡Hola ' . $notifiable->name . '!')
-            ->line("Tu pago de {$this->transaction->amount} {$this->transaction->currency} ha sido procesado exitosamente.")
-            ->line("Descripción: {$this->transaction->description}")
-            ->line("ID de transacción: {$this->transaction->uuid}")
-            ->action('Ver Transacción', url('/dashboard/billing/transactions/' . $this->transaction->uuid))
-            ->line('¡Gracias por tu pago!');
+            ->subject('Pago procesado exitosamente - Roke Industries')
+            ->view('emails.notification', [
+                'notifiable' => $notifiable,
+                'title' => 'Pago procesado exitosamente',
+                'subtitle' => 'Confirmación de pago',
+                'intro' => 'Tu pago ha sido procesado correctamente y tu cuenta fue actualizada.',
+                'detailsTitle' => 'Detalles del pago',
+                'details' => [
+                    'Monto' => "\${$amount} {$currency}",
+                    'Descripción' => $this->transaction->description,
+                    'ID de transacción' => $this->transaction->uuid,
+                    'Estado' => $this->transaction->status ?? 'completed',
+                ],
+                'actionUrl' => '/client/transactions/' . $this->transaction->uuid,
+                'actionText' => 'Ver transacción',
+            ]);
     }
 
     /**
@@ -63,10 +75,10 @@ class PaymentSuccessful extends Notification implements ShouldQueue
             'transaction_id' => $this->transaction->uuid,
             'amount' => $this->transaction->amount,
             'currency' => $this->transaction->currency,
-            'title' => 'Pago Exitoso',
+            'title' => 'Pago exitoso',
             'message' => "Tu pago de {$this->transaction->amount} {$this->transaction->currency} ha sido procesado exitosamente.",
             'action_url' => '/dashboard/billing/transactions/' . $this->transaction->uuid,
-            'action_text' => 'Ver Transacción',
+            'action_text' => 'Ver transacción',
             'icon' => 'credit-card',
             'color' => 'success',
         ];
@@ -82,14 +94,13 @@ class PaymentSuccessful extends Notification implements ShouldQueue
             'transaction_id' => $this->transaction->uuid,
             'amount' => $this->transaction->amount,
             'currency' => $this->transaction->currency,
-            'title' => 'Pago Exitoso',
+            'title' => 'Pago exitoso',
             'message' => "Tu pago de {$this->transaction->amount} {$this->transaction->currency} ha sido procesado exitosamente.",
             'action_url' => '/dashboard/billing/transactions/' . $this->transaction->uuid,
-            'action_text' => 'Ver Transacción',
+            'action_text' => 'Ver transacción',
             'icon' => 'credit-card',
             'color' => 'success',
             'timestamp' => now()->toISOString(),
         ]);
     }
 }
-

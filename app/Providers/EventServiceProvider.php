@@ -38,9 +38,6 @@ class EventServiceProvider extends ServiceProvider
             \App\Listeners\SendPaymentSuccessEmail::class,
             \App\Listeners\CreatePaymentNotification::class . '@handleProcessed',
         ],
-        \App\Events\InvoiceGenerated::class => [
-            \App\Listeners\SendInvoiceGeneratedEmail::class,
-        ],
         \App\Events\ServiceNotificationSent::class => [
             \App\Listeners\SendServiceNotificationEmail::class,
         ],
@@ -74,7 +71,10 @@ class EventServiceProvider extends ServiceProvider
             \App\Listeners\CreatePaymentNotification::class . '@handleAutomaticProcessed',
         ],
 
-        // Invoice Events
+        // Receipt / Invoice Events
+        \App\Events\ReceiptGenerated::class => [
+            \App\Listeners\CreateInvoiceNotification::class . '@handleGenerated',
+        ],
         \App\Events\InvoiceGenerated::class => [
             \App\Listeners\SendInvoiceGeneratedEmail::class,
             \App\Listeners\CreateInvoiceNotification::class . '@handleGenerated',

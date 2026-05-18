@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 
+use App\Models\Category;
 use App\Models\ServicePlan;
 use App\Models\PlanFeature;
 use App\Models\PlanPricing;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -24,6 +26,8 @@ class ServicePlanController extends Controller
                 ->select([
                     'id', 'uuid', 'name', 'slug',
                     'category_id', 'base_price', 'setup_fee',
+                    'provisioner', 'provisioner_config',
+                    'pterodactyl_environment',
                     'is_active', 'is_popular', 'sort_order',
                     DB::raw('(SELECT COUNT(*) FROM plan_features WHERE plan_features.service_plan_id = service_plans.id) as features_count'),
                 ]);
@@ -40,6 +44,7 @@ class ServicePlanController extends Controller
 
             $perPage = min((int) $request->get('per_page', 15), 100);
             $plans   = $query->orderBy('sort_order')->orderBy('name')->paginate($perPage);
+            $plans->getCollection()->transform(fn (ServicePlan $plan) => $this->serializePlan($plan));
 
             return response()->json([
                 'success' => true,
@@ -122,7 +127,7 @@ class ServicePlanController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $servicePlan
+                'data' => $this->serializePlan($servicePlan),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -139,7 +144,9 @@ class ServicePlanController extends Controller
     public function store(Request $request): JsonResponse
     {
         try {
-            $validator = Validator::make($request->all(), [
+            $payload = $this->normalizeProvisionerPayload($request->all());
+
+            $validator = Validator::make($payload, [
                 'category_id' => 'required|exists:categories,id',
                 'slug' => 'required|string|max:100|unique:service_plans',
                 'name' => 'required|string|max:200',
@@ -150,7 +157,16 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
-                'provisioner' => 'nullable|in:none,pterodactyl,manual',
+                'provisioner' => 'nullable|in:pterodactyl,coolify,manual',
+                'provisioner_config' => 'nullable|array',
+                'provisioner_config.egg' => 'nullable|string|max:255',
+                'provisioner_config.version' => 'nullable|string|max:100',
+                'provisioner_config.environment' => 'nullable|array',
+                'provisioner_config.build_pack' => 'nullable|string|in:static,php',
+                'provisioner_config.db_enabled' => 'nullable|boolean',
+                'provisioner_config.db_type' => 'nullable|string|in:mariadb,mysql,postgresql',
+                'pterodactyl_egg' => 'nullable|string|max:255',
+                'pterodactyl_version' => 'nullable|string|max:100',
                 'game_type' => 'nullable|string|max:50',
                 'game_runtime_options' => 'nullable|array',
                 'game_config_schema' => 'nullable|array',
@@ -162,6 +178,13 @@ class ServicePlanController extends Controller
                 'pterodactyl_environment' => 'nullable|array',
                 'pterodactyl_docker_image' => 'nullable|string|max:255',
                 'pterodactyl_startup' => 'nullable|string|max:2000',
+                // Claves SAT para CFDI
+                'sat_clave_prod_serv' => 'nullable|string|max:10',
+                'sat_clave_unidad'    => 'nullable|string|max:3',
+                // Tipo de plan y trial
+                'plan_type'           => 'nullable|in:paid,free,trial',
+                'trial_days'          => 'nullable|integer|min:1|max:365',
+                'converts_to_plan_id' => 'nullable|integer|exists:service_plans,id',
                 'features' => 'nullable|array',
                 'features.*' => 'string|max:500',
                 'pricing' => 'nullable|array',
@@ -180,18 +203,11 @@ class ServicePlanController extends Controller
             DB::beginTransaction();
 
             // Create service plan
-            $servicePlan = ServicePlan::create($request->only([
-                'category_id', 'slug', 'name', 'description', 'base_price',
-                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
-                'provisioner', 'game_type', 'game_runtime_options', 'game_config_schema',
-                'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
-                'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',
-                'pterodactyl_docker_image', 'pterodactyl_startup',
-            ]));
+            $servicePlan = ServicePlan::create($this->onlyPlanFields($payload));
 
             // Create features if provided
-            if ($request->has('features')) {
-                foreach ($request->features as $index => $feature) {
+            if (array_key_exists('features', $payload) && is_array($payload['features'])) {
+                foreach ($payload['features'] as $index => $feature) {
                     PlanFeature::create([
                         'service_plan_id' => $servicePlan->id,
                         'feature' => $feature,
@@ -201,8 +217,8 @@ class ServicePlanController extends Controller
             }
 
             // Create pricing if provided
-            if ($request->has('pricing')) {
-                foreach ($request->pricing as $pricing) {
+            if (array_key_exists('pricing', $payload) && is_array($payload['pricing'])) {
+                foreach ($payload['pricing'] as $pricing) {
                     PlanPricing::create([
                         'service_plan_id' => $servicePlan->id,
                         'billing_cycle_id' => $pricing['billing_cycle_id'],
@@ -213,12 +229,14 @@ class ServicePlanController extends Controller
 
             DB::commit();
 
+            $this->clearCatalogCaches();
+
             $servicePlan->load(['category', 'features', 'pricing.billingCycle']);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan created successfully',
-                'data' => $servicePlan
+                'data' => $this->serializePlan($servicePlan),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -245,7 +263,9 @@ class ServicePlanController extends Controller
                 ], 404);
             }
 
-            $validator = Validator::make($request->all(), [
+            $payload = $this->normalizeProvisionerPayload($request->all(), $servicePlan);
+
+            $validator = Validator::make($payload, [
                 'category_id' => 'sometimes|required|exists:categories,id',
                 'slug' => 'sometimes|required|string|max:100|unique:service_plans,slug,' . $servicePlan->id,
                 'name' => 'sometimes|required|string|max:200',
@@ -256,7 +276,16 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
-                'provisioner' => 'nullable|in:none,pterodactyl,manual',
+                'provisioner' => 'nullable|in:pterodactyl,coolify,manual',
+                'provisioner_config' => 'nullable|array',
+                'provisioner_config.egg' => 'nullable|string|max:255',
+                'provisioner_config.version' => 'nullable|string|max:100',
+                'provisioner_config.environment' => 'nullable|array',
+                'provisioner_config.build_pack' => 'nullable|string|in:static,php',
+                'provisioner_config.db_enabled' => 'nullable|boolean',
+                'provisioner_config.db_type' => 'nullable|string|in:mariadb,mysql,postgresql',
+                'pterodactyl_egg' => 'nullable|string|max:255',
+                'pterodactyl_version' => 'nullable|string|max:100',
                 'game_type' => 'nullable|string|max:50',
                 'game_runtime_options' => 'nullable|array',
                 'game_config_schema' => 'nullable|array',
@@ -268,6 +297,13 @@ class ServicePlanController extends Controller
                 'pterodactyl_environment' => 'nullable|array',
                 'pterodactyl_docker_image' => 'nullable|string|max:255',
                 'pterodactyl_startup' => 'nullable|string|max:2000',
+                // Claves SAT para CFDI
+                'sat_clave_prod_serv' => 'nullable|string|max:10',
+                'sat_clave_unidad'    => 'nullable|string|max:3',
+                // Tipo de plan y trial
+                'plan_type'           => 'nullable|in:paid,free,trial',
+                'trial_days'          => 'nullable|integer|min:1|max:365',
+                'converts_to_plan_id' => 'nullable|integer|exists:service_plans,id',
                 'features' => 'nullable|array',
                 'features.*' => 'string|max:500',
                 'pricing' => 'nullable|array',
@@ -286,19 +322,12 @@ class ServicePlanController extends Controller
             DB::beginTransaction();
 
             // Update service plan
-            $servicePlan->update($request->only([
-                'category_id', 'slug', 'name', 'description', 'base_price',
-                'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
-                'provisioner', 'game_type', 'game_runtime_options', 'game_config_schema',
-                'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
-                'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',
-                'pterodactyl_docker_image', 'pterodactyl_startup',
-            ]));
+            $servicePlan->update($this->onlyPlanFields($payload));
 
             // Update features if provided
-            if ($request->has('features')) {
+            if (array_key_exists('features', $payload) && is_array($payload['features'])) {
                 $servicePlan->features()->delete();
-                foreach ($request->features as $index => $feature) {
+                foreach ($payload['features'] as $index => $feature) {
                     PlanFeature::create([
                         'service_plan_id' => $servicePlan->id,
                         'feature' => $feature,
@@ -308,10 +337,10 @@ class ServicePlanController extends Controller
             }
 
             // Update pricing if provided
-            if ($request->has('pricing')) {
+            if (array_key_exists('pricing', $payload) && is_array($payload['pricing'])) {
                 $incomingCycleIds = [];
 
-                foreach ($request->pricing as $pricing) {
+                foreach ($payload['pricing'] as $pricing) {
                     $cycleId = (int) $pricing['billing_cycle_id'];
 
                     // updateOrCreate evita violar la constraint única service_plan_id+billing_cycle_id
@@ -336,12 +365,14 @@ class ServicePlanController extends Controller
 
             DB::commit();
 
+            $this->clearCatalogCaches();
+
             $servicePlan->load(['category', 'features', 'pricing.billingCycle']);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan updated successfully',
-                'data' => $servicePlan
+                'data' => $this->serializePlan($servicePlan),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -398,6 +429,8 @@ class ServicePlanController extends Controller
                     return response()->json(['success' => false, 'message' => 'Invalid bulk action'], 400);
             }
 
+            $this->clearCatalogCaches();
+
             return response()->json(['success' => true, 'message' => $message, 'affected' => $plans->count()]);
         } catch (\Exception $e) {
             return response()->json([
@@ -433,6 +466,8 @@ class ServicePlanController extends Controller
 
             $servicePlan->delete();
 
+            $this->clearCatalogCaches();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan deleted successfully'
@@ -444,5 +479,119 @@ class ServicePlanController extends Controller
                 'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
+    }
+
+    private function normalizeProvisionerPayload(array $payload, ?ServicePlan $existing = null): array
+    {
+        if (array_key_exists('provisioner_config', $payload) && is_string($payload['provisioner_config'])) {
+            $decoded = json_decode($payload['provisioner_config'], true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $payload['provisioner_config'] = is_array($decoded) ? $decoded : null;
+            }
+        }
+
+        if (array_key_exists('provisioner', $payload)) {
+            $payload['provisioner'] = $this->normalizeProvisioner($payload['provisioner']);
+        }
+
+        $provisioner = $payload['provisioner'] ?? $existing?->provisioner;
+        $existingConfig = $provisioner === $existing?->provisioner
+            ? ($existing?->provisioner_config ?? [])
+            : [];
+        $config = $payload['provisioner_config'] ?? $existingConfig;
+        $config = is_array($config) ? $config : [];
+
+        if ($provisioner === 'pterodactyl') {
+            if (array_key_exists('pterodactyl_egg', $payload)) {
+                $config['egg'] = $payload['pterodactyl_egg'];
+            }
+
+            if (array_key_exists('pterodactyl_version', $payload)) {
+                $config['version'] = $payload['pterodactyl_version'];
+            }
+
+            if (array_key_exists('pterodactyl_environment', $payload)) {
+                $config['environment'] = $payload['pterodactyl_environment'];
+            }
+
+            if (array_key_exists('environment', $config)) {
+                $payload['pterodactyl_environment'] = $config['environment'];
+            }
+
+            $payload['provisioner_config'] = $config ?: null;
+        } elseif ($provisioner === 'coolify') {
+            $config['build_pack'] = $payload['provisioner_config']['build_pack'] ?? $config['build_pack'] ?? 'static';
+            $config['db_enabled'] = $this->booleanConfigValue($payload['provisioner_config']['db_enabled'] ?? $config['db_enabled'] ?? false);
+            $config['db_type']    = $payload['provisioner_config']['db_type'] ?? $config['db_type'] ?? 'mariadb';
+
+            $payload['provisioner_config'] = $config;
+        } elseif (array_key_exists('provisioner', $payload) || array_key_exists('provisioner_config', $payload)) {
+            $payload['provisioner_config'] = null;
+        }
+
+        return $payload;
+    }
+
+    private function serializePlan(ServicePlan $plan): array
+    {
+        $data = $plan->toArray();
+        $data['provisioner'] = $plan->provisioner ?: null;
+        $data['provisioner_config'] = $plan->normalizedProvisionerConfig();
+        $data['pterodactyl_egg'] = $plan->pterodactyl_egg;
+        $data['pterodactyl_version'] = $plan->pterodactyl_version;
+        $data['pterodactyl_environment'] = $plan->pterodactyl_environment
+            ?? data_get($data, 'provisioner_config.environment');
+
+        if ($plan->provisioner === 'coolify') {
+            $data['coolify_build_pack'] = $plan->coolify_build_pack;
+            $data['coolify_db_enabled'] = $plan->coolify_db_enabled;
+        }
+
+        return $data;
+    }
+
+    private function normalizeProvisioner(mixed $provisioner): ?string
+    {
+        $provisioner = is_string($provisioner) ? strtolower(trim($provisioner)) : $provisioner;
+
+        return match ($provisioner) {
+            '', null, 'none' => null,
+            default => $provisioner,
+        };
+    }
+
+    private function booleanConfigValue(mixed $value): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool) $value;
+    }
+
+    private function onlyPlanFields(array $payload): array
+    {
+        return array_intersect_key($payload, array_flip([
+            'category_id', 'slug', 'name', 'description', 'base_price',
+            'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
+            'provisioner', 'provisioner_config',
+            'game_type', 'game_runtime_options', 'game_config_schema',
+            'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
+            'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',
+            'pterodactyl_docker_image', 'pterodactyl_startup',
+            'sat_clave_prod_serv', 'sat_clave_unidad',
+            'plan_type', 'trial_days', 'converts_to_plan_id',
+        ]));
+    }
+
+    private function clearCatalogCaches(): void
+    {
+        Cache::forget('service_plans:active:all');
+        Cache::forget('service_plans:with_plans');
+        Cache::forget('categories:with_plans');
+
+        Category::query()
+            ->select(['id', 'slug'])
+            ->get()
+            ->each(function (Category $category) {
+                Cache::forget("service_plans:active:category:{$category->id}");
+                Cache::forget("service_plans:active:category_slug:{$category->slug}");
+            });
     }
 }

@@ -10,6 +10,7 @@ class ServiceResource extends JsonResource
     public function toArray(Request $request): array
     {
         $isGameServer = $this->isPterodactylManaged();
+        $isHosting    = $this->plan?->provisioner === 'coolify';
         $details      = $this->connection_details ?? [];
 
         // ── Runtime del game server (software + versión) ──────────────────
@@ -48,6 +49,7 @@ class ServiceResource extends JsonResource
             // ── Tipo de servicio ──────────────────────────────────────────
             'service_type'  => $this->whenLoaded('plan', fn() => $this->service_type, 'other'),
             'is_game_server'=> $isGameServer,
+            'is_web_hosting'=> $isHosting,
 
             // ── Runtime info (game servers) ───────────────────────────────
             // Campos de primer nivel para acceso rápido desde el frontend
@@ -70,6 +72,10 @@ class ServiceResource extends JsonResource
                 'is_java'     => $details['is_java']     ?? null,
                 // 'panel_url' => $details['panel_url']  ?? null,
                 'identifier'  => $details['identifier']  ?? null,
+                'domain'      => $details['domain']      ?? null,
+                'panel_url'   => $details['panel_url']   ?? null,
+                'ftp_host'    => $isHosting ? ($details['ftp_host'] ?? null) : null,
+                'ftp_port'    => $isHosting ? ($details['ftp_port'] ?? null) : null,
             ] : null,
 
             // ── Plan ─────────────────────────────────────────────────────

@@ -5,18 +5,24 @@
 @section('header_subtitle', '¡Tu cuenta ha sido creada exitosamente!')
 
 @section('content')
-    <h2>¡Hola {{ $user->first_name }}!</h2>
+    @php
+        $customerName = trim($user->full_name ?? '')
+            ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''))
+            ?: $user->email;
+        $panelUrl = $loginUrl ?? rtrim(config('app.frontend_url', config('app.url')), '/') . '/login';
+    @endphp
 
-    <p>¡Bienvenido a <strong>Roke Industries</strong>! Nos complace tenerte como parte de nuestra comunidad de hosting
+    <h2>Hola {{ $customerName }},</h2>
+
+    <p>Bienvenido a <strong>Roke Industries</strong>. Nos complace tenerte como parte de nuestra comunidad de hosting
         profesional.</p>
 
-    <p>Tu cuenta ha sido creada exitosamente y ya puedes comenzar a disfrutar de todos nuestros servicios de hosting de alta
-        calidad.</p>
+    <p>Tu cuenta ha sido creada exitosamente. Desde tu panel podrás contratar servicios, revisar facturación y contactar a soporte cuando lo necesites.</p>
 
     <div class="info-box">
         <h3>Detalles de tu cuenta:</h3>
-        <p><strong>Nombre:</strong> {{ $user->first_name }} {{ $user->last_name }}</p>
-        <p><strong>Email:</strong> {{ $user->email }}</p>
+        <p><strong>Nombre:</strong> {{ $customerName }}</p>
+        <p><strong>Correo:</strong> {{ $user->email }}</p>
         <p><strong>Fecha de registro:</strong> {{ $user->created_at->format('d/m/Y H:i') }}</p>
         @if (isset($user->plan))
             <p><strong>Plan:</strong> {{ $user->plan }}</p>
@@ -26,7 +32,7 @@
     <p>Para comenzar a usar tu cuenta, puedes acceder a nuestro panel de control haciendo clic en el siguiente botón:</p>
 
     <div style="text-align: center;">
-        <a href="{{ $loginUrl ?? url('/login') }}" class="button">Acceder a mi Panel</a>
+        <a href="{{ $panelUrl }}" class="button">Acceder a mi panel</a>
     </div>
 
     <div class="divider"></div>
@@ -36,13 +42,14 @@
         <li style="margin-bottom: 8px;">Contratar tu primer servidor de juego</li>
         <li style="margin-bottom: 8px;">Explorar los planes disponibles</li>
         <li style="margin-bottom: 8px;">Gestionar tus servicios desde el portal</li>
+        <li style="margin-bottom: 8px;">Revisar y completar tu información de seguridad</li>
         <li style="margin-bottom: 8px;">Contactar soporte si necesitas ayuda</li>
     </ul>
 
     <p>Si tienes alguna pregunta o necesitas ayuda, no dudes en contactar a nuestro equipo de soporte en <a
             href="mailto:soporte@rokeindustries.com" style="color: #667eea;">soporte@rokeindustries.com</a></p>
 
-    <p>¡Gracias por elegir Roke Industries para tus necesidades de hosting!</p>
+    <p>Gracias por elegir Roke Industries para tus necesidades de hosting.</p>
 
     <p style="margin-top: 30px;">
         Saludos cordiales,<br>

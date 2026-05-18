@@ -86,7 +86,7 @@ class TrackUserSession
             $session->region = $region;
             $session->city = $city;
             $session->last_activity = now();
-            $session->laravel_session_id = $request->session()->getId();
+            $session->laravel_session_id = $request->hasSession() ? $request->session()->getId() : null;
 
             $session->save();
         }

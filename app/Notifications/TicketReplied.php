@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Str;
 
 class TicketReplied extends Notification implements ShouldQueue
 {
@@ -46,15 +47,29 @@ class TicketReplied extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $fromWho = $this->reply->is_from_admin ? 'el equipo de soporte' : 'el cliente';
+        $fromStaff = $this->reply->isFromStaff();
+        $fromWho = $fromStaff ? 'el equipo de soporte' : 'el cliente';
+        $preview = Str::limit(trim(strip_tags($this->reply->message)), 200);
         
         return (new MailMessage)
-            ->subject('Nueva respuesta en tu ticket de soporte')
-            ->greeting('¡Hola ' . $notifiable->name . '!')
-            ->line("Hay una nueva respuesta de {$fromWho} en tu ticket: {$this->ticket->subject}")
-            ->line("Respuesta: " . substr($this->reply->message, 0, 200) . (strlen($this->reply->message) > 200 ? '...' : ''))
-            ->action('Ver Ticket', url('/dashboard/support/tickets/' . $this->ticket->uuid))
-            ->line('Puedes responder desde tu panel de control.');
+            ->subject('Nueva respuesta en tu ticket - Roke Industries')
+            ->view('emails.notification', [
+                'notifiable' => $notifiable,
+                'title' => 'Nueva respuesta en tu ticket',
+                'subtitle' => 'Actualización de soporte',
+                'intro' => "Hay una nueva respuesta de {$fromWho} en tu ticket.",
+                'detailsTitle' => 'Detalles del ticket',
+                'details' => [
+                    'Ticket' => $this->ticket->ticket_number ?? $this->ticket->uuid,
+                    'Asunto' => $this->ticket->subject,
+                    'Respuesta' => $preview,
+                    'Estado' => $this->ticket->status_label ?? $this->ticket->status,
+                    'Prioridad' => $this->ticket->priority_label ?? $this->ticket->priority,
+                ],
+                'actionUrl' => '/client/tickets/' . $this->ticket->uuid,
+                'actionText' => 'Ver ticket',
+                'footerNote' => 'Puedes responder este ticket desde tu panel de control.',
+            ]);
     }
 
     /**
@@ -62,18 +77,19 @@ class TicketReplied extends Notification implements ShouldQueue
      */
     public function toArray(object $notifiable): array
     {
-        $fromWho = $this->reply->is_from_admin ? 'Soporte' : 'Cliente';
+        $fromStaff = $this->reply->isFromStaff();
+        $fromWho = $fromStaff ? 'Soporte' : 'Cliente';
         
         return [
             'type' => 'ticket_replied',
             'ticket_id' => $this->ticket->uuid,
             'ticket_subject' => $this->ticket->subject,
             'reply_id' => $this->reply->id,
-            'from_admin' => $this->reply->is_from_admin,
-            'title' => 'Nueva Respuesta',
+            'from_admin' => $fromStaff,
+            'title' => 'Nueva respuesta',
             'message' => "Nueva respuesta de {$fromWho} en: {$this->ticket->subject}",
             'action_url' => '/dashboard/support/tickets/' . $this->ticket->uuid,
-            'action_text' => 'Ver Ticket',
+            'action_text' => 'Ver ticket',
             'icon' => 'chat-bubble-left-right',
             'color' => 'info',
         ];
@@ -84,22 +100,22 @@ class TicketReplied extends Notification implements ShouldQueue
      */
     public function toBroadcast(object $notifiable): BroadcastMessage
     {
-        $fromWho = $this->reply->is_from_admin ? 'Soporte' : 'Cliente';
+        $fromStaff = $this->reply->isFromStaff();
+        $fromWho = $fromStaff ? 'Soporte' : 'Cliente';
         
         return new BroadcastMessage([
             'type' => 'ticket_replied',
             'ticket_id' => $this->ticket->uuid,
             'ticket_subject' => $this->ticket->subject,
             'reply_id' => $this->reply->id,
-            'from_admin' => $this->reply->is_from_admin,
-            'title' => 'Nueva Respuesta',
+            'from_admin' => $fromStaff,
+            'title' => 'Nueva respuesta',
             'message' => "Nueva respuesta de {$fromWho} en: {$this->ticket->subject}",
             'action_url' => '/dashboard/support/tickets/' . $this->ticket->uuid,
-            'action_text' => 'Ver Ticket',
+            'action_text' => 'Ver ticket',
             'icon' => 'chat-bubble-left-right',
             'color' => 'info',
             'timestamp' => now()->toISOString(),
         ]);
     }
 }
-

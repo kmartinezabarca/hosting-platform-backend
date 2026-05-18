@@ -2,10 +2,8 @@
 
 namespace App\Events;
 
-use App\Models\Invoice;
-use Illuminate\Broadcasting\Channel;
+use App\Models\Receipt;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -15,12 +13,14 @@ class InvoiceGenerated implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
+    /** @var Receipt */
     public $invoice;
 
     /**
      * Create a new event instance.
+     * @param Receipt $invoice  Comprobante de pago generado.
      */
-    public function __construct(Invoice $invoice)
+    public function __construct(Receipt $invoice)
     {
         $this->invoice = $invoice;
     }
@@ -42,14 +42,14 @@ class InvoiceGenerated implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'invoice_id' => $this->invoice->uuid,
+            'invoice_id'     => $this->invoice->uuid,
             'invoice_number' => $this->invoice->invoice_number,
-            'amount' => $this->invoice->total_amount,
-            'currency' => $this->invoice->currency,
-            'due_date' => $this->invoice->due_date->toDateString(),
-            'status' => $this->invoice->status,
-            'message' => $this->getInvoiceMessage(),
-            'timestamp' => now()->toISOString(),
+            'amount'         => $this->invoice->total,
+            'currency'       => $this->invoice->currency,
+            'due_date'       => $this->invoice->due_date?->toDateString(),
+            'status'         => $this->invoice->status,
+            'message'        => $this->getInvoiceMessage(),
+            'timestamp'      => now()->toISOString(),
         ];
     }
 
@@ -66,7 +66,7 @@ class InvoiceGenerated implements ShouldBroadcast
      */
     private function getInvoiceMessage(): string
     {
-        return "Nueva factura #{$this->invoice->invoice_number} por {$this->invoice->total_amount} {$this->invoice->currency} está disponible. Vence el {$this->invoice->due_date->format('d/m/Y')}.";
+        return "Nuevo comprobante #{$this->invoice->invoice_number} por {$this->invoice->total} {$this->invoice->currency} está disponible.";
     }
 }
 

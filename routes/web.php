@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Auth\EmailVerificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -30,7 +31,10 @@ Route::get("/sanctum/csrf-cookie", function (Request $request) {
     return response()->noContent();
 });
 
+Route::get('/api/email/verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
+    ->middleware(['signed', 'throttle:6,1'])
+    ->name('verification.verify');
+
 // API routes are loaded under the 'api' middleware group in RouteServiceProvider.
 // Do NOT require auth.php / client.php / admin.php here — they must run under
 // EnsureFrontendRequestsAreStateful (api group) for Sanctum cookie auth to work.
-

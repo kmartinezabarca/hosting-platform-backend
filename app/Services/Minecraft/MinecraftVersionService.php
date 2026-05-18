@@ -2,10 +2,19 @@
 
 namespace App\Services\Minecraft;
 
+use App\Models\GameSoftwareVersion;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Opciones de software y versiones para el selector del panel de cliente.
+ *
+ * Lee exclusivamente desde la tabla `game_software_versions` (curada internamente),
+ * eliminando la dependencia de APIs externas (PaperMC, Mojang, Fabric, Forge…).
+ *
+ * El catálogo de software disponible se define en config/minecraft.php ('software').
+ * Las versiones de cada software se obtienen de la BD filtradas por is_active=true.
+ */
 class MinecraftVersionService
 {
     public function options(): array
@@ -14,11 +23,11 @@ class MinecraftVersionService
             return collect(config('minecraft.software', []))
                 ->map(function (array $software, string $id) {
                     return [
-                        'id' => $id,
-                        'name' => $software['name'],
+                        'id'          => $id,
+                        'name'        => $software['name'],
                         'description' => $software['description'],
                         'recommended' => (bool) ($software['recommended'] ?? false),
-                        'versions' => $this->versionsFor($software['provider'] ?? $id),
+                        'versions'    => $this->versionsFor($software['provider'] ?? $id),
                     ];
                 })
                 ->filter(fn (array $software) => !empty($software['versions']))
@@ -35,6 +44,11 @@ class MinecraftVersionService
             }
         }
 
+        // 'latest' siempre es válida para softwares que la acepten
+        if ($version === 'latest') {
+            return collect($this->options())->contains('id', $software);
+        }
+
         return false;
     }
 
@@ -47,107 +61,29 @@ class MinecraftVersionService
             ?? config('minecraft.defaults.version');
     }
 
+    /** Invalida la caché de opciones (llamar tras modificar versiones en BD). */
+    public function invalidateCache(): void
+    {
+        Cache::forget('minecraft:software-options');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     private function versionsFor(string $provider): array
     {
         try {
-            $versions = match ($provider) {
-                'paper' => $this->paperVersions(),
-                'purpur' => $this->purpurVersions(),
-                'fabric' => $this->fabricVersions(),
-                'forge' => $this->forgeVersions(),
-                'vanilla' => $this->vanillaVersions(),
-                default => [],
-            };
+            $versions = GameSoftwareVersion::activeVersionsFor($provider);
 
             return !empty($versions)
                 ? $versions
                 : config("minecraft.fallback_versions.{$provider}", []);
         } catch (\Throwable $e) {
-            Log::warning("No se pudieron obtener versiones de Minecraft para {$provider}", [
+            Log::warning("MinecraftVersionService: error al leer BD para '{$provider}'.", [
                 'error' => $e->getMessage(),
             ]);
 
             return config("minecraft.fallback_versions.{$provider}", []);
         }
-    }
-
-    private function paperVersions(): array
-    {
-        $response = Http::timeout(10)->acceptJson()->get('https://fill.papermc.io/v3/projects/paper');
-
-        if ($response->successful()) {
-            $versions = $response->json('versions', []);
-
-            if (is_array($versions) && array_is_list($versions)) {
-                return $this->stableReleaseVersions($versions);
-            }
-
-            if (is_array($versions)) {
-                return $this->stableReleaseVersions(collect($versions)->flatten()->all());
-            }
-        }
-
-        $fallback = Http::timeout(10)->acceptJson()->get('https://api.papermc.io/v2/projects/paper');
-
-        return $this->stableReleaseVersions($fallback->json('versions', []));
-    }
-
-    private function purpurVersions(): array
-    {
-        $response = Http::timeout(10)->acceptJson()->get('https://api.purpurmc.org/v2/purpur/');
-
-        return $this->stableReleaseVersions($response->json('versions', []));
-    }
-
-    private function fabricVersions(): array
-    {
-        $response = Http::timeout(10)->acceptJson()->get('https://meta.fabricmc.net/v2/versions/game');
-
-        return $this->stableReleaseVersions(
-            collect($response->json())
-                ->filter(fn (array $version) => $version['stable'] ?? false)
-                ->pluck('version')
-                ->all()
-        );
-    }
-
-    private function forgeVersions(): array
-    {
-        $response = Http::timeout(10)->acceptJson()
-            ->get('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json');
-
-        $promos = $response->json('promos', []);
-
-        return $this->stableReleaseVersions(
-            collect(array_keys($promos))
-                ->map(fn (string $key) => preg_replace('/-(latest|recommended)$/', '', $key))
-                ->unique()
-                ->all()
-        );
-    }
-
-    private function vanillaVersions(): array
-    {
-        $response = Http::timeout(10)->acceptJson()
-            ->get('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
-
-        return $this->stableReleaseVersions(
-            collect($response->json('versions', []))
-                ->filter(fn (array $version) => ($version['type'] ?? null) === 'release')
-                ->pluck('id')
-                ->all()
-        );
-    }
-
-    private function stableReleaseVersions(array $versions): array
-    {
-        return collect($versions)
-            ->filter(fn ($version) => is_string($version) && preg_match('/^\d+\.\d+(\.\d+)?$/', $version))
-            ->unique()
-            ->sort(fn (string $a, string $b) => version_compare($b, $a))
-            ->take(20)
-            ->values()
-            ->all();
     }
 
     private function cacheTtl(): int

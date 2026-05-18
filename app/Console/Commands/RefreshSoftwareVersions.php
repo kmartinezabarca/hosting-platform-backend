@@ -8,15 +8,16 @@ use Illuminate\Console\Command;
 /**
  * Artisan command: software:refresh-versions
  *
- * Actualiza la caché de versiones de software de servidor de Minecraft
- * consultando las APIs externas (PaperMC, Purpur, Fabric, Mojang).
+ * Invalida y recarga la caché de versiones de software desde la BD interna.
+ * Las versiones ya NO se obtienen de APIs externas — para gestionar el catálogo
+ * usa: php artisan game:versions {add|enable|disable|…}
  *
  * Uso:
- *   php artisan software:refresh-versions              # refresca todos los identificadores conocidos
+ *   php artisan software:refresh-versions              # refresca todos los identificadores
  *   php artisan software:refresh-versions --id=paper  # refresca solo uno
  *   php artisan software:refresh-versions --dry-run   # muestra qué haría sin actualizar
  *
- * Se programa en Kernel.php para ejecutarse cada noche a las 03:00.
+ * Se programa en Kernel.php para ejecutarse periódicamente (limpia caché stale).
  */
 class RefreshSoftwareVersions extends Command
 {

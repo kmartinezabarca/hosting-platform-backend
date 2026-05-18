@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Models\GameServerPing;
 use App\Models\Service;
 use App\Models\ActivityLog;
 use App\Exceptions\PterodactylApiException;
 use App\Services\GameServers\GameServerRuntimeService;
+use App\Services\Minecraft\MinecraftPingService;
 use App\Services\Minecraft\MinecraftServerConfigurationService;
 use App\Services\Pterodactyl\PterodactylService;
 
@@ -19,7 +21,8 @@ use Illuminate\Support\Facades\Log;
 class GameServerController extends Controller
 {
     public function __construct(
-        private readonly PterodactylService $pterodactyl
+        private readonly PterodactylService  $pterodactyl,
+        private readonly MinecraftPingService $minecraftPing,
     ) {}
 
     /**
@@ -41,17 +44,25 @@ class GameServerController extends Controller
             try {
                 $resources = $this->pterodactyl->getServerResources($identifier);
 
+                $service->loadMissing('plan');
+                $memoryLimit = ($service->plan?->pterodactyl_limits['memory'] ?? 0) * 1024 * 1024;
+                $diskLimit   = ($service->plan?->pterodactyl_limits['disk']   ?? 0) * 1024 * 1024;
+                $uptimeMs    = $resources['resources']['uptime'] ?? 0;
+
                 return response()->json([
                     'success' => true,
                     'data'    => [
-                        'state'        => $resources['current_state']              ?? 'offline',
-                        'is_suspended' => $resources['is_suspended']               ?? false,
-                        'cpu'          => $resources['resources']['cpu_absolute']  ?? 0,
-                        'memory_bytes' => $resources['resources']['memory_bytes']  ?? 0,
-                        'disk_bytes'   => $resources['resources']['disk_bytes']    ?? 0,
-                        'network_rx'   => $resources['resources']['network_rx_bytes'] ?? 0,
-                        'network_tx'   => $resources['resources']['network_tx_bytes'] ?? 0,
-                        'uptime_ms'    => $resources['resources']['uptime']        ?? 0,
+                        'state'          => $resources['current_state']                 ?? 'offline',
+                        'is_suspended'   => $resources['is_suspended']                  ?? false,
+                        'cpu'            => $resources['resources']['cpu_absolute']     ?? 0,
+                        'memory_bytes'   => $resources['resources']['memory_bytes']     ?? 0,
+                        'memory_limit'   => $memoryLimit,
+                        'disk_bytes'     => $resources['resources']['disk_bytes']       ?? 0,
+                        'disk_limit'     => $diskLimit,
+                        'network_rx'     => $resources['resources']['network_rx_bytes'] ?? 0,
+                        'network_tx'     => $resources['resources']['network_tx_bytes'] ?? 0,
+                        'uptime_ms'      => $uptimeMs,
+                        'uptime_seconds' => (int) round($uptimeMs / 1000),
                     ],
                 ]);
             } catch (\Throwable $e) {
@@ -71,6 +82,158 @@ class GameServerController extends Controller
             'message' => $usage ? null : 'No hay datos de uso disponibles para este servicio.',
         ]);
     }
+
+    /**
+     * GET /services/{uuid}/game-server/logs
+     * Retorna las últimas N líneas del archivo logs/latest.log del servidor.
+     */
+    public function getLogs(Request $request, string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+        if (!$service->isPterodactylManaged()) {
+            return response()->json(['success' => false, 'message' => 'Este servicio no es un servidor de juego administrado.'], 422);
+        }
+
+        $identifier = $service->connection_details['identifier'] ?? null;
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'El servidor aún no tiene identificador asignado.'], 404);
+        }
+
+        $lines = (int) $request->query('lines', 100);
+        $lines = max(1, min($lines, 500));
+
+        try {
+            $content    = $this->pterodactyl->readServerFile($identifier, 'logs/latest.log');
+            $allLines   = explode("\n", str_replace("\r\n", "\n", $content));
+            $allLines   = array_filter($allLines, fn($l) => $l !== '');
+            $lastLines  = array_values(array_slice($allLines, -$lines));
+
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'lines'     => $lastLines,
+                    'server_id' => $identifier,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo leer logs/latest.log de Pterodactyl', [
+                'service_id' => $service->id,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'No se pudo leer el archivo de logs. El servidor puede estar apagado o el archivo no existe.'], 503);
+        }
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/status
+     * Estado liviano del servidor: jugadores conectados y ping de estado Minecraft.
+     */
+    public function getStatus(string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+        if (!$service->isPterodactylManaged()) {
+            return response()->json(['success' => false, 'message' => 'Este servicio no es un servidor de juego administrado.'], 422);
+        }
+
+        $identifier  = $service->connection_details['identifier'] ?? null;
+        $host        = $service->connection_details['host']       ?? null;
+        $port        = (int) ($service->connection_details['port'] ?? 25565);
+
+        if (!$identifier) {
+            return response()->json(['success' => false, 'message' => 'El servidor aún no tiene identificador asignado.'], 404);
+        }
+
+        // Obtener estado básico de Pterodactyl (running/offline/etc.)
+        try {
+            $resources   = $this->pterodactyl->getServerResources($identifier);
+            $state       = $resources['current_state'] ?? 'offline';
+            $isSuspended = $resources['is_suspended']  ?? false;
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo obtener estado de Pterodactyl para status', [
+                'service_id' => $service->id,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'No se pudo conectar al panel. Intenta de nuevo.'], 503);
+        }
+
+        $statusData = [
+            'state'        => $state,
+            'is_suspended' => $isSuspended,
+            'online'       => $state === 'running',
+            'players'      => null,
+            'max_players'  => null,
+            'motd'         => null,
+            'version'      => null,
+            'ping_ms'      => null,
+            'server_id'    => $identifier,
+        ];
+
+        // Si el servidor está corriendo y tenemos host, intentar ping Minecraft
+        if ($state === 'running' && $host) {
+            try {
+                $pingResult = $this->minecraftPing->ping($host, $port, timeoutMs: 2000);
+                if ($pingResult !== null) {
+                    $statusData['players']     = $pingResult['players']['online']  ?? 0;
+                    $statusData['max_players'] = $pingResult['players']['max']     ?? 0;
+                    $statusData['motd']        = $pingResult['description']        ?? null;
+                    $statusData['version']     = $pingResult['version']['name']    ?? null;
+                    $statusData['ping_ms']     = $pingResult['ping_ms']            ?? null;
+                }
+            } catch (\Throwable) {
+                // El ping falló (servidor iniciando, no es Minecraft, firewall, etc.) — no es fatal
+            }
+        }
+
+        return response()->json(['success' => true, 'data' => $statusData]);
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/pings
+     * Historial de pings de las últimas 24 h (max 288 muestras a 5 min de intervalo).
+     */
+    public function getPingHistory(string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $samples = GameServerPing::where('service_id', $service->id)
+            ->where('sampled_at', '>=', now()->subHours(24))
+            ->orderBy('sampled_at')
+            ->get(['ping_ms', 'is_online', 'players', 'sampled_at']);
+
+        $onlineSamples  = $samples->where('is_online', true);
+        $avgPing        = $onlineSamples->avg('ping_ms');
+        $minPing        = $onlineSamples->min('ping_ms');
+        $maxPing        = $onlineSamples->max('ping_ms');
+        $totalSamples   = $samples->count();
+        $lostSamples    = $samples->where('is_online', false)->count();
+        $lossPercent    = $totalSamples > 0
+            ? round(($lostSamples / $totalSamples) * 100, 1)
+            : 0.0;
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'samples'      => $samples->map(fn ($p) => [
+                    'ping_ms'    => $p->ping_ms,
+                    'is_online'  => $p->is_online,
+                    'players'    => $p->players,
+                    'sampled_at' => $p->sampled_at?->toISOString(),
+                ])->values(),
+                'avg_ping_ms'  => $avgPing  !== null ? (int) round($avgPing)  : null,
+                'min_ping_ms'  => $minPing  !== null ? (int) $minPing  : null,
+                'max_ping_ms'  => $maxPing  !== null ? (int) $maxPing  : null,
+                'loss_percent' => $lossPercent,
+            ],
+        ]);
+    }
+
 
     /**
      * GET /services/metrics

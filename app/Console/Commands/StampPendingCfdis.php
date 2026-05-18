@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Models\ServiceInvoice;
+use App\Models\Invoice;
 use App\Services\Factura\CfdiService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -27,10 +27,10 @@ class StampPendingCfdis extends Command
     public function handle(): int
     {
         // ── 1) Scheduled (Público en General cuyo plazo ya venció) ──────────
-        $scheduled = ServiceInvoice::dueForStamping()->with('service.user')->get();
+        $scheduled = Invoice::dueForStamping()->with('service.user')->get();
 
         // ── 2) pending_stamp (datos reales aún no timbrados) ────────────────
-        $pending = ServiceInvoice::where('cfdi_status', ServiceInvoice::CFDI_PENDING_STAMP)
+        $pending = Invoice::where('cfdi_status', Invoice::CFDI_PENDING_STAMP)
             ->with('service.user')
             ->get();
 
@@ -64,10 +64,10 @@ class StampPendingCfdis extends Command
             try {
                 $this->cfdi->stamp($si);
                 $stamped++;
-                $this->line("  ✓ ServiceInvoice #{$si->id} timbrado (UUID: {$si->fresh()->cfdi_uuid})");
+                $this->line("  ✓ Invoice #{$si->id} timbrado (UUID: {$si->fresh()->cfdi_uuid})");
             } catch (\Throwable $e) {
                 $failed++;
-                $this->error("  ✗ ServiceInvoice #{$si->id}: {$e->getMessage()}");
+                $this->error("  ✗ Invoice #{$si->id}: {$e->getMessage()}");
             }
         }
 

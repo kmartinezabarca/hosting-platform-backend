@@ -34,7 +34,7 @@ class PasswordResetMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Restablecer Contraseña - Roke Industries',
+            subject: 'Restablecer contraseña - Roke Industries',
             from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
         );
     }
@@ -64,4 +64,3 @@ class PasswordResetMail extends Mailable implements ShouldQueue
         return [];
     }
 }
-

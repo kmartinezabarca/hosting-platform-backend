@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AddOn;
 use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\Service;
 use App\Models\ServicePlan;
 use App\Models\Ticket;
@@ -61,8 +62,8 @@ class DashboardStatsService
     public function revenueStats(): array
     {
         return [
-            'monthly'     => Invoice::where('status', 'paid')->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year)->sum('total'),
-            'yearly'      => Invoice::where('status', 'paid')->whereYear('created_at', now()->year)->sum('total'),
+            'monthly'     => Receipt::where('status', 'paid')->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year)->sum('total'),
+            'yearly'      => Receipt::where('status', 'paid')->whereYear('created_at', now()->year)->sum('total'),
             'currency'    => config('billing.currency', 'MXN'),
             'growth_rate' => $this->revenueGrowthRate(),
         ];
@@ -70,20 +71,20 @@ class DashboardStatsService
 
     public function invoicesStats(): array
     {
-        $total   = Invoice::count();
-        $paid    = Invoice::where('status', 'paid')->count();
-        $pending = Invoice::whereIn('status', ['sent', 'processing'])->count();
-        $overdue = Invoice::where('status', 'overdue')->count();
+        $total   = Receipt::count();
+        $paid    = Receipt::where('status', 'paid')->count();
+        $pending = Receipt::whereIn('status', ['sent', 'processing'])->count();
+        $overdue = Receipt::where('status', 'overdue')->count();
 
         return [
             'total'          => $total,
             'paid'           => $paid,
             'pending'        => $pending,
             'overdue'        => $overdue,
-            'cancelled'      => Invoice::where('status', 'cancelled')->count(),
-            'total_amount'   => (float) Invoice::sum('total'),
-            'pending_amount' => (float) Invoice::whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
-            'total_pending'  => (float) Invoice::whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
+            'cancelled'      => Receipt::where('status', 'cancelled')->count(),
+            'total_amount'   => (float) Receipt::sum('total'),
+            'pending_amount' => (float) Receipt::whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
+            'total_pending'  => (float) Receipt::whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
             'paid_percent'   => $total > 0 ? round(($paid / $total) * 100, 1) : 0,
         ];
     }
@@ -185,12 +186,12 @@ class DashboardStatsService
         $now       = now();
         $prevMonth = $now->copy()->subMonth();
 
-        $thisMonth = Invoice::where('status', 'paid')
+        $thisMonth = Receipt::where('status', 'paid')
             ->whereMonth('created_at', $now->month)
             ->whereYear('created_at', $now->year)
             ->sum('total');
 
-        $lastMonth = Invoice::where('status', 'paid')
+        $lastMonth = Receipt::where('status', 'paid')
             ->whereMonth('created_at', $prevMonth->month)
             ->whereYear('created_at', $prevMonth->year)
             ->sum('total');

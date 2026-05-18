@@ -78,7 +78,7 @@ class FiscalController extends Controller
         $query = CustomerFiscalProfile::with('user:id,uuid,first_name,last_name,email')
             ->when($request->filled('user_id'), fn($q) => $q->where('user_id', $request->get('user_id')))
             ->when($request->filled('rfc'), fn($q) => $q->where('rfc', 'like', '%' . $request->get('rfc') . '%'))
-            ->when($request->filled('regimen_fiscal'), fn($q) => $q->where('regimen_fiscal', $request->get('regimen_fiscal')))
+            ->when($request->filled('fiscal_regime_code'), fn($q) => $q->where('fiscal_regime_code', $request->get('fiscal_regime_code')))
             ->orderByDesc('created_at');
 
         return response()->json([
