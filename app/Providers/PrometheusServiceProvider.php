@@ -122,7 +122,7 @@ class PrometheusServiceProvider extends ServiceProvider
         // ── Ingresos ───────────────────────────────────────────
         Prometheus::addGauge(
             'Revenue Today',
-            fn() => (float) DB::table('invoices')
+            fn() => (float) DB::table('receipts')
                 ->where('status', 'paid')
                 ->whereDate('paid_at', today())
                 ->sum('total')
@@ -130,7 +130,7 @@ class PrometheusServiceProvider extends ServiceProvider
 
         Prometheus::addGauge(
             'Revenue This Month',
-            fn() => (float) DB::table('invoices')
+            fn() => (float) DB::table('receipts')
                 ->where('status', 'paid')
                 ->whereMonth('paid_at', now()->month)
                 ->whereYear('paid_at', now()->year)
@@ -139,7 +139,7 @@ class PrometheusServiceProvider extends ServiceProvider
 
         Prometheus::addGauge(
             'Revenue This Year',
-            fn() => (float) DB::table('invoices')
+            fn() => (float) DB::table('receipts')
                 ->where('status', 'paid')
                 ->whereYear('paid_at', now()->year)
                 ->sum('total')
@@ -148,24 +148,25 @@ class PrometheusServiceProvider extends ServiceProvider
         // ── Facturas ───────────────────────────────────────────
         Prometheus::addGauge(
             'Invoices Paid This Month',
-            fn() => DB::table('invoices')
+            fn() => DB::table('receipts')
                 ->where('status', 'paid')
                 ->whereMonth('paid_at', now()->month)
+                ->whereYear('paid_at', now()->year)
                 ->count()
         );
 
         Prometheus::addGauge(
             'Invoices Pending',
-            fn() => DB::table('invoices')
-                ->where('status', 'pending')
+            fn() => DB::table('receipts')
+                ->where('status', 'sent')
                 ->count()
         );
 
         Prometheus::addGauge(
             'Invoices Overdue',
-            fn() => DB::table('invoices')
-                ->where('status', 'pending')
-                ->where('due_date', '<', now())
+            fn() => DB::table('receipts')
+                ->whereIn('status', ['draft', 'sent', 'overdue'])
+                ->where('due_date', '<', today())
                 ->count()
         );
 
