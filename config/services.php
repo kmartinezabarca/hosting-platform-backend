@@ -43,12 +43,18 @@ return [
         'redirect'      => env('GOOGLE_REDIRECT_URL'),
     ],
 
-    // roke.pet — planes de suscripción (Stripe Price IDs)
+    // roke.pet — planes de suscripción, Google OAuth y notificaciones push
     'rokepet' => [
-        'frontend_url'        => env('ROKEPET_FRONTEND_URL', 'https://roke.pet'),
-        'stripe_price_starter'=> env('ROKEPET_STRIPE_PRICE_STARTER'),
-        'stripe_price_pro'    => env('ROKEPET_STRIPE_PRICE_PRO'),
-        'trial_days'          => (int) env('ROKEPET_TRIAL_DAYS', 14),
+        'frontend_url'          => env('ROKEPET_FRONTEND_URL', 'https://roke.pet'),
+        'stripe_price_starter'  => env('ROKEPET_STRIPE_PRICE_STARTER'),
+        'stripe_price_pro'      => env('ROKEPET_STRIPE_PRICE_PRO'),
+        'trial_days'            => (int) env('ROKEPET_TRIAL_DAYS', 14),
+        'google_client_id'      => env('ROKEPET_GOOGLE_CLIENT_ID'),
+        'google_client_secret'  => env('ROKEPET_GOOGLE_CLIENT_SECRET'),
+        'google_redirect'       => env('ROKEPET_GOOGLE_REDIRECT_URL'),
+        'vapid_public_key'      => env('ROKEPET_VAPID_PUBLIC_KEY'),
+        'vapid_private_key'     => env('ROKEPET_VAPID_PRIVATE_KEY'),
+        'vapid_subject'         => env('ROKEPET_VAPID_SUBJECT', 'mailto:hola@roke.pet'),
     ],
 
     'pterodactyl' => [

@@ -6,8 +6,9 @@ use App\Http\Controllers\Controller;
 
 use Illuminate\Http\Request;
 use App\Models\ActivityLog;
-use App\Models\User;
 use App\Models\Service;
+use App\Models\SystemStatus;
+use App\Models\User;
 use App\Models\UserSession;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -83,7 +84,8 @@ class DashboardController extends Controller
             // --- 4. Métricas de Rendimiento ---
             $performanceUptime = ($activeServices > 0) ? (($suspendedServices > 0 || $maintenanceServices > 0) ? 95.0 : 99.9) : null;
 
-            // Uptime history (last 15 days) — computed from activity incident logs
+            // Uptime history (last 15 days) — derived from activity incident logs only.
+            // Days with no incidents stay at the base uptime (no artificial variance added).
             $uptimeHistory = [];
             $baseUptime = $performanceUptime ?? 99.9;
             for ($i = 14; $i >= 0; $i--) {
@@ -99,16 +101,21 @@ class DashboardController extends Controller
                     })
                     ->count();
 
-                if ($incidents > 0) {
-                    $uptimeHistory[] = round(max(85.0, $baseUptime - ($incidents * 4.9)), 1);
-                } else {
-                    // Tiny negative variation on alternating days for realism
-                    $variance = (($i % 5) === 0) ? -0.1 : 0.0;
-                    $uptimeHistory[] = $baseUptime + $variance;
-                }
+                $uptimeHistory[] = $incidents > 0
+                    ? round(max(85.0, $baseUptime - ($incidents * 4.9)), 1)
+                    : $baseUptime;
             }
 
-            // --- 5. Datos para Gráficos ---
+            // --- 5. Estado global del sistema ---
+            $allStatuses = \App\Models\SystemStatus::all()->pluck('status');
+            $systemStatus = 'operational';
+            if ($allStatuses->contains('outage')) {
+                $systemStatus = 'outage';
+            } elseif ($allStatuses->contains('degraded')) {
+                $systemStatus = 'degraded';
+            }
+
+            // --- 6. Datos para Gráficos ---
 
             // Historial de gasto de los últimos 12 meses
             $billingHistory = Service::where('user_id', $user->id)
@@ -159,6 +166,7 @@ class DashboardController extends Controller
                         'uptime' => $performanceUptime,
                         'uptime_history' => $uptimeHistory,
                     ],
+                    'system_status' => $systemStatus,
                     'charts' => [
                         'billing_history' => $billingChartData,
                         'service_distribution' => array_values(array_filter($serviceDistributionChartData)),
@@ -201,10 +209,9 @@ class DashboardController extends Controller
                         'status' => $service->status,
                         'plan' => $plan->description ?? 'Plan Estándar',
                         'price' => '$' . number_format($service->price, 2) . '/' . $service->billing_cycle,
-                        'next_billing' => $service->next_due_date->format('d M, Y'),
+                        'next_billing' => optional($service->next_due_date)->format('d M, Y'),
                         'created_at' => $service->created_at->format('d M, Y'),
-                        'usage' => $this->generateMockUsage($plan->category->slug ?? 'hosting'),
-                        'specs' => $plan->specifications ?? $this->generateMockSpecs($plan->category->slug ?? 'hosting'),
+                        'specs' => $plan->specifications,
                         'domain' => $service->connection_details['display'] ?? $service->name,
                         'ip' => $service->connection_details['display'] ?? ($service->connection_details['server_ip'] ?? null)
                     ];
@@ -316,73 +323,4 @@ class DashboardController extends Controller
         }
     }
 
-    /**
-     * Generate mock usage data based on service type
-     */
-    private function generateMockUsage($type)
-    {
-        switch (strtolower($type)) {
-            case 'hosting':
-            case 'shared hosting':
-                return [
-                    'disk' => rand(30, 80),
-                    'bandwidth' => rand(20, 60)
-                ];
-            case 'game server':
-            case 'minecraft':
-                return [
-                    'ram' => rand(30, 70),
-                    'cpu' => rand(20, 50),
-                    'players' => rand(5, 18)
-                ];
-            case 'vps':
-            case 'virtual server':
-                return [
-                    'ram' => rand(40, 85),
-                    'cpu' => rand(30, 75),
-                    'disk' => rand(25, 65)
-                ];
-            default:
-                return [
-                    'usage' => rand(20, 80)
-                ];
-        }
-    }
-
-    /**
-     * Generate mock specs based on service type
-     */
-    private function generateMockSpecs($type)
-    {
-        switch (strtolower($type)) {
-            case 'hosting':
-            case 'shared hosting':
-                return [
-                    'disk' => '50 GB SSD',
-                    'bandwidth' => 'Unlimited',
-                    'domains' => '10 Domains',
-                    'email' => 'Unlimited Email'
-                ];
-            case 'game server':
-            case 'minecraft':
-                return [
-                    'ram' => '4 GB RAM',
-                    'cpu' => '2 vCPU',
-                    'storage' => '25 GB SSD',
-                    'players' => '20 Max Players'
-                ];
-            case 'vps':
-            case 'virtual server':
-                return [
-                    'ram' => '8 GB RAM',
-                    'cpu' => '4 vCPU',
-                    'storage' => '100 GB SSD',
-                    'bandwidth' => '5 TB'
-                ];
-            default:
-                return [
-                    'plan' => 'Standard Plan'
-                ];
-        }
-    }
 }

@@ -1,0 +1,247 @@
+<?php
+
+namespace App\Http\Controllers\Pet;
+
+use App\Http\Controllers\Controller;
+use App\Models\Pet\ActivationEvent;
+use App\Models\Pet\Owner;
+use App\Models\Pet\OwnerSubscription;
+use App\Models\Pet\PetPlan;
+use App\Models\Pet\StripeWebhookEvent;
+use App\Services\Pet\PetStripeSyncService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Stripe\Exception\ApiErrorException;
+use Stripe\Exception\SignatureVerificationException;
+use Stripe\StripeClient;
+use Stripe\Webhook;
+
+class StripeController extends Controller
+{
+    private function stripe(): StripeClient
+    {
+        return new StripeClient(config('services.stripe.secret'));
+    }
+
+    private function frontendUrl(): string
+    {
+        return config('services.rokepet.frontend_url', 'https://roke.pet');
+    }
+
+    public function createCheckoutSession(Request $request): JsonResponse
+    {
+        $data     = $request->validate([
+            'planCode' => 'sometimes|string',
+            'billing'  => 'sometimes|string|in:monthly,yearly',
+        ]);
+        $planCode = $data['planCode'] ?? 'starter';
+        $billing  = $data['billing']  ?? 'monthly';
+
+        $plan = PetPlan::where('slug', $planCode)->where('is_active', true)->first();
+
+        if (!$plan) {
+            return response()->json(['error' => 'Plan no encontrado'], 404);
+        }
+
+        // Auto-crea el Product y Price en Stripe si aún no existen
+        try {
+            $priceId = (new PetStripeSyncService())->ensurePrice($plan, $billing);
+        } catch (ApiErrorException $e) {
+            return response()->json(['error' => 'Error al conectar con Stripe: ' . $e->getMessage()], 500);
+        }
+
+        $trialDays = $plan->trialDays();
+
+        $user  = $request->user();
+        $owner = Owner::findOrFail($user->uuid);
+        $sub   = OwnerSubscription::firstOrCreate(
+            ['owner_id' => $user->uuid],
+            ['billing_email' => $user->email]
+        );
+
+        $stripe = $this->stripe();
+        if (!$sub->stripe_customer_id) {
+            $customer = $stripe->customers->create([
+                'email'    => $owner->email ?? $user->email,
+                'name'     => $owner->display_name,
+                'metadata' => ['owner_id' => $user->uuid],
+            ]);
+            $sub->update(['stripe_customer_id' => $customer->id]);
+        }
+
+        $sessionData = [
+            'customer'          => $sub->stripe_customer_id,
+            'mode'              => 'subscription',
+            'line_items'        => [['price' => $priceId, 'quantity' => 1]],
+            'subscription_data' => [
+                'metadata' => ['owner_id' => $user->uuid, 'plan_code' => $planCode],
+            ],
+            'success_url' => $this->frontendUrl() . '/dashboard?checkout=success',
+            'cancel_url'  => $this->frontendUrl() . '/pricing?checkout=cancelled',
+            'metadata'    => ['owner_id' => $user->uuid, 'plan_code' => $planCode],
+        ];
+
+        if ($trialDays > 0) {
+            $sessionData['subscription_data']['trial_period_days'] = $trialDays;
+        }
+
+        $session = $stripe->checkout->sessions->create($sessionData);
+
+        // Don't update plan_code here — only the webhook (onCheckoutCompleted) may do that
+        $sub->update([
+            'stripe_checkout_session_id' => $session->id,
+            'checkout_url'               => $session->url,
+        ]);
+
+        return response()->json(['url' => $session->url]);
+    }
+
+    public function getInvoices(Request $request): JsonResponse
+    {
+        $sub = OwnerSubscription::where('owner_id', $request->user()->uuid)->first();
+
+        if (!$sub?->stripe_customer_id) {
+            return response()->json(['invoices' => []]);
+        }
+
+        $stripeInvoices = $this->stripe()->invoices->all([
+            'customer' => $sub->stripe_customer_id,
+            'limit'    => 12,
+        ]);
+
+        $invoices = collect($stripeInvoices->data)->map(fn ($inv) => [
+            'id'          => $inv->id,
+            'number'      => $inv->number,
+            'status'      => $inv->status,            // paid | open | void | draft
+            'total'       => $inv->total / 100,
+            'currency'    => strtoupper($inv->currency),
+            'periodStart' => $inv->period_start ? date('Y-m-d', $inv->period_start) : null,
+            'periodEnd'   => $inv->period_end   ? date('Y-m-d', $inv->period_end)   : null,
+            'paidAt'      => isset($inv->status_transitions->paid_at)
+                ? date('Y-m-d', $inv->status_transitions->paid_at) : null,
+            'pdfUrl'      => $inv->invoice_pdf,
+            'hostedUrl'   => $inv->hosted_invoice_url,
+        ])->values();
+
+        return response()->json(['invoices' => $invoices]);
+    }
+
+    public function billingPortal(Request $request): JsonResponse
+    {
+        $sub = OwnerSubscription::where('owner_id', $request->user()->uuid)->firstOrFail();
+
+        if (!$sub->stripe_customer_id) {
+            return response()->json(['error' => 'No hay suscripción activa'], 404);
+        }
+
+        $session = $this->stripe()->billingPortal->sessions->create([
+            'customer'   => $sub->stripe_customer_id,
+            'return_url' => $this->frontendUrl() . '/dashboard',
+        ]);
+
+        return response()->json(['url' => $session->url]);
+    }
+
+    public function webhook(Request $request): Response
+    {
+        $payload   = $request->getContent();
+        $sigHeader = $request->header('Stripe-Signature');
+
+        try {
+            $event = Webhook::constructEvent($payload, $sigHeader, config('services.stripe.webhook_secret'));
+        } catch (SignatureVerificationException) {
+            return response('Invalid signature', 400);
+        }
+
+        if (StripeWebhookEvent::where('event_id', $event->id)->exists()) {
+            return response('Already processed', 200);
+        }
+
+        $object  = $event->data->object;
+        $ownerId = $object->metadata->owner_id ?? null;
+        $cusId   = $object->customer ?? null;
+
+        if (!$ownerId && $cusId) {
+            $ownerId = OwnerSubscription::where('stripe_customer_id', $cusId)->value('owner_id');
+        }
+
+        match ($event->type) {
+            'checkout.session.completed'    => $this->onCheckoutCompleted($object, $ownerId),
+            'customer.subscription.updated' => $this->onSubscriptionUpdated($object, $ownerId),
+            'customer.subscription.deleted' => $this->onSubscriptionDeleted($object, $ownerId),
+            'invoice.payment_succeeded'     => $this->onInvoicePaid($object, $ownerId),
+            'invoice.payment_failed'        => $this->onInvoiceFailed($object, $ownerId),
+            default                         => null,
+        };
+
+        StripeWebhookEvent::create([
+            'event_id'               => $event->id,
+            'event_type'             => $event->type,
+            'owner_id'               => $ownerId,
+            'stripe_customer_id'     => $cusId,
+            'stripe_subscription_id' => $object->subscription ?? $object->id ?? null,
+            'payload'                => json_decode($payload, true),
+            'processed_at'           => now(),
+        ]);
+
+        return response('OK', 200);
+    }
+
+    private function onCheckoutCompleted(object $session, ?string $ownerId): void
+    {
+        if (!$ownerId) return;
+        $planCode = $session->metadata->plan_code ?? 'starter';
+        OwnerSubscription::where('owner_id', $ownerId)->update([
+            'status'                     => 'active',
+            'plan_code'                  => $planCode,
+            'stripe_subscription_id'     => $session->subscription ?? null,
+            'stripe_checkout_session_id' => $session->id,
+        ]);
+        ActivationEvent::create([
+            'owner_id'    => $ownerId,
+            'event_type'  => 'subscription_activated',
+            'source'      => 'billing',
+            'metadata'    => ['plan_code' => $planCode, 'session_id' => $session->id],
+            'occurred_at' => now(),
+        ]);
+    }
+
+    private function onSubscriptionUpdated(object $subscription, ?string $ownerId): void
+    {
+        if (!$ownerId) return;
+        OwnerSubscription::where('owner_id', $ownerId)->update([
+            'status'             => match ($subscription->status) {
+                'active'   => 'active', 'trialing' => 'trialing',
+                'past_due' => 'past_due', 'canceled' => 'canceled',
+                default    => 'incomplete',
+            },
+            'stripe_price_id'    => $subscription->items->data[0]->price->id ?? null,
+            'current_period_end' => date('Y-m-d H:i:s', $subscription->current_period_end),
+            'canceled_at'        => $subscription->canceled_at
+                ? date('Y-m-d H:i:s', $subscription->canceled_at) : null,
+        ]);
+    }
+
+    private function onSubscriptionDeleted(object $subscription, ?string $ownerId): void
+    {
+        if (!$ownerId) return;
+        OwnerSubscription::where('owner_id', $ownerId)->update(['status' => 'canceled', 'canceled_at' => now()]);
+    }
+
+    private function onInvoicePaid(object $invoice, ?string $ownerId): void
+    {
+        if (!$ownerId) return;
+        OwnerSubscription::where('owner_id', $ownerId)->update([
+            'status'             => 'active',
+            'last_invoice_id'    => $invoice->id,
+            'current_period_end' => isset($invoice->period_end) ? date('Y-m-d H:i:s', $invoice->period_end) : null,
+        ]);
+    }
+
+    private function onInvoiceFailed(object $invoice, ?string $ownerId): void
+    {
+        if (!$ownerId) return;
+        OwnerSubscription::where('owner_id', $ownerId)->update(['status' => 'past_due']);
+    }
+}

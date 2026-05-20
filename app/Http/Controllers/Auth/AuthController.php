@@ -181,17 +181,21 @@ class AuthController extends Controller
     private function userPayload(User $user): array
     {
         return [
-            'uuid'              => $user->uuid,
-            'first_name'        => $user->first_name,
-            'last_name'         => $user->last_name,
-            'username'          => $user->username,
-            'email'             => $user->email,
-            'phone'             => $user->phone,
-            'role'              => $user->role,
-            'status'            => $user->status,
-            'avatar_url'        => $user->avatar_full_url ?: null,
-            'is_google_account' => $user->is_google_account,
-            'needs_username'    => is_null($user->username),
+            'uuid'               => $user->uuid,
+            'first_name'         => $user->first_name,
+            'last_name'          => $user->last_name,
+            'username'           => $user->username,
+            'email'              => $user->email,
+            'phone'              => $user->phone,
+            'role'               => $user->role,
+            'status'             => $user->status,
+            'avatar_url'         => $user->avatar_full_url ?: null,
+            'is_google_account'  => (bool) $user->is_google_account,
+            'needs_username'     => is_null($user->username),
+            'two_factor_enabled' => (bool) $user->two_factor_enabled,
+            'created_at'         => $user->created_at?->toISOString(),
+            'email_verified_at'  => $user->email_verified_at?->toISOString(),
+            'last_login_at'      => $user->last_login_at?->toISOString(),
         ];
     }
 

@@ -2,12 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Mail\RokePet\PetReminderMail;
-use App\Models\RokePet\MedicalRecord;
-use App\Models\RokePet\Owner;
-use App\Models\RokePet\ReminderSetting;
-use App\Models\RokePet\Vaccine;
-use App\Services\RokePet\PushNotificationService;
+use App\Mail\Pet\PetReminderMail;
+use App\Models\Pet\InboxNotification;
+use App\Models\Pet\MedicalRecord;
+use App\Models\Pet\Owner;
+use App\Models\Pet\ReminderSetting;
+use App\Models\Pet\Vaccine;
+use App\Services\Pet\PushNotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -50,7 +51,7 @@ class SendPetReminders extends Command
             if ($petIds->isEmpty()) continue;
 
             // ── 1. Vacunas ──────────────────────────────────────────────────
-            if ($setting->vaccine_reminders && $setting->email_notifications) {
+            if ($setting->vaccine_reminders) {
                 $totalSent += $this->processVaccineReminders(
                     $owner, $userEmail, $petIds->toArray(), $days, $today
                 );
@@ -197,19 +198,30 @@ class SendPetReminders extends Command
 
         // Push notification
         try {
-            $title = match ($type) {
+            $pushTitle = match ($type) {
                 'vaccine'   => "💉 Vacuna de {$petName}",
                 'deworming' => "🐛 Desparasitación de {$petName}",
                 'checkup'   => "🩺 Consulta de seguimiento — {$petName}",
                 default     => "📋 Recordatorio — {$petName}",
             };
 
-            $body = $daysUntilDue === 0
+            $pushBody = $daysUntilDue === 0
                 ? "{$eventName} vence hoy."
                 : "{$eventName} vence en {$daysUntilDue} día(s) ({$dueDate}).";
 
-            $pushed = $this->push->sendToOwner($owner->id, $title, $body, $url);
-            if ($pushed > 0) $channels[] = 'push';
+            $pushed = $this->push->sendToOwner($owner->id, $pushTitle, $pushBody, ['url' => $url]);
+
+            if ($pushed > 0) {
+                $channels[] = 'push';
+                InboxNotification::createForOwner(
+                    ownerId:   $owner->id,
+                    title:     $pushTitle,
+                    body:      $pushBody,
+                    notifType: "reminder_{$type}",
+                    url:       $url,
+                    tag:       "reminder-{$type}-{$referenceId}",
+                );
+            }
         } catch (\Throwable $e) {
             Log::warning('[rokepet] Push reminder failed', ['owner' => $owner->id, 'error' => $e->getMessage()]);
         }
