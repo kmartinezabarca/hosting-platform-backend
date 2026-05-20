@@ -206,6 +206,7 @@ Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")
         Route::get('/stats',   [BackupController::class, 'stats'])->name('stats');
         Route::post('/',       [BackupController::class, 'store'])->name('store');
         Route::post('/bulk-delete', [BackupController::class, 'bulkDestroy'])->name('bulk-delete');
+        Route::post('/scan-nas',   [BackupController::class, 'scanNas'])->name('scan-nas');
 
         // Programaciones (antes de {backup} para no chocar con el binding)
         Route::get('/schedules',  [BackupController::class, 'schedules'])->name('schedules.index');

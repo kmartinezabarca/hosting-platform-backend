@@ -112,6 +112,24 @@ class BackupController extends Controller
         );
     }
 
+    /** POST /admin/backups/scan-nas */
+    public function scanNas(): JsonResponse
+    {
+        try {
+            $result = $this->backups->scanNas();
+            return response()->json([
+                'success' => true,
+                'message' => "{$result['registered']} archivo(s) registrado(s), {$result['skipped']} omitido(s).",
+                'data'    => $result,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     /* ───────────────── Programaciones ───────────────── */
 
     /** GET /admin/backups/schedules */

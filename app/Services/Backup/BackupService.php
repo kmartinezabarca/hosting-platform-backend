@@ -339,6 +339,96 @@ class BackupService
         }
     }
 
+    /* ───────────────────────── Escaneo NAS ───────────────────────── */
+
+    /**
+     * Recorre el disco NAS y registra en la BD los archivos que aún no
+     * tienen un registro. Útil para importar respaldos pre-existentes.
+     *
+     * @return array{registered:int, skipped:int}
+     */
+    public function scanNas(): array
+    {
+        $disk     = $this->nas();
+        $rootPath = ($this->root === '.' || $this->root === '') ? '' : $this->root;
+
+        try {
+            $files = $disk->allFiles($rootPath);
+        } catch (\Throwable $e) {
+            Log::error('scanNas: no se pudo listar el NAS', ['error' => $e->getMessage()]);
+            throw new \RuntimeException('No se puede leer el NAS: ' . $e->getMessage());
+        }
+
+        $registered = 0;
+        $skipped    = 0;
+        $validExts  = ['zip', 'sql', 'tar', 'gz', 'bz2', 'tgz'];
+
+        foreach ($files as $path) {
+            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+            // Ignorar archivos que no son respaldos
+            if (!in_array($ext, $validExts, true)) {
+                $skipped++;
+                continue;
+            }
+
+            // Ya registrado
+            if (Backup::where('path', $path)->exists()) {
+                $skipped++;
+                continue;
+            }
+
+            $type = $this->inferTypeFromPath($path);
+            $name = pathinfo($path, PATHINFO_FILENAME);
+            $size = 0;
+
+            try { $size = $disk->size($path); } catch (\Throwable) {}
+
+            $fileDate = now();
+            try {
+                $ts = $disk->lastModified($path);
+                if ($ts) $fileDate = Carbon::createFromTimestamp($ts);
+            } catch (\Throwable) {}
+
+            $backup = new Backup([
+                'name'         => $name,
+                'type'         => $type,
+                'status'       => 'completed',
+                'disk'         => $this->disk,
+                'path'         => $path,
+                'size_bytes'   => $size,
+                'started_at'   => $fileDate,
+                'completed_at' => $fileDate,
+                'meta'         => ['scanned' => true, 'source' => 'nas_scan'],
+            ]);
+
+            // Preservar la fecha real del archivo en lugar de now()
+            $backup->timestamps = false;
+            $backup->created_at = $fileDate;
+            $backup->updated_at = $fileDate;
+            $backup->save();
+
+            $registered++;
+        }
+
+        Log::info('scanNas completo', ['registered' => $registered, 'skipped' => $skipped]);
+
+        return ['registered' => $registered, 'skipped' => $skipped];
+    }
+
+    /**
+     * Infiere el tipo de respaldo a partir de la ruta del archivo en el NAS.
+     */
+    private function inferTypeFromPath(string $path): string
+    {
+        $lower = strtolower($path);
+        if (str_contains($lower, '/platform') || str_contains($lower, 'platform_')) return 'platform';
+        if (str_contains($lower, '/client')   || str_contains($lower, 'client_'))   return 'client_files';
+        if (str_contains($lower, '/hosting')  || str_contains($lower, 'hosting_'))  return 'hosting';
+        if (str_contains($lower, '/game')     || str_contains($lower, '/server'))   return 'game_server';
+        return 'platform';
+    }
+
     /* ───────────────────────── Retención ───────────────────────── */
 
     public function applyRetention(?int $days = null): int
