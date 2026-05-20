@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Events\BackupStatusChanged;
 use App\Models\Backup;
 use App\Services\Backup\BackupService;
 use Illuminate\Bus\Queueable;
@@ -40,6 +41,7 @@ class ProcessBackupJob implements ShouldQueue
             'status'     => 'running',
             'started_at' => now(),
         ]);
+        BackupStatusChanged::dispatch($this->backup->fresh());
 
         try {
             $result = $backupService->runType($this->backup->type, $this->backup, $this->opts);
@@ -50,12 +52,14 @@ class ProcessBackupJob implements ShouldQueue
                 'size_bytes'   => $result['size'] ?? 0,
                 'completed_at' => now(),
             ]);
+            BackupStatusChanged::dispatch($this->backup->fresh());
         } catch (\Throwable $e) {
             $this->backup->update([
                 'status'       => 'failed',
                 'error'        => Str::limit($e->getMessage(), 1000),
                 'completed_at' => now(),
             ]);
+            BackupStatusChanged::dispatch($this->backup->fresh());
             Log::error('ProcessBackupJob falló', [
                 'backup' => $this->backup->uuid,
                 'type'   => $this->backup->type,

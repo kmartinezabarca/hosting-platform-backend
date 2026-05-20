@@ -26,6 +26,8 @@ use App\Http\Controllers\Admin\QuotationController;
 use App\Http\Controllers\Admin\PterodactylEggController;
 use App\Http\Controllers\Admin\GlobalSearchController;
 use App\Http\Controllers\Admin\GameSoftwareVersionController;
+use App\Http\Controllers\Admin\PetNotificationController;
+use App\Http\Controllers\Admin\PetSearchController;
 
 /*
 |--------------------------------------------------------------------------
@@ -192,12 +194,12 @@ Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")
         Route::get('/all-rooms', [ChatController::class, 'getAllRooms'])->name('all-rooms');
         Route::get('/stats', [ChatController::class, 'getStats'])->name('stats');
         Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
-        Route::get('/{chatRoom}/messages', [ChatController::class, 'getMessages'])->name('messages');
-        Route::post('/{chatRoom}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
-        Route::put('/{chatRoom}/read', [ChatController::class, 'markAsRead'])->name('mark-as-read');
-        Route::put('/{chatRoom}/assign', [ChatController::class, 'assignToAgent'])->name('assign');
-        Route::put('/{chatRoom}/close', [ChatController::class, 'closeRoom'])->name('close');
-        Route::put('/{chatRoom}/reopen', [ChatController::class, 'reopenRoom'])->name('reopen');
+        Route::get('/{ticket}/messages', [ChatController::class, 'getMessages'])->name('messages');
+        Route::post('/{ticket}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
+        Route::put('/{ticket}/read', [ChatController::class, 'markAsRead'])->name('mark-as-read');
+        Route::put('/{ticket}/assign', [ChatController::class, 'assignToAgent'])->name('assign');
+        Route::put('/{ticket}/close', [ChatController::class, 'closeRoom'])->name('close');
+        Route::put('/{ticket}/reopen', [ChatController::class, 'reopenRoom'])->name('reopen');
     });
 
     // Rutas de Backups / Respaldos (NAS)
@@ -327,6 +329,15 @@ Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")
         // Perfiles fiscales de clientes (solo lectura)
         Route::get('/profiles',                    [FiscalController::class, 'profiles']);
         Route::get('/profiles/{uuid}',             [FiscalController::class, 'showProfile']);
+    });
+
+    // ── ROKE Pet — Platform Admin Routes ─────────────────────────────────────
+    Route::prefix('pet')->group(function () {
+        // notifications/stats must be declared BEFORE notifications/{id} to avoid route collision
+        Route::get('/notifications/stats', [PetNotificationController::class, 'stats']);
+        Route::get('/notifications',       [PetNotificationController::class, 'index']);
+        Route::get('/search/popular',      [PetSearchController::class, 'popular']);
+        Route::get('/search',              [PetSearchController::class, 'search']);
     });
 
     // Documentation Requests Routes

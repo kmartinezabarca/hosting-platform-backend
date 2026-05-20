@@ -68,6 +68,14 @@ Broadcast::channel('admin.notifications', function (User $user) {
     return $user->isAdmin();
 });
 
+Broadcast::channel('admin.backups', function (User $user) {
+    return $user->isAdmin();
+});
+
+Broadcast::channel('admin.pet.notifications', function (User $user) {
+    return $user->isAdmin();
+});
+
 // Canal para super administradores
 Broadcast::channel('admin.super', function (User $user) {
     return $user->isSuperAdmin();

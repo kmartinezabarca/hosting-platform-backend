@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Events\TicketRead;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\TicketReply;
@@ -86,11 +87,16 @@ class SupportChatController extends Controller
      */
     private function markStaffRepliesAsRead(Ticket $ticket): void
     {
-        TicketReply::where('ticket_id', $ticket->id)
+        $updated = TicketReply::where('ticket_id', $ticket->id)
             ->where('is_internal', false)
             ->whereNull('read_at')
             ->where('user_id', '!=', $ticket->user_id) // del staff
             ->update(['read_at' => now()]);
+
+        // Notify admin channel in real-time so read-receipt checkmarks update instantly.
+        if ($updated > 0) {
+            TicketRead::dispatch($ticket);
+        }
     }
 
     /**

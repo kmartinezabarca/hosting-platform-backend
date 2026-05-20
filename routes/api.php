@@ -17,6 +17,7 @@ use App\Http\Controllers\Client\SystemStatusController;
 use App\Http\Controllers\Client\GameEggController;
 use App\Http\Controllers\Client\HostingController;
 use App\Http\Controllers\Common\StripeWebhookController;
+use App\Http\Controllers\AppVersionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -29,6 +30,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Auth routes are defined in routes/auth.php (loaded from RouteServiceProvider).
+
+// ── App version — public, no auth required ────────────────────────────────────
+Route::get('/app/version', [AppVersionController::class, 'show']);
 
 // Stripe webhook (no authentication required)
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handleWebhook']);

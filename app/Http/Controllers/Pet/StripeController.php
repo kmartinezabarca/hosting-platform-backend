@@ -44,6 +44,28 @@ class StripeController extends Controller
             return response()->json(['error' => 'Plan no encontrado'], 404);
         }
 
+        // ── Plan gratuito: activar directamente sin pasar por Stripe ─────────
+        $isFree = ($plan->price_monthly == 0) && empty($plan->stripe_price_monthly);
+        if ($isFree) {
+            $user = $request->user();
+            $sub  = OwnerSubscription::firstOrCreate(
+                ['owner_id' => $user->uuid],
+                ['billing_email' => $user->email]
+            );
+            $sub->update([
+                'plan_code' => $planCode,
+                'status'    => 'active',
+            ]);
+            ActivationEvent::create([
+                'owner_id'    => $user->uuid,
+                'event_type'  => 'subscription_activated',
+                'source'      => 'billing',
+                'metadata'    => ['plan_code' => $planCode, 'method' => 'free'],
+                'occurred_at' => now(),
+            ]);
+            return response()->json(['free' => true]);
+        }
+
         // Auto-crea el Product y Price en Stripe si aún no existen
         try {
             $priceId = (new PetStripeSyncService())->ensurePrice($plan, $billing);
