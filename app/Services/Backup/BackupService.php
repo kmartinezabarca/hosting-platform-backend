@@ -106,11 +106,12 @@ class BackupService
 
         try {
             $result = match ($type) {
-                'platform'     => $this->backupPlatform($backup),
-                'client_files' => $this->backupClientFiles($backup, $opts),
-                'hosting'      => $this->backupHosting($backup, $opts),
-                'game_server'  => $this->backupViaProvider($backup, 'game_server'),
-                default        => throw new \InvalidArgumentException("Tipo de backup no soportado: {$type}"),
+                'platform'                                          => $this->backupPlatform($backup),
+                'landing', 'portal_client', 'portal_admin', 'pet'  => $this->backupProject($backup, $type),
+                'client_files'                                      => $this->backupClientFiles($backup, $opts),
+                'hosting'                                           => $this->backupHosting($backup, $opts),
+                'game_server'                                       => $this->backupViaProvider($backup, 'game_server'),
+                default                                             => throw new \InvalidArgumentException("Tipo de backup no soportado: {$type}"),
             };
 
             $backup->update([
@@ -180,6 +181,79 @@ class BackupService
 
         // 3) Subir al NAS y limpiar temporal
         $remote = "{$this->root}/platform/" . basename($zipFile);
+        $stream = fopen($zipFile, 'r');
+        $this->nas()->writeStream($remote, $stream);
+        if (is_resource($stream)) fclose($stream);
+        $size = filesize($zipFile) ?: 0;
+        @unlink($zipFile);
+
+        return ['path' => $remote, 'size' => $size];
+    }
+
+    /**
+     * Respaldo de proyecto interno (landing, portal_client, portal_admin, pet).
+     *
+     * Lee la configuración de backup.projects.{type} para saber:
+     *   - source_path → directorio a empaquetar (opcional)
+     *   - db          → nombre de la conexión Laravel a volcar (opcional)
+     *
+     * Al menos uno de los dos debe estar configurado.
+     */
+    private function backupProject(Backup $backup, string $type): array
+    {
+        $cfg        = config("backup.projects.{$type}", []);
+        $sourcePath = $cfg['source_path'] ?? null;
+        $dbConn     = $cfg['db'] ?? null;
+
+        if (!$sourcePath && !$dbConn) {
+            throw new \InvalidArgumentException(
+                "El proyecto '{$type}' no tiene source_path ni db configurados. "
+                . "Agrega " . strtoupper($type) . "_SOURCE_PATH al .env o configura la BD en config/backup.php."
+            );
+        }
+
+        $stamp  = now()->format('Y-m-d_His');
+        $tmpDir = storage_path('app/tmp-backups');
+        @mkdir($tmpDir, 0775, true);
+        $zipFile = "{$tmpDir}/{$type}_{$stamp}.zip";
+
+        $zip = new ZipArchive();
+        if ($zip->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new \RuntimeException('No se pudo crear el archivo zip.');
+        }
+
+        // 1) Volcado de BD si está configurada
+        if ($dbConn) {
+            $conn    = config("database.connections.{$dbConn}");
+            $sqlFile = "{$tmpDir}/{$type}_db_{$stamp}.sql";
+            $this->mysqldumpToFile([
+                'host'     => $conn['host'] ?? '127.0.0.1',
+                'port'     => $conn['port'] ?? 3306,
+                'username' => $conn['username'] ?? 'root',
+                'password' => $conn['password'] ?? '',
+                'database' => $conn['database'] ?? '',
+            ], $sqlFile);
+            $zip->addFile($sqlFile, 'database.sql');
+        }
+
+        // 2) Archivos del directorio de origen si está configurado
+        if ($sourcePath && is_dir($sourcePath)) {
+            $files = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($sourcePath, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($files as $file) {
+                if ($file->isFile()) {
+                    $zip->addFile($file->getRealPath(), 'files/' . ltrim(
+                        str_replace($sourcePath, '', $file->getRealPath()), '/\\'
+                    ));
+                }
+            }
+        }
+
+        $zip->close();
+        if (isset($sqlFile)) @unlink($sqlFile);
+
+        $remote = "{$this->root}/{$type}/" . basename($zipFile);
         $stream = fopen($zipFile, 'r');
         $this->nas()->writeStream($remote, $stream);
         if (is_resource($stream)) fclose($stream);
@@ -350,13 +424,24 @@ class BackupService
     public function scanNas(): array
     {
         $disk     = $this->nas();
-        $rootPath = ($this->root === '.' || $this->root === '') ? '' : $this->root;
+        $rootPath = ($this->root === '.' || $this->root === '') ? '' : rtrim($this->root, '/');
 
-        try {
-            $files = $disk->allFiles($rootPath);
-        } catch (\Throwable $e) {
-            Log::error('scanNas: no se pudo listar el NAS', ['error' => $e->getMessage()]);
-            throw new \RuntimeException('No se puede leer el NAS: ' . $e->getMessage());
+        // Limitar el escaneo a subdirectorios conocidos de respaldos para
+        // evitar recorrer el NAS entero y causar un timeout 504.
+        $scanDirs = config('backup.scan_dirs', [
+            'platform', 'landing', 'portal_client', 'portal_admin', 'pet',
+            'clients', 'hosting', 'game_server',
+        ]);
+
+        $files = [];
+        foreach ($scanDirs as $dir) {
+            $scanPath = $rootPath ? "{$rootPath}/{$dir}" : $dir;
+            try {
+                $found = $disk->allFiles($scanPath);
+                $files = array_merge($files, $found);
+            } catch (\Throwable) {
+                // El directorio no existe aún — ignorar
+            }
         }
 
         $registered = 0;
@@ -418,14 +503,36 @@ class BackupService
 
     /**
      * Infiere el tipo de respaldo a partir de la ruta del archivo en el NAS.
+     *
+     * Cubre tanto los directorios propios del sistema como los backups
+     * pre-existentes detectados en la estructura real del NAS:
+     *   dell/db/         → platform  (volcados SQL del cron externo)
+     *   dell/configs/    → platform  (configs del sistema)
+     *   platform/        → platform
+     *   landing/         → landing
+     *   portal_client/   → portal_client
+     *   portal_admin/    → portal_admin
+     *   pet/             → pet
+     *   clients/         → client_files
+     *   hosting/         → hosting
+     *   game_server/     → game_server
      */
     private function inferTypeFromPath(string $path): string
     {
         $lower = strtolower($path);
-        if (str_contains($lower, '/platform') || str_contains($lower, 'platform_')) return 'platform';
-        if (str_contains($lower, '/client')   || str_contains($lower, 'client_'))   return 'client_files';
-        if (str_contains($lower, '/hosting')  || str_contains($lower, 'hosting_'))  return 'hosting';
-        if (str_contains($lower, '/game')     || str_contains($lower, '/server'))   return 'game_server';
+
+        // Backups pre-existentes del NAS (scripts externos)
+        if (str_contains($lower, 'dell/db/')      || str_contains($lower, 'dell/configs/')) return 'platform';
+
+        // Directorios propios del sistema
+        if (str_starts_with($lower, 'landing/')      || str_contains($lower, '/landing/'))      return 'landing';
+        if (str_starts_with($lower, 'portal_client/') || str_contains($lower, '/portal_client/')) return 'portal_client';
+        if (str_starts_with($lower, 'portal_admin/')  || str_contains($lower, '/portal_admin/'))  return 'portal_admin';
+        if (str_starts_with($lower, 'pet/')           || str_contains($lower, '/pet/'))           return 'pet';
+        if (str_starts_with($lower, 'clients/')       || str_contains($lower, '/clients/'))       return 'client_files';
+        if (str_starts_with($lower, 'hosting/')       || str_contains($lower, '/hosting/'))       return 'hosting';
+        if (str_starts_with($lower, 'game_server/')   || str_contains($lower, '/game_server/'))   return 'game_server';
+
         return 'platform';
     }
 
