@@ -88,48 +88,46 @@ class BackupService
 
     /* ───────────────────────── Creación ───────────────────────── */
 
+    /**
+     * Crea el registro de respaldo en BD con status='pending' y despacha
+     * el job al queue worker para ejecución en segundo plano.
+     *
+     * El frontend hace polling cada 15 s y muestra el estado en tiempo real.
+     */
     public function create(string $type, array $opts = []): Backup
     {
-        $name = $opts['name'] ?? $this->defaultName($type);
-
         $backup = Backup::create([
-            'name'        => $name,
+            'name'        => $opts['name'] ?? $this->defaultName($type),
             'type'        => $type,
-            'status'      => 'running',
+            'status'      => 'pending',
             'user_id'     => $opts['user_id'] ?? null,
             'service_id'  => $opts['service_id'] ?? null,
             'schedule_id' => $opts['schedule_id'] ?? null,
             'disk'        => $this->disk,
-            'started_at'  => now(),
             'meta'        => $opts['meta'] ?? null,
         ]);
 
-        try {
-            $result = match ($type) {
-                'platform'                                          => $this->backupPlatform($backup),
-                'landing', 'portal_client', 'portal_admin', 'pet'  => $this->backupProject($backup, $type),
-                'client_files'                                      => $this->backupClientFiles($backup, $opts),
-                'hosting'                                           => $this->backupHosting($backup, $opts),
-                'game_server'                                       => $this->backupViaProvider($backup, 'game_server'),
-                default                                             => throw new \InvalidArgumentException("Tipo de backup no soportado: {$type}"),
-            };
+        \App\Jobs\ProcessBackupJob::dispatch($backup, $opts);
 
-            $backup->update([
-                'status'       => 'completed',
-                'path'         => $result['path'],
-                'size_bytes'   => $result['size'] ?? 0,
-                'completed_at' => now(),
-            ]);
-        } catch (\Throwable $e) {
-            $backup->update([
-                'status'       => 'failed',
-                'error'        => Str::limit($e->getMessage(), 1000),
-                'completed_at' => now(),
-            ]);
-            Log::error('Backup falló', ['type' => $type, 'error' => $e->getMessage()]);
-        }
+        return $backup;
+    }
 
-        return $backup->fresh();
+    /**
+     * Ejecuta el driver de respaldo según el tipo.
+     * Llamado por ProcessBackupJob desde el worker.
+     *
+     * @return array{path: string, size: int}
+     */
+    public function runType(string $type, Backup $backup, array $opts = []): array
+    {
+        return match ($type) {
+            'platform'                                         => $this->backupPlatform($backup),
+            'landing', 'portal_client', 'portal_admin', 'pet' => $this->backupProject($backup, $type),
+            'client_files'                                     => $this->backupClientFiles($backup, $opts),
+            'hosting'                                          => $this->backupHosting($backup, $opts),
+            'game_server'                                      => $this->backupViaProvider($backup, 'game_server'),
+            default                                            => throw new \InvalidArgumentException("Tipo de backup no soportado: {$type}"),
+        };
     }
 
     /* ───────────────────────── Drivers ───────────────────────── */

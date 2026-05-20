@@ -64,12 +64,10 @@ class BackupController extends Controller
         $backup = $this->backups->create($validated['type'], $validated);
 
         return response()->json([
-            'success' => $backup->status !== 'failed',
+            'success' => true,
             'data'    => $backup->load('user:id,first_name,last_name', 'service:id,name'),
-            'message' => $backup->status === 'failed'
-                ? ($backup->error ?: 'El respaldo falló.')
-                : 'Respaldo creado.',
-        ], $backup->status === 'failed' ? 422 : 201);
+            'message' => 'Respaldo en cola — el estado se actualizará automáticamente.',
+        ], 202);
     }
 
     /** DELETE /admin/backups/{backup} */
@@ -204,12 +202,10 @@ class BackupController extends Controller
         ]);
 
         return response()->json([
-            'success' => $backup->status !== 'failed',
+            'success' => true,
             'data'    => $backup,
-            'message' => $backup->status === 'failed'
-                ? ($backup->error ?: 'El respaldo falló.')
-                : 'Respaldo ejecutado.',
-        ], $backup->status === 'failed' ? 422 : 200);
+            'message' => 'Respaldo en cola — el estado se actualizará automáticamente.',
+        ], 202);
     }
 
     private function nasReachable(string $disk): bool
