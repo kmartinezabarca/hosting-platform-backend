@@ -55,10 +55,16 @@ pipeline {
     }
 
     environment {
-        STAGING_PATH            = '/opt/apps/api-staging'
+        // ── Producción (Dell — local) ──────────────────────────
         PROD_PATH               = '/opt/apps/api'
-        STAGING_URL             = 'https://api.rokeindustries.dev'
         PROD_URL                = 'https://api.rokeindustries.com'
+
+        // ── Staging/DEV (Mac Mini — remoto vía Tailscale) ──────
+        STAGING_PATH            = '/opt/apps/api-dev'
+        STAGING_URL             = 'https://api.rokeindustries.dev'
+        DEV_HOST                = '100.72.162.112'
+        DEV_USER                = 'rokedev'
+
         COMPOSER_NO_INTERACTION = '1'
         COMPOSER_MEMORY_LIMIT   = '-1'
         DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1501364059117715558/W_w1xbGHR_jifhNtdE9koiPjoaiXB2fYEJ62mAsMn9zSeOnQxLXasOWpPN9a-Is35Wsd'
@@ -84,7 +90,7 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    env.GIT_SHORT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+                    env.GIT_SHORT    = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
                     env.RELEASE_TS   = sh(returnStdout: true, script: "date +%Y%m%d_%H%M%S").trim()
                     env.RELEASE_NAME = "${env.RELEASE_TS}_${env.GIT_SHORT}"
                 }
@@ -107,67 +113,116 @@ pipeline {
         }
 
         stage('Composer Install') {
-    steps {
-        sh '''
-            rm -rf vendor
-            if [ "${DEPLOY_ENV}" = "production" ]; then
-                composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
-            else
-                composer install --no-scripts --optimize-autoloader --prefer-dist
-            fi
-        '''
-    }
-}
-
-        stage('Tests') {
-            when { expression { params.RUN_TESTS } }
             steps {
                 sh '''
-                    ./vendor/bin/phpunit || true
+                    rm -rf vendor
+                    if [ "${DEPLOY_ENV}" = "production" ]; then
+                        composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
+                    else
+                        composer install --no-scripts --optimize-autoloader --prefer-dist
+                    fi
                 '''
             }
         }
 
-        // 🔥 NO TOQUÉ NADA DE TU DEPLOY ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+        stage('Tests') {
+            when { expression { params.RUN_TESTS } }
+            steps {
+                sh './vendor/bin/phpunit || true'
+            }
+        }
 
+        // ──────────────────────────────────────────────────────────
+        // 🖥️  DEPLOY STAGING → Mac Mini (remoto vía SSH/Tailscale)
+        // ──────────────────────────────────────────────────────────
         stage('Deploy Staging') {
             when { expression { params.DEPLOY_ENV == 'staging' } }
             steps {
                 script {
                     def releaseName   = env.RELEASE_NAME
                     def stagingPath   = env.STAGING_PATH
+                    def devHost       = env.DEV_HOST
+                    def devUser       = env.DEV_USER
                     def runMigrations = params.RUN_MIGRATIONS
 
-                    sh """
-                        # (tu código intacto)
-                        RELEASE_DIR=${stagingPath}/releases/${releaseName}
-                        mkdir -p "\$RELEASE_DIR"
-                        cp -r . "\$RELEASE_DIR/"
-                        ln -sf ${stagingPath}/shared/.env "\$RELEASE_DIR/.env"
-                        rm -rf "\$RELEASE_DIR/storage"
-                        ln -sf ${stagingPath}/shared/storage "\$RELEASE_DIR/storage"
-                        rm -rf "\$RELEASE_DIR/bootstrap/cache"
-                        ln -sf ${stagingPath}/shared/bootstrap-cache "\$RELEASE_DIR/bootstrap/cache"
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'mac-mini-deploy-key',
+                        keyFileVariable: 'SSH_KEY'
+                    )]) {
+                        // 1. Crear directorio de release en Mac Mini
+                        sh """
+                            ssh -i \$SSH_KEY \
+                                -o StrictHostKeyChecking=no \
+                                -o ConnectTimeout=10 \
+                                ${devUser}@${devHost} \
+                                "mkdir -p ${stagingPath}/releases/${releaseName}/bootstrap/cache && chmod 777 ${stagingPath}/releases/${releaseName}/bootstrap/cache"
+                        """
 
-                        cd "\$RELEASE_DIR"
-                        php artisan config:clear
+                        // 2. Sincronizar código con rsync
+                        sh """
+                            rsync -az \
+                                --exclude='.git' \
+                                --exclude='node_modules' \
+                                --exclude='vendor' \
+                                --exclude='.env' \
+                                --exclude='storage' \
+                                -e "ssh -i \$SSH_KEY -o StrictHostKeyChecking=no" \
+                                ./ ${devUser}@${devHost}:${stagingPath}/releases/${releaseName}/
+                        """
 
-                        if [ "${runMigrations}" = "true" ]; then
-    export DB_HOST=10.0.0.1
-    php artisan migrate --force --no-interaction
-fi
+                        // 3. Symlinks, migraciones, caché y switch atómico — todo remoto
+                        sh """
+                            ssh -i \$SSH_KEY \
+                                -o StrictHostKeyChecking=no \
+                                ${devUser}@${devHost} bash << 'REMOTE'
+                                    set -e
+                                    RELEASE_DIR=${stagingPath}/releases/${releaseName}
 
-                        php artisan config:cache
-                        php artisan route:cache
-                        php artisan view:cache
+                                    # Symlinks a shared
+                                    ln -sf ${stagingPath}/shared/.env \$RELEASE_DIR/.env
+                                    rm -rf \$RELEASE_DIR/storage
+                                    ln -sf ${stagingPath}/shared/storage \$RELEASE_DIR/storage
 
-                        ln -snf "\$RELEASE_DIR" ${stagingPath}/current
-                    """
+                                    cd \$RELEASE_DIR
+
+                                    # Instalar vendor en el Mac Mini
+                                    composer install --no-scripts --optimize-autoloader --prefer-dist
+
+                                    php artisan config:clear
+
+                                    # Migraciones — DB es local en Mac Mini
+                                    if [ "${runMigrations}" = "true" ]; then
+                                        export DB_HOST=127.0.0.1
+                                        php artisan migrate --force --no-interaction
+                                    fi
+
+                                    php artisan config:cache
+                                    php artisan route:cache
+                                    php artisan view:cache
+
+                                    # Switch atómico
+                                    ln -snf \$RELEASE_DIR ${stagingPath}/current
+
+                                    # Limpiar releases viejos (mantener 5)
+                                    ls -dt ${stagingPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
+REMOTE
+                        """
+
+                        // 4. Reload servicios en Mac Mini
+                        sh """
+                            ssh -i \$SSH_KEY \
+                                -o StrictHostKeyChecking=no \
+                                ${devUser}@${devHost} \
+                                "sudo /usr/local/bin/roke-reload-dev 2>/dev/null || true"
+                        """
+                    }
                 }
-                sh '/usr/local/bin/roke-reload-staging 2>/dev/null || true'
             }
         }
 
+        // ──────────────────────────────────────────────────────────
+        // 🏭  DEPLOY PRODUCCIÓN → Dell (local, sin cambios)
+        // ──────────────────────────────────────────────────────────
         stage('Deploy Production') {
             when { expression { params.DEPLOY_ENV == 'production' } }
             steps {
@@ -175,7 +230,7 @@ fi
 
                 script {
                     def releaseName = env.RELEASE_NAME
-                    def prodPath = env.PROD_PATH
+                    def prodPath    = env.PROD_PATH
 
                     sh """
                         RELEASE_DIR=${prodPath}/releases/${releaseName}
@@ -187,8 +242,13 @@ fi
                         php artisan config:clear
                         php artisan migrate --force --no-interaction
                         php artisan config:cache
+                        php artisan route:cache
+                        php artisan view:cache
 
                         ln -snf "\$RELEASE_DIR" ${prodPath}/current
+
+                        # Limpiar releases viejos (mantener 5)
+                        ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
                     """
                 }
                 sh '/usr/local/bin/roke-reload-prod 2>/dev/null || true'
@@ -200,7 +260,6 @@ fi
         success {
             script {
                 notify("SUCCESS")
-
                 def durationSec = currentBuild.duration / 1000
                 if (durationSec > 120) {
                     notify("WARNING", "Deploy lento: ${durationSec}s")
@@ -211,7 +270,6 @@ fi
         failure {
             script {
                 notify("FAILURE", "Error en ${env.STAGE_NAME}")
-
                 def prev = currentBuild.previousBuild
                 if (prev && prev.result == "FAILURE") {
                     notify("CRITICAL", "🔥 Fallos consecutivos API")
