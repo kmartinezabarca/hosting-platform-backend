@@ -30,11 +30,14 @@ class PetController extends Controller
         $ownerId = $request->user()->uuid;
 
         $data = $request->validate([
-            'name'    => 'required|string|max:255',
-            'species' => 'required|in:cat,dog,rabbit,other',
-            'breed'   => 'nullable|string|max:255',
-            'breedEn' => 'nullable|string|max:255',
-            'gender'  => 'nullable|in:female,male',
+            'name'         => 'required|string|max:255',
+            'species'      => 'required|in:cat,dog,rabbit,other',
+            'breed'        => 'nullable|string|max:255',
+            'breedEn'      => 'nullable|string|max:255',
+            'gender'       => 'nullable|in:female,male',
+            'birthDate'    => 'nullable|date',
+            'avatarEmoji'  => 'nullable|string|max:16',
+            'ringColor'    => 'nullable|in:coral,sage,sky,plum',
         ]);
 
         Owner::firstOrCreate(['id' => $ownerId], [
@@ -50,6 +53,9 @@ class PetController extends Controller
             'breed'                  => $data['breed'] ?? '',
             'breed_en'               => $data['breedEn'] ?? $data['breed'] ?? '',
             'gender'                 => $data['gender'] ?? 'female',
+            'birth_date'             => $data['birthDate'] ?? null,
+            'avatar_emoji'           => $data['avatarEmoji'] ?? null,
+            'ring_color'             => $data['ringColor'] ?? null,
             'traits'                 => [],
             'traits_en'              => [],
             'allergies'              => [],
@@ -96,6 +102,7 @@ class PetController extends Controller
             'microchipId'          => 'sometimes|nullable|string',
             'nfcId'                => 'sometimes|nullable|string',
             'photoUrl'             => 'sometimes|nullable|string',
+            'coverUrl'             => 'sometimes|nullable|string',
             'story'                => 'sometimes|nullable|string',
             'storyEn'              => 'sometimes|nullable|string',
             'traits'               => 'sometimes|array',
@@ -114,6 +121,8 @@ class PetController extends Controller
             'primaryVetName'       => 'sometimes|nullable|string',
             'primaryVetPhone'      => 'sometimes|nullable|string',
             'primaryVetClinic'     => 'sometimes|nullable|string',
+            'avatarEmoji'          => 'sometimes|nullable|string|max:16',
+            'ringColor'            => 'sometimes|nullable|in:coral,sage,sky,plum',
             'publicProfileEnabled'      => 'sometimes|boolean',
             'isLost'                    => 'sometimes|boolean',
             'lostSince'                 => 'sometimes|nullable|date',
@@ -146,6 +155,18 @@ class PetController extends Controller
         return response()->json(['url' => $url]);
     }
 
+    public function uploadCover(Request $request, string $id): JsonResponse
+    {
+        $pet = Pet::where('id', $id)->where('owner_id', $request->user()->uuid)->firstOrFail();
+        $request->validate(['photo' => 'required|image|max:8192']);
+
+        $path = $request->file('photo')->store("pet-covers/{$request->user()->uuid}", 'public');
+        $url  = asset("storage/{$path}") . '?t=' . time();
+        $pet->update(['cover_url' => $url]);
+
+        return response()->json(['url' => $url]);
+    }
+
     private function buildSlug(string $name): string
     {
         return (Str::slug($name) ?: 'mascota') . '-' . Str::random(5);
@@ -156,7 +177,7 @@ class PetController extends Controller
         $map = [
             'breedEn' => 'breed_en', 'birthDate' => 'birth_date', 'colorEn' => 'color_en',
             'eyeColor' => 'eye_color', 'eyeColorEn' => 'eye_color_en',
-            'microchipId' => 'microchip_id', 'nfcId' => 'nfc_id', 'photoUrl' => 'photo_url',
+            'microchipId' => 'microchip_id', 'nfcId' => 'nfc_id', 'photoUrl' => 'photo_url', 'coverUrl' => 'cover_url',
             'storyEn' => 'story_en', 'traitsEn' => 'traits_en',
             'allergiesEn' => 'allergies_en', 'allergyProfiles' => 'allergy_profiles',
             'conditionsEn' => 'conditions_en', 'activeTreatments' => 'active_treatments',
@@ -165,7 +186,9 @@ class PetController extends Controller
             'currentMedicationsEn' => 'current_medications_en',
             'specialCare' => 'special_care', 'specialCareEn' => 'special_care_en',
             'primaryVetName' => 'primary_vet_name', 'primaryVetPhone' => 'primary_vet_phone',
-            'primaryVetClinic' => 'primary_vet_clinic', 'publicProfileEnabled' => 'public_profile_enabled',
+            'primaryVetClinic' => 'primary_vet_clinic',
+            'avatarEmoji' => 'avatar_emoji', 'ringColor' => 'ring_color',
+            'publicProfileEnabled' => 'public_profile_enabled',
             'isLost' => 'is_lost', 'lostSince' => 'lost_since',
             'lostDescription' => 'lost_description',
             'emergencyContactOverride' => 'emergency_contact_override',
@@ -199,6 +222,9 @@ class PetController extends Controller
             'microchipId'          => $pet->microchip_id ?? '',
             'nfcId'                => $pet->nfc_id ?? '',
             'photoUrl'             => $pet->photo_url,
+            'coverUrl'             => $pet->cover_url,
+            'avatarEmoji'          => $pet->avatar_emoji,
+            'ringColor'            => $pet->ring_color,
             'story'                => $pet->story ?? '',
             'storyEn'              => $pet->story_en ?? '',
             'traits'               => $pet->traits ?? [],

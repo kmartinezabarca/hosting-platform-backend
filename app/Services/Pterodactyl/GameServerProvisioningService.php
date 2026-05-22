@@ -56,6 +56,7 @@ class GameServerProvisioningService
 
             // 2) Seleccionar nodo
             $nodeId = $plan->pterodactyl_node_id
+                ?? config('pterodactyl.default_node')
                 ?? $this->pterodactyl->autoSelectNode();
 
             // 3) Obtener una allocation libre

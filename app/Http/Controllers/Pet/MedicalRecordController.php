@@ -17,7 +17,7 @@ class MedicalRecordController extends Controller
         $data = $request->validate([
             'date'          => 'required|date',
             'followUpDate'  => 'nullable|date',
-            'type'          => 'required|in:checkup,surgery,treatment,deworming,illness',
+            'type'          => 'required|in:checkup,surgery,treatment,deworming,illness,vaccination,study,emergency,other',
             'description'   => 'nullable|string',
             'descriptionEn' => 'nullable|string',
             'vet'           => 'nullable|string|max:255',
@@ -47,7 +47,7 @@ class MedicalRecordController extends Controller
         $data = $request->validate([
             'date'          => 'sometimes|date',
             'followUpDate'  => 'sometimes|nullable|date',
-            'type'          => 'sometimes|in:checkup,surgery,treatment,deworming,illness',
+            'type'          => 'sometimes|in:checkup,surgery,treatment,deworming,illness,vaccination,study,emergency,other',
             'description'   => 'sometimes|nullable|string',
             'descriptionEn' => 'sometimes|nullable|string',
             'vet'           => 'sometimes|nullable|string',

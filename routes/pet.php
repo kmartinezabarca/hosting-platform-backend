@@ -38,7 +38,10 @@ Route::get('/plans',        [PlanController::class, 'index']);
 Route::get('/plans/{slug}', [PlanController::class, 'show']);
 
 // Portal veterinario (acceso por token, sin auth de usuario)
-Route::get('/vet/{token}',           [VetLinkController::class, 'portal']);
+Route::middleware('throttle:60,1')->group(function () {
+    Route::get('/vet/{token}',        [VetLinkController::class, 'portal']);
+    Route::get('/vet/{token}/weight', [VetLinkController::class, 'weight']);
+});
 Route::middleware('throttle:10,1')->group(function () {
     Route::post('/vet/{token}/records',  [VetLinkController::class, 'addRecord']);
     Route::post('/vet/{token}/vaccines', [VetLinkController::class, 'addVaccine']);
@@ -70,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/my-pets/{id}',        [PetController::class, 'update']);
     Route::delete('/my-pets/{id}',     [PetController::class, 'destroy']);
     Route::post('/my-pets/{id}/photo', [PetController::class, 'uploadPhoto']);
+    Route::post('/my-pets/{id}/cover', [PetController::class, 'uploadCover']);
 
     // Mascota perdida
     Route::post('/my-pets/{id}/lost',              [LostController::class, 'markLost']);

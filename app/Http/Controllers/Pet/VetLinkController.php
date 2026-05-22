@@ -8,6 +8,7 @@ use App\Models\Pet\Owner;
 use App\Models\Pet\Pet;
 use App\Models\Pet\Vaccine;
 use App\Models\Pet\VetLink;
+use App\Models\Pet\WeightHistory;
 use App\Services\Pet\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -75,6 +76,21 @@ class VetLinkController extends Controller
             ],
             'pet' => (new PetController())->format($pet, $owner),
         ]);
+    }
+
+    public function weight(string $token): JsonResponse
+    {
+        $link = VetLink::where('token', $token)->firstOrFail();
+
+        if ($link->isExpired()) {
+            return response()->json(['error' => 'Link expirado'], 410);
+        }
+
+        $entries = WeightHistory::where('pet_id', $link->pet_id)
+            ->orderBy('recorded_at', 'desc')
+            ->get();
+
+        return response()->json($entries->map(fn($entry) => $this->formatWeight($entry))->values());
     }
 
     public function addRecord(Request $request, string $token): JsonResponse
@@ -171,6 +187,20 @@ class VetLinkController extends Controller
             'allowAddRecords'=> $link->allow_add_records,
             'viewCount'      => $link->view_count,
             'expired'        => $link->isExpired(),
+        ];
+    }
+
+    private function formatWeight(WeightHistory $entry): array
+    {
+        return [
+            'id'         => $entry->id,
+            'petId'      => $entry->pet_id,
+            'weight'     => (float) $entry->weight,
+            'recordedAt' => $entry->recorded_at instanceof \Carbon\Carbon
+                ? $entry->recorded_at->toDateString()
+                : (string) $entry->recorded_at,
+            'notes'      => $entry->notes ?? '',
+            'createdAt'  => $entry->created_at,
         ];
     }
 }

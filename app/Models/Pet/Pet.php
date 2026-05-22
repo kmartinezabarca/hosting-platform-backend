@@ -27,6 +27,7 @@ class Pet extends Model
         'primary_vet_clinic', 'scanned_count', 'last_scan_location', 'public_profile_enabled',
         'is_lost', 'lost_since', 'lost_description', 'last_seen_location',
         'emergency_contact_override', 'lost_banner_enabled',
+        'avatar_emoji', 'ring_color', 'cover_url',
     ];
 
     protected $casts = [
