@@ -30,8 +30,20 @@ return [
     // En DEV apunta al nodo 2 (Mac Mini), en PROD null = autoselect.
     'default_node' => env('PTERODACTYL_DEFAULT_NODE') ? (int) env('PTERODACTYL_DEFAULT_NODE') : null,
 
+    // URL interna de Wings (Tailscale/local). Pterodactyl devuelve URLs de WebSocket
+    // con esta base; se reescriben a la URL pública antes de enviarse al cliente.
+    'wings_internal_url' => env('PTERODACTYL_WINGS_INTERNAL_URL', 'http://100.94.93.51:8080'),
+
+    // URL pública de Wings (dominio o IP externa accesible desde el navegador).
+    'wings_public_url'   => env('PTERODACTYL_WINGS_PUBLIC_URL', 'https://mc.rokeindustries.com'),
+
     // Timeout HTTP en segundos
     'timeout'   => 30,
+
+    // Verificar certificado SSL al conectar con el panel.
+    // Poner false SOLO en desarrollo con certificado autofirmado.
+    // En producción SIEMPRE debe ser true.
+    'verify_ssl' => env('PTERODACTYL_VERIFY_SSL', true),
 
     /*
     |--------------------------------------------------------------------------

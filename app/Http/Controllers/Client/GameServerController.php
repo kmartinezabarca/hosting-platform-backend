@@ -386,7 +386,7 @@ class GameServerController extends Controller
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->get("/api/client/servers/{$identifier}/websocket");
 
@@ -399,11 +399,7 @@ class GameServerController extends Controller
             }
 
             $wsData = $response->json('data');
-            $wsData['socket'] = preg_replace(
-                '#^wss?://100\.94\.93\.51:8080#',
-                'wss://mc.rokeindustries.com',
-                $wsData['socket']
-            );
+            $wsData['socket'] = $this->rewriteWingsUrl($wsData['socket']);
 
             return response()->json(['success' => true, 'data' => $wsData]);
         } catch (\Throwable $e) {
@@ -435,7 +431,7 @@ class GameServerController extends Controller
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->post("/api/client/servers/{$identifier}/command", ['command' => $validated['command']]);
 
@@ -736,51 +732,30 @@ class GameServerController extends Controller
 
     /**
      * GET /services/game-servers/{nest_id}/eggs
-     * List Nest Eggs
      */
     public function listEggs(int $nest_id): JsonResponse
-{
-    $eggs = $this->pterodactyl->listNestEggs($nest_id);
+    {
+        $eggs = $this->pterodactyl->listNestEggs($nest_id);
 
-    $cleaned = collect($eggs ?? [])->map(function ($egg) {
+        $cleaned = collect($eggs ?? [])->map(function ($egg) {
+            $variables = $egg['relationships']['variables']['data'] ?? [];
 
-        $variables = $egg['relationships']['variables']['data'] ?? [];
+            $versionVariable = collect($variables)->first(
+                fn ($var) => str_contains($var['attributes']['env_variable'] ?? '', 'VERSION')
+            );
 
-        // 🔥 Detectar variable de versión de forma inteligente
-        $versionVariable = collect($variables)->first(function ($var) {
-            $env = $var['attributes']['env_variable'] ?? '';
-            return str_contains($env, 'VERSION');
-        });
+            return [
+                'id'               => $egg['id']   ?? null,
+                'uuid'             => $egg['uuid']  ?? null,
+                'name'             => $egg['name']  ?? null,
+                'description'      => $egg['description'] ?? null,
+                'version_variable' => $versionVariable['attributes']['env_variable'] ?? null,
+                'version'          => $versionVariable['attributes']['default_value'] ?? null,
+            ];
+        })->values();
 
-        return [
-            'id' => $egg['id'] ?? null,
-            'uuid' => $egg['uuid'] ?? null,
-            'name' => $egg['name'] ?? null,
-            'description' => $egg['description'] ?? null,
-
-            // puede ser MINECRAFT_VERSION, SERVER_VERSION, etc.
-            'version_variable' => $versionVariable['attributes']['env_variable'] ?? null,
-            'version' => $versionVariable['attributes']['default_value'] ?? null,
-
-            // 👇 opcional pero MUY útil para SaaS
-            // 'variables' => collect($variables)->map(function ($var) {
-            //     return [
-            //         'key' => $var['attributes']['env_variable'] ?? null,
-            //         'default' => $var['attributes']['default_value'] ?? null,
-            //         'editable' => $var['attributes']['user_editable'] ?? false,
-            //     ];
-            // })->values(),
-        ];
-    })->values();
-
-    return response()->json([
-        'status' => 'success',
-        'code' => 200,
-        'message' => 'Eggs retrieved successfully.',
-        'data' => $cleaned,
-        // 'tiempo de respuesta' => now()->diffInSeconds(request()->server('REQUEST_TIME_FLOAT'), true) . 's',
-    ]);
-}
+        return response()->json(['success' => true, 'data' => $cleaned]);
+    }
 
     private function findOwnedGameServerService(Request $request, string $uuid): Service
     {
@@ -804,16 +779,22 @@ class GameServerController extends Controller
 
     private function findOwnedMinecraftService(Request $request, string $uuid): Service
     {
-        $service = $this->findOwnedGameServerService($request, $uuid);
-
-        // if ($service->plan?->game_type !== 'minecraft') {
-        //     abort(response()->json([
-        //         'message' => 'Este endpoint de configuración solo está disponible para servidores Minecraft.',
-        //     ], 422));
-        // }
-
-        return $service;
+        return $this->findOwnedGameServerService($request, $uuid);
     }
 
+    private function rewriteWingsUrl(string $url): string
+    {
+        $internalHost = preg_replace('#^https?://#i', '', rtrim(config('pterodactyl.wings_internal_url', ''), '/'));
+        $publicHost   = preg_replace('#^https?://#i', '', rtrim(config('pterodactyl.wings_public_url', ''), '/'));
 
+        if (! $internalHost || ! $publicHost) {
+            return $url;
+        }
+
+        $escaped = preg_quote($internalHost, '#');
+        $url = preg_replace("#^wss?://{$escaped}#i",   "wss://{$publicHost}",   $url);
+        $url = preg_replace("#^https?://{$escaped}#i", "https://{$publicHost}", $url);
+
+        return $url;
+    }
 }

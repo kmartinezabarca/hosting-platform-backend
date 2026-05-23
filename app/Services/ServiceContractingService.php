@@ -83,7 +83,10 @@ class ServiceContractingService
         }
 
         // ── Pricing ─────────────────────────────────────────────────────
-        $multiplier = match ($validated['billing_cycle']) {
+        $quoteSnapshot = $validated['_checkout_quote']['snapshot'] ?? null;
+        $multiplier = $quoteSnapshot
+            ? max((int) data_get($quoteSnapshot, 'billing_cycle.months', 1), 1)
+            : match ($validated['billing_cycle']) {
             'monthly'       => 1,
             'quarterly'     => 3,
             'semi_annually' => 6,
@@ -93,24 +96,32 @@ class ServiceContractingService
 
         $selectedAddOns = $this->resolveAddOns($plan, $validated['add_ons'] ?? []);
 
-        $planNet    = round((float) $plan->base_price * $multiplier, 2);
-        $addonsNet  = round($selectedAddOns->sum(fn($a) => (float) $a->price) * $multiplier, 2);
-        $subtotal   = round($planNet + $addonsNet, 2);
+        $planNet    = $quoteSnapshot
+            ? (float) collect(data_get($quoteSnapshot, 'lines', []))->firstWhere('type', 'plan')['amount']
+            : round((float) $plan->base_price * $multiplier, 2);
+        $addonsNet  = $quoteSnapshot
+            ? round(collect(data_get($quoteSnapshot, 'lines', []))->where('type', 'add_on')->sum('amount'), 2)
+            : round($selectedAddOns->sum(fn($a) => (float) $a->price) * $multiplier, 2);
+        $subtotal   = $quoteSnapshot
+            ? (float) data_get($quoteSnapshot, 'subtotal')
+            : round($planNet + $addonsNet, 2);
 
-        $taxRatePct  = (float) config('billing.tax_rate_percent', 16.00);
-        $taxAmount   = round($subtotal * $taxRatePct / 100, 2);
-        $total       = round($subtotal + $taxAmount, 2);
-        $currency    = $plan->currency ? strtoupper($plan->currency) : 'MXN';
+        $taxRatePct  = $quoteSnapshot ? (float) data_get($quoteSnapshot, 'tax_rate') : (float) config('billing.tax_rate_percent', 16.00);
+        $taxAmount   = $quoteSnapshot ? (float) data_get($quoteSnapshot, 'tax') : round($subtotal * $taxRatePct / 100, 2);
+        $total       = $quoteSnapshot ? (float) data_get($quoteSnapshot, 'total') : round($subtotal + $taxAmount, 2);
+        $currency    = $quoteSnapshot ? (string) data_get($quoteSnapshot, 'currency') : ($plan->currency ? strtoupper($plan->currency) : 'MXN');
         $amountCents = (int) round($total * 100);
 
-        $nextBillingDate = now()->addMonths($multiplier);
+        $nextBillingDate = $quoteSnapshot
+            ? Carbon::parse(data_get($quoteSnapshot, 'next_due_at'))
+            : now()->addMonths($multiplier);
 
         // ── Stripe ───────────────────────────────────────────────────────
         $customerId           = $user->stripe_customer_id;
         $localPaymentMethodId = $this->resolveLocalPaymentMethodId($user, $validated);
 
         [$pi, $usedStripePmId, $pmObject] = !empty($validated['payment_intent_id'])
-            ? $this->handleFlowA($validated['payment_intent_id'])
+            ? $this->handleFlowA($validated['payment_intent_id'], $amountCents, $currency)
             : $this->handleFlowB($validated['payment_method_id'], $amountCents, $currency, $customerId);
 
         // Map stripe PM to local record if not yet resolved
@@ -141,7 +152,7 @@ class ServiceContractingService
             $service = Service::create([
                 'plan_id'           => $plan->id,
                 'user_id'           => $user->id,
-                'price'             => $plan->base_price,
+                'price'             => $subtotal,
                 'name'              => $validated['service_name'],
                 'status'            => 'active',
                 'billing_cycle'     => $validated['billing_cycle'],
@@ -664,11 +675,39 @@ class ServiceContractingService
 
     /**
      * Flow A: the frontend already confirmed the PaymentIntent.
-     * Retrieve it from Stripe and return [pi, stripe_pm_id, pm_object].
+     * Retrieve it from Stripe, validate amount/currency/status, and return [pi, stripe_pm_id, pm_object].
+     *
+     * @throws \RuntimeException  Si el PI no coincide con el monto calculado o no está confirmado.
      */
-    private function handleFlowA(string $paymentIntentId): array
+    private function handleFlowA(string $paymentIntentId, int $expectedCents, string $currency): array
     {
         $pi = StripePaymentIntent::retrieve(['id' => $paymentIntentId, 'expand' => ['payment_method']]);
+
+        // Validar que el PI fue efectivamente cobrado
+        if (! in_array($pi->status, ['succeeded', 'requires_capture'], true)) {
+            throw new \RuntimeException(
+                "El pago no está confirmado (estado: {$pi->status}). Reinicia el proceso de pago."
+            );
+        }
+
+        // Blindar monto: el PI debe corresponder exactamente al total calculado en el backend
+        if ($pi->amount !== $expectedCents) {
+            Log::warning('Flow A: monto del PI no coincide con el calculado', [
+                'payment_intent_id' => $paymentIntentId,
+                'pi_amount'         => $pi->amount,
+                'expected_cents'    => $expectedCents,
+            ]);
+            throw new \RuntimeException(
+                'El monto del pago no corresponde al servicio seleccionado. Genera una nueva cotización.'
+            );
+        }
+
+        // Blindar moneda
+        if (strtolower($pi->currency) !== strtolower($currency)) {
+            throw new \RuntimeException(
+                'La moneda del pago no corresponde a la moneda del servicio. Genera una nueva cotización.'
+            );
+        }
 
         if (is_string($pi->payment_method)) {
             $pmObject       = StripePaymentMethod::retrieve($pi->payment_method);

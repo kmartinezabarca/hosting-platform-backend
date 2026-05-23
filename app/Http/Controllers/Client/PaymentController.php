@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Exceptions\CheckoutQuoteException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Client\StorePaymentMethodRequest;
 use App\Http\Resources\PaymentMethodResource;
@@ -9,6 +10,7 @@ use App\Http\Resources\TransactionResource;
 use App\Models\ActivityLog;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
+use App\Services\CheckoutQuoteService;
 use App\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -73,6 +75,78 @@ class PaymentController extends Controller
         }
     }
 
+    public function createPaymentIntentFromQuote(Request $request, CheckoutQuoteService $quotes): JsonResponse
+    {
+        $data = $request->validate([
+            'quote_id'            => ['required', 'uuid'],
+            'payment_method_id'   => ['sometimes', 'nullable', 'string'],
+            'create_subscription' => ['sometimes', 'boolean'],
+        ]);
+
+        try {
+            $user = Auth::user();
+            $quote = $quotes->validateQuote($data['quote_id'], $user);
+            $amountCents = (int) round((float) $quote->total * 100);
+
+            if ($amountCents <= 0) {
+                return response()->json([
+                    'success' => true,
+                    'data'    => [
+                        'quote_id'            => $quote->uuid,
+                        'payment_required'    => false,
+                        'client_secret'       => null,
+                        'payment_intent_id'   => null,
+                        'amount'              => 0,
+                        'currency'            => $quote->currency,
+                        'create_subscription' => (bool) ($data['create_subscription'] ?? true),
+                    ],
+                ]);
+            }
+
+            $intent = $this->paymentService->createPaymentIntent(
+                $user,
+                $amountCents,
+                $quote->currency,
+                [
+                    'quote_id'            => $quote->uuid,
+                    'checkout_quote_id'   => $quote->id,
+                    'service_plan_id'     => $quote->service_plan_id,
+                    'billing_cycle_id'    => $quote->billing_cycle_id,
+                    'create_subscription' => (string) (int) ($data['create_subscription'] ?? true),
+                ],
+                'ROKE Industries — checkout quote ' . $quote->uuid
+            );
+
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'quote_id'            => $quote->uuid,
+                    'payment_required'    => true,
+                    'client_secret'       => $intent->client_secret,
+                    'payment_intent_id'   => $intent->id,
+                    'amount'              => (float) $quote->total,
+                    'amount_cents'        => $amountCents,
+                    'currency'            => $quote->currency,
+                    'create_subscription' => (bool) ($data['create_subscription'] ?? true),
+                ],
+            ], 201);
+        } catch (CheckoutQuoteException $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => $e->errorCode,
+                'message' => $e->getMessage(),
+            ], $e->status);
+        } catch (\Throwable $e) {
+            Log::error('Error creating payment intent from quote: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear el intento de pago.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
     public function addPaymentMethod(StorePaymentMethodRequest $request): JsonResponse
     {
         try {
@@ -107,8 +181,8 @@ class PaymentController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => $map[$e->getMessage()] ?? $e->getMessage(),
-                'error'   => $e->getMessage(),
+                'message' => $map[$e->getMessage()] ?? 'No se pudo agregar el método de pago.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
             ], 422);
         } catch (\Stripe\Exception\ApiErrorException $e) {
             Log::error('Stripe error adding payment method: ' . $e->getMessage());

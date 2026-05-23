@@ -19,31 +19,25 @@ class TransactionController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $user = Auth::user();
+            $filters = $request->validate([
+                'type'      => ['sometimes', 'string', 'max:50'],
+                'status'    => ['sometimes', 'string', 'max:50'],
+                'from_date' => ['sometimes', 'date'],
+                'to_date'   => ['sometimes', 'date', 'after_or_equal:from_date'],
+                'per_page'  => ['sometimes', 'integer', 'min:1', 'max:100'],
+            ]);
+
+            $user  = Auth::user();
             $query = Transaction::where('user_id', $user->id);
 
-            // Filter by type if provided
-            if ($request->has('type')) {
-                $query->where('type', $request->type);
-            }
-
-            // Filter by status if provided
-            if ($request->has('status')) {
-                $query->where('status', $request->status);
-            }
-
-            // Filter by date range if provided
-            if ($request->has('from_date')) {
-                $query->whereDate('created_at', '>=', $request->from_date);
-            }
-
-            if ($request->has('to_date')) {
-                $query->whereDate('created_at', '<=', $request->to_date);
-            }
+            if (! empty($filters['type']))      $query->where('type',   $filters['type']);
+            if (! empty($filters['status']))    $query->where('status', $filters['status']);
+            if (! empty($filters['from_date'])) $query->whereDate('created_at', '>=', $filters['from_date']);
+            if (! empty($filters['to_date']))   $query->whereDate('created_at', '<=', $filters['to_date']);
 
             $transactions = $query->with(['invoice', 'paymentMethod'])
                                 ->orderBy('created_at', 'desc')
-                                ->paginate($request->get('per_page', 15));
+                                ->paginate((int) ($filters['per_page'] ?? 15));
 
             return response()->json([
                 'success' => true,

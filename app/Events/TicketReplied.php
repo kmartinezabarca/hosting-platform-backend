@@ -36,7 +36,11 @@ class TicketReplied implements ShouldBroadcast
         return [
             new PrivateChannel('user.' . $this->ticket->user->uuid),
             new PrivateChannel('admin.tickets'),
-            new PrivateChannel('ticket.' . $this->ticket->uuid),
+            // Canal del ticket en modo presence — el frontend usa .join() para
+            // saber quién está online (presence) y disparar whispers de typing
+            // y receipts sin costo extra de backend. La auth callback de
+            // channels.php devuelve datos de usuario, requisito para presence.
+            new PresenceChannel('ticket.' . $this->ticket->uuid),
         ];
     }
 

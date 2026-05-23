@@ -19,16 +19,18 @@ class TicketReply extends Model
         'message',
         'is_internal',
         'attachments',
+        'delivered_at',
         'read_at',
     ];
 
     protected $casts = [
-        'is_internal' => 'boolean',
-        'attachments' => 'array',
-        'read_at'     => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-        'deleted_at' => 'datetime'
+        'is_internal'  => 'boolean',
+        'attachments'  => 'array',
+        'delivered_at' => 'datetime',
+        'read_at'      => 'datetime',
+        'created_at'   => 'datetime',
+        'updated_at'   => 'datetime',
+        'deleted_at'   => 'datetime',
     ];
 
     // Relaciones

@@ -40,7 +40,7 @@ class GameServerController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $query->paginate((int) $request->get('per_page', 20)),
+            'data'    => $query->paginate(min((int) $request->get('per_page', 20), 100)),
         ]);
     }
 
@@ -184,7 +184,7 @@ class GameServerController extends Controller
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->get("/api/client/servers/{$identifier}/websocket");
 
@@ -194,11 +194,7 @@ class GameServerController extends Controller
             }
 
             $wsData = $response->json('data');
-            $wsData['socket'] = preg_replace(
-                '#^wss?://100\.94\.93\.51:8080#',
-                'wss://mc.rokeindustries.com',
-                $wsData['socket']
-            );
+            $wsData['socket'] = $this->rewriteWingsUrl($wsData['socket']);
 
             return response()->json(['success' => true, 'data' => $wsData]);
         } catch (\Throwable $e) {
@@ -290,12 +286,15 @@ class GameServerController extends Controller
             return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
         }
 
-        $directory = $request->get('directory', '/');
+        $validated = $request->validate([
+            'directory' => ['sometimes', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
+        ]);
+        $directory = $validated['directory'] ?? '/';
 
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->get("/api/client/servers/{$identifier}/files/list", ['directory' => $directory]);
 
@@ -332,7 +331,7 @@ class GameServerController extends Controller
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->get("/api/client/servers/{$identifier}/files/upload");
 
@@ -341,7 +340,7 @@ class GameServerController extends Controller
             }
 
             $url = $response->json('attributes.url') ?? $response->json('data.attributes.url');
-            $url = preg_replace('#^https?://100\.94\.93\.51:8080#', 'https://mc.rokeindustries.com', $url);
+            $url = $this->rewriteWingsUrl($url);
 
             return response()->json(['success' => true, 'data' => ['url' => $url]]);
         } catch (\Throwable $e) {
@@ -360,15 +359,15 @@ class GameServerController extends Controller
         }
 
         $validated = $request->validate([
-            'root'    => 'required|string',
-            'files'   => 'required|array',
-            'files.*' => 'required|string',
+            'root'    => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
+            'files'   => ['required', 'array', 'min:1', 'max:50'],
+            'files.*' => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
         ]);
 
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->post("/api/client/servers/{$identifier}/files/delete", [
                     'root'  => $validated['root'],
@@ -395,12 +394,15 @@ class GameServerController extends Controller
             return response()->json(['success' => false, 'message' => 'Sin identificador de Pterodactyl.'], 404);
         }
 
-        $file = $request->get('file');
+        $validated = $request->validate([
+            'file' => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
+        ]);
+        $file = $validated['file'];
 
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->get("/api/client/servers/{$identifier}/files/download", ['file' => $file]);
 
@@ -409,7 +411,7 @@ class GameServerController extends Controller
             }
 
             $url = $response->json('attributes.url') ?? $response->json('data.attributes.url');
-            $url = preg_replace('#^https?://100\.94\.93\.51:8080#', 'https://mc.rokeindustries.com', $url);
+            $url = $this->rewriteWingsUrl($url);
 
             return response()->json(['success' => true, 'data' => ['url' => $url]]);
         } catch (\Throwable $e) {
@@ -435,7 +437,7 @@ class GameServerController extends Controller
         try {
             $response = Http::withToken(config('pterodactyl.client_api_key'))
                 ->baseUrl(config('pterodactyl.base_url'))
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->post("/api/client/servers/{$identifier}/command", ['command' => $validated['command']]);
 
@@ -447,5 +449,21 @@ class GameServerController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 503);
         }
+    }
+
+    private function rewriteWingsUrl(string $url): string
+    {
+        $internalHost = preg_replace('#^https?://#i', '', rtrim(config('pterodactyl.wings_internal_url', ''), '/'));
+        $publicHost   = preg_replace('#^https?://#i', '', rtrim(config('pterodactyl.wings_public_url', ''), '/'));
+
+        if (! $internalHost || ! $publicHost) {
+            return $url;
+        }
+
+        $escaped = preg_quote($internalHost, '#');
+        $url = preg_replace("#^wss?://{$escaped}#i",   "wss://{$publicHost}",   $url);
+        $url = preg_replace("#^https?://{$escaped}#i", "https://{$publicHost}", $url);
+
+        return $url;
     }
 }

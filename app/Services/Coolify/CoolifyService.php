@@ -258,7 +258,7 @@ class CoolifyService
     {
         return Http::baseUrl($this->baseUrl)
             ->withToken($this->apiToken)
-            ->withoutVerifying()
+            ->when(! config('coolify.verify_ssl', true), fn ($h) => $h->withoutVerifying())
             ->timeout(60)
             ->acceptJson()
             ->asJson();

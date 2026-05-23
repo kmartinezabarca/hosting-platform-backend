@@ -21,29 +21,25 @@ class TicketController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $user = Auth::user();
+            $filters = $request->validate([
+                'status'     => ['sometimes', 'string', 'in:open,in_progress,waiting_customer,resolved,closed'],
+                'priority'   => ['sometimes', 'string', 'in:low,medium,high,urgent'],
+                'department' => ['sometimes', 'string', 'max:100'],
+                'per_page'   => ['sometimes', 'integer', 'min:1', 'max:100'],
+            ]);
+
+            $user  = Auth::user();
             $query = Ticket::where('user_id', $user->id);
 
-            // Filter by status if provided
-            if ($request->has('status')) {
-                $query->where('status', $request->status);
-            }
-
-            // Filter by priority if provided
-            if ($request->has('priority')) {
-                $query->where('priority', $request->priority);
-            }
-
-            // Filter by department if provided
-            if ($request->has('department')) {
-                $query->where('department', $request->department);
-            }
+            if (! empty($filters['status']))     $query->where('status',     $filters['status']);
+            if (! empty($filters['priority']))   $query->where('priority',   $filters['priority']);
+            if (! empty($filters['department'])) $query->where('department', $filters['department']);
 
             $tickets = $query
                            ->with(['assignedTo', 'service', 'lastReply.user'])
                            ->withCount('replies')
                            ->orderBy('created_at', 'desc')
-                           ->paginate($request->get('per_page', 15));
+                           ->paginate((int) ($filters['per_page'] ?? 15));
 
             $tickets->getCollection()->transform(function ($t) {
                 $t->replies_total = (int) ($t->replies_count ?? 0);
@@ -293,7 +289,7 @@ class TicketController extends Controller
         return response()->json([
             'success' => false,
             'message' => 'Ocurrió un error al añadir la respuesta.',
-            'error'   => $e->getMessage()
+            'debug'   => config('app.debug') ? $e->getMessage() : null,
         ], 500);
     }
 }

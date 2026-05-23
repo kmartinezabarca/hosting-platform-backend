@@ -59,8 +59,7 @@ class ProfileController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error updating profile",
-                "error" => $e->getMessage()
+                "message" => "Error al actualizar el perfil.",
             ], 500);
         }
     }
@@ -110,8 +109,7 @@ class ProfileController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error al actualizar el avatar",
-                "error" => $e->getMessage(),
+                "message" => "Error al actualizar el avatar.",
             ], 500);
         }
     }
@@ -189,8 +187,7 @@ class ProfileController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error al obtener las sesiones",
-                "error"   => $e->getMessage()
+                "message" => "Error al obtener las sesiones.",
             ], 500);
         }
     }
@@ -243,7 +240,6 @@ class ProfileController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al revocar la sesión.',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -296,7 +292,6 @@ class ProfileController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No fue posible revocar las otras sesiones en este momento.',
-                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -340,8 +335,7 @@ class ProfileController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error updating password",
-                "error" => $e->getMessage()
+                "message" => "Error al actualizar la contraseña.",
             ], 500);
         }
     }
@@ -387,8 +381,7 @@ class ProfileController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error updating email",
-                "error" => $e->getMessage()
+                "message" => "Error al actualizar el email.",
             ], 500);
         }
     }
@@ -436,8 +429,7 @@ class ProfileController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error deleting account",
-                "error" => $e->getMessage()
+                "message" => "Error al eliminar la cuenta.",
             ], 500);
         }
     }
@@ -467,8 +459,7 @@ class ProfileController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 "success" => false,
-                "message" => "Error fetching security overview",
-                "error" => $e->getMessage()
+                "message" => "Error al obtener el resumen de seguridad.",
             ], 500);
         }
     }

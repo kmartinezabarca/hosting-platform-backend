@@ -13,7 +13,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 
 class InvoiceController extends Controller
 {
@@ -26,20 +25,27 @@ class InvoiceController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
+            $filters = $request->validate([
+                'status'    => ['sometimes', 'string', 'in:draft,sent,paid,overdue,cancelled,refunded'],
+                'from_date' => ['sometimes', 'date'],
+                'to_date'   => ['sometimes', 'date', 'after_or_equal:from_date'],
+                'per_page'  => ['sometimes', 'integer', 'min:1', 'max:100'],
+            ]);
+
             $user    = Auth::user();
             $query   = Receipt::where('user_id', $user->id);
 
-            if ($request->has('status')) {
-                $query->where('status', $request->status);
+            if (!empty($filters['status'])) {
+                $query->where('status', $filters['status']);
             }
-            if ($request->has('from_date')) {
-                $query->whereDate('created_at', '>=', $request->from_date);
+            if (!empty($filters['from_date'])) {
+                $query->whereDate('created_at', '>=', $filters['from_date']);
             }
-            if ($request->has('to_date')) {
-                $query->whereDate('created_at', '<=', $request->to_date);
+            if (!empty($filters['to_date'])) {
+                $query->whereDate('created_at', '<=', $filters['to_date']);
             }
 
-            $perPage  = min((int) $request->get('per_page', 15), 100);
+            $perPage  = (int) ($filters['per_page'] ?? 15);
             $receipts = $query->with(['items', 'invoice'])
                 ->orderBy('created_at', 'desc')
                 ->paginate($perPage)
@@ -67,7 +73,8 @@ class InvoiceController extends Controller
                 ->with(['receipt:id,uuid,invoice_number,total,currency,status,paid_at,created_at',
                         'receipt.items']);
 
-            if ($request->filled('status')) {
+            $allowedCfdiStatuses = ['scheduled', 'pending_stamp', 'stamped', 'failed', 'cancelled'];
+            if ($request->filled('status') && in_array($request->status, $allowedCfdiStatuses, true)) {
                 $query->where('cfdi_status', $request->status);
             }
 
@@ -121,73 +128,6 @@ class InvoiceController extends Controller
         }
     }
 
-    public function store(Request $request): JsonResponse
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'items'               => 'required|array|min:1',
-                'items.*.description' => 'required|string',
-                'items.*.quantity'    => 'required|integer|min:1',
-                'items.*.unit_price'  => 'required|numeric|min:0',
-                'tax_rate'            => 'nullable|numeric|min:0|max:100',
-                'due_date'            => 'required|date|after:today',
-                'notes'               => 'nullable|string',
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
-            }
-
-            $subtotal  = collect($request->items)->sum(fn($i) => $i['quantity'] * $i['unit_price']);
-            $taxRate   = (float) $request->get('tax_rate', 0);
-            $taxAmount = round($subtotal * $taxRate / 100, 2);
-            $total     = round($subtotal + $taxAmount, 2);
-
-            $receipt = $this->invoiceService->createWithItems(
-                ['user_id' => Auth::id(), 'subtotal' => $subtotal, 'tax_rate' => $taxRate, 'tax_amount' => $taxAmount, 'total' => $total, 'due_date' => $request->due_date, 'notes' => $request->notes, 'status' => 'draft'],
-                collect($request->items)->map(fn($i) => ['description' => $i['description'], 'quantity' => $i['quantity'], 'unit_price' => $i['unit_price']])->all()
-            );
-
-            return response()->json(['success' => true, 'message' => 'Comprobante creado', 'data' => $receipt], 201);
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => 'Error al crear el comprobante', 'debug' => config('app.debug') ? $e->getMessage() : null], 500);
-        }
-    }
-
-    public function updateStatus(Request $request, string $uuid): JsonResponse
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'status'            => 'required|in:draft,sent,paid,overdue,cancelled,refunded',
-                'payment_method'    => 'nullable|string',
-                'payment_reference' => 'nullable|string',
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
-            }
-
-            $receipt = Receipt::where('uuid', $uuid)->where('user_id', Auth::id())->first();
-
-            if (!$receipt) {
-                return response()->json(['success' => false, 'message' => 'Comprobante no encontrado'], 404);
-            }
-
-            $updateData = ['status' => $request->status];
-            if ($request->status === 'paid') {
-                $updateData['paid_at'] = now();
-                if ($request->has('payment_method'))    $updateData['payment_method']    = $request->payment_method;
-                if ($request->has('payment_reference')) $updateData['payment_reference'] = $request->payment_reference;
-            }
-
-            $receipt->update($updateData);
-
-            return response()->json(['success' => true, 'message' => 'Estado actualizado', 'data' => $receipt]);
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => 'Error al actualizar', 'debug' => config('app.debug') ? $e->getMessage() : null], 500);
-        }
-    }
-
     /**
      * GET /api/invoices/{uuid}/pdf
      * Descarga el PDF del CFDI (factura SAT) vinculado al comprobante.
@@ -204,7 +144,7 @@ class InvoiceController extends Controller
         try {
             $content = $this->cfdi->getPdfContent($inv);
         } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'No se pudo obtener el PDF del CFDI.', 'debug' => config('app.debug') ? $e->getMessage() : null], 500);
         }
 
         return response($content, 200, [
@@ -229,7 +169,7 @@ class InvoiceController extends Controller
         try {
             $content = $this->cfdi->getXmlContent($inv);
         } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'No se pudo obtener el XML del CFDI.', 'debug' => config('app.debug') ? $e->getMessage() : null], 500);
         }
 
         return response($content, 200, [

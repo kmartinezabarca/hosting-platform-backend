@@ -13,14 +13,31 @@ class SystemStatus extends Model
 
     protected $fillable = [
         'service_name',
+        'region',
+        'label',
+        'coord_x',
+        'coord_y',
+        'load_pct',
+        'is_primary',
+        'is_datacenter',
         'status',
         'message',
         'last_updated',
     ];
 
     protected $casts = [
-        'last_updated' => 'datetime',
+        'last_updated'  => 'datetime',
+        'coord_x'       => 'float',
+        'coord_y'       => 'float',
+        'load_pct'      => 'integer',
+        'is_primary'    => 'boolean',
+        'is_datacenter' => 'boolean',
     ];
+
+    public function scopeDatacenters($query)
+    {
+        return $query->where('is_datacenter', true);
+    }
 
     protected static function boot()
     {

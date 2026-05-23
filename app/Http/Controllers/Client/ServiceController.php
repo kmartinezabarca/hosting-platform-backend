@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Exceptions\CheckoutQuoteException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Client\ContractServiceRequest;
 use App\Http\Resources\ServiceResource;
+use App\Services\CheckoutQuoteService;
 use App\Services\ServiceContractingService;
 use App\Services\Pterodactyl\PterodactylService;
 use App\Exceptions\PaymentRequiresActionException;
@@ -23,6 +25,7 @@ class ServiceController extends Controller
 {
     public function __construct(
         private readonly ServiceContractingService $contractingService,
+        private readonly CheckoutQuoteService $checkoutQuotes,
         private readonly PterodactylService $pterodactyl,
         private readonly BackupService $backupService,
     ) {}
@@ -77,22 +80,53 @@ class ServiceController extends Controller
      */
     public function contractService(ContractServiceRequest $request): JsonResponse
     {
+        $quote = null;
+
         try {
             $user = Auth::user();
-            $plan = ServicePlan::where('slug', $request->validated('plan_id'))->firstOrFail();
+            $validated = $request->validated();
+
+            if (!empty($validated['quote_id'])) {
+                $quote = $this->checkoutQuotes->validateQuote($validated['quote_id'], $user);
+
+                if ((float) $quote->total > 0 && empty($validated['payment_intent_id']) && empty($validated['payment_method_id'])) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Debes proporcionar un PaymentIntent confirmado o un método de pago para esta cotización.',
+                    ], 422);
+                }
+
+                $plan = $quote->servicePlan()->firstOrFail();
+                $validated = $this->checkoutQuotes->contractPayload($quote, $validated);
+            } else {
+                $plan = ServicePlan::where('slug', $validated['plan_id'])->firstOrFail();
+            }
 
             ['service' => $service, 'receipt' => $receipt] = $this->contractingService->contract(
                 $user,
                 $plan,
-                $request->validated()
+                $validated
             );
+
+            if ($quote) {
+                $this->checkoutQuotes->markConsumed($quote);
+            }
+
+            $service = $service->fresh(['plan.category', 'plan.features', 'selectedAddOns']);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Servicio contratado exitosamente.',
                 'service' => new ServiceResource($service),
+                'data'    => new ServiceResource($service),
                 'receipt' => $receipt->only(['uuid', 'invoice_number', 'total', 'currency']),
             ], 201);
+        } catch (CheckoutQuoteException $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => $e->errorCode,
+                'message' => $e->getMessage(),
+            ], $e->status);
         } catch (PaymentRequiresActionException $e) {
             return response()->json([
                 'success' => false,
@@ -210,16 +244,30 @@ class ServiceController extends Controller
 
     /**
      * PUT /services/{uuid}/config
-     * Reemplaza el configuration completo.
+     * Actualiza claves permitidas del configuration del servicio.
+     * Solo se aceptan las claves whitelisted; el resto se ignora.
      */
     public function updateServiceConfig(Request $request, string $uuid): JsonResponse
     {
         try {
             $user    = Auth::user();
             $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
-            $validated = $request->validate(['configuration' => 'required|array']);
+            $validated = $request->validate([
+                'configuration'            => 'required|array',
+                'configuration.auto_renew' => 'sometimes|boolean',
+                'configuration.notes'      => 'sometimes|nullable|string|max:500',
+                'configuration.timezone'   => 'sometimes|nullable|string|max:50',
+                'configuration.language'   => 'sometimes|nullable|string|max:10',
+            ]);
 
-            $service->update(['configuration' => $validated['configuration']]);
+            // Solo permitir claves conocidas para evitar inyección de config arbitraria
+            $allowed = array_intersect_key(
+                $validated['configuration'],
+                array_flip(['auto_renew', 'notes', 'timezone', 'language'])
+            );
+
+            $current = $service->configuration ?? [];
+            $service->update(['configuration' => array_merge($current, $allowed)]);
 
             ActivityLog::record(
                 'Configuración de servicio actualizada',

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Events\TicketRead;
+use App\Events\TicketReplyReceiptUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\TicketReply;
@@ -87,16 +88,93 @@ class SupportChatController extends Controller
      */
     private function markStaffRepliesAsRead(Ticket $ticket): void
     {
-        $updated = TicketReply::where('ticket_id', $ticket->id)
+        $user = Auth::user();
+        $now  = now();
+
+        $unreadReplies = TicketReply::where('ticket_id', $ticket->id)
             ->where('is_internal', false)
             ->whereNull('read_at')
             ->where('user_id', '!=', $ticket->user_id) // del staff
-            ->update(['read_at' => now()]);
+            ->get();
 
-        // Notify admin channel in real-time so read-receipt checkmarks update instantly.
-        if ($updated > 0) {
-            TicketRead::dispatch($ticket);
+        if ($unreadReplies->isEmpty()) {
+            return;
         }
+
+        foreach ($unreadReplies as $reply) {
+            $patch = ['read_at' => $now];
+            // Si todavía no fue marcado como entregado, lo cubrimos en el mismo update.
+            if (!$reply->delivered_at) {
+                $patch['delivered_at'] = $now;
+            }
+            $reply->forceFill($patch)->save();
+
+            // Receipt en vivo (✓✓) en el canal presence del ticket — el admin
+            // ve sus propios mensajes marcados como leídos sin polling.
+            broadcast(new TicketReplyReceiptUpdated($reply, 'read', $user->id));
+        }
+
+        // Compat: evento legacy que ya escuchaban algunas pantallas admin.
+        TicketRead::dispatch($ticket);
+    }
+
+    /**
+     * Marca un reply individual como ENTREGADO al usuario actual.
+     * Se llama cuando el frontend recibe el mensaje vía WebSocket y aún no lo
+     * tenía persistido como entregado. Idempotente: no re-emite si ya estaba.
+     */
+    public function markReplyDelivered(Ticket $ticket, TicketReply $reply): JsonResponse
+    {
+        $user = Auth::user();
+
+        if ((int) $ticket->user_id !== (int) $user->id) {
+            return response()->json(['success' => false, 'message' => 'Sin acceso.'], 403);
+        }
+        if ((int) $reply->ticket_id !== (int) $ticket->id) {
+            return response()->json(['success' => false, 'message' => 'Reply no pertenece al ticket.'], 422);
+        }
+        // El usuario no marca como "entregadas" sus propias respuestas.
+        if ((int) $reply->user_id === (int) $user->id) {
+            return response()->json(['success' => true, 'data' => $reply]);
+        }
+
+        if (!$reply->delivered_at) {
+            $reply->forceFill(['delivered_at' => now()])->save();
+            broadcast(new TicketReplyReceiptUpdated($reply, 'delivered', $user->id));
+        }
+
+        return response()->json(['success' => true, 'data' => $reply]);
+    }
+
+    /**
+     * Marca un reply individual como LEÍDO por el usuario actual.
+     * El frontend lo dispara cuando el mensaje queda visible en el viewport
+     * con la ventana enfocada. Sólo aplica a replies del staff (entrantes).
+     */
+    public function markReplyRead(Ticket $ticket, TicketReply $reply): JsonResponse
+    {
+        $user = Auth::user();
+
+        if ((int) $ticket->user_id !== (int) $user->id) {
+            return response()->json(['success' => false, 'message' => 'Sin acceso.'], 403);
+        }
+        if ((int) $reply->ticket_id !== (int) $ticket->id) {
+            return response()->json(['success' => false, 'message' => 'Reply no pertenece al ticket.'], 422);
+        }
+        if ((int) $reply->user_id === (int) $user->id) {
+            return response()->json(['success' => true, 'data' => $reply]);
+        }
+
+        $patch = [];
+        if (!$reply->delivered_at) $patch['delivered_at'] = now();
+        if (!$reply->read_at)      $patch['read_at']      = now();
+
+        if (!empty($patch)) {
+            $reply->forceFill($patch)->save();
+            broadcast(new TicketReplyReceiptUpdated($reply, 'read', $user->id));
+        }
+
+        return response()->json(['success' => true, 'data' => $reply]);
     }
 
     /**

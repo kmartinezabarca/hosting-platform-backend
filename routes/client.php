@@ -127,7 +127,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::delete('/methods/{id}',  [PaymentController::class, 'deletePaymentMethod']);
         Route::post  ('/setup-intent',  [PaymentController::class, 'createSetupIntent']);
         Route::post  ('/process',       [PaymentController::class, 'processPayment']);
-        Route::post  ('/intent',        [PaymentController::class, 'createSetupIntent']);
+        Route::post  ('/intent',        [PaymentController::class, 'createPaymentIntentFromQuote']);
         Route::get   ('/stats',         [PaymentController::class, 'getPaymentStats']);
         Route::get   ('/transactions',  [PaymentController::class, 'getTransactions']);
     });
@@ -220,5 +220,9 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::post('/{ticket}/messages',       [SupportChatController::class, 'sendMessage'])->name('send-message');
         Route::put ('/{ticket}/read',           [SupportChatController::class, 'markAsRead'])->name('mark-as-read');
         Route::put ('/{ticket}/close',          [SupportChatController::class, 'closeRoom'])->name('close');
+
+        // Receipts por reply (WebSocket-driven, idempotentes).
+        Route::post('/{ticket}/replies/{reply}/delivered', [SupportChatController::class, 'markReplyDelivered'])->name('reply.delivered');
+        Route::post('/{ticket}/replies/{reply}/read',      [SupportChatController::class, 'markReplyRead'])->name('reply.read');
     });
 });

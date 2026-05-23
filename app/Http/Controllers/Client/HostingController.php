@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\Service;
+use App\Services\BusinessEmail\MailcowService;
 use App\Services\Coolify\CoolifyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,7 +13,10 @@ use Illuminate\Support\Facades\Log;
 
 class HostingController extends Controller
 {
-    public function __construct(private readonly CoolifyService $coolify) {}
+    public function __construct(
+        private readonly CoolifyService  $coolify,
+        private readonly MailcowService  $mailcow,
+    ) {}
 
     public function info(string $uuid): JsonResponse
     {
@@ -209,6 +213,193 @@ class HostingController extends Controller
         ]);
     }
 
+    // ── Administrador de archivos ─────────────────────────────────────────────
+
+    /**
+     * GET /hosting/{uuid}/files
+     * Retorna las credenciales de acceso FTP/SFTP para gestionar archivos.
+     * Coolify no expone una API de gestor de archivos; el acceso es vía FTP/SFTP
+     * con las credenciales almacenadas en connection_details.
+     */
+    public function files(string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+        $conn    = $service->connection_details ?? [];
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'access_type' => 'ftp_sftp',
+                'message'     => 'El acceso a archivos se realiza mediante FTP o SFTP.',
+                'ftp' => [
+                    'host'     => $conn['ftp_host'] ?? $conn['fqdn'] ?? null,
+                    'port'     => $conn['ftp_port'] ?? 21,
+                    'username' => $conn['ftp_user'] ?? null,
+                    'password' => $conn['ftp_password'] ?? null,
+                ],
+                'sftp' => [
+                    'host'     => $conn['sftp_host'] ?? $conn['fqdn'] ?? null,
+                    'port'     => $conn['sftp_port'] ?? 22,
+                    'username' => $conn['sftp_user'] ?? null,
+                ],
+                'panel_url' => config('coolify.base_url'),
+                'note'      => 'Puedes gestionar tus archivos desde el panel de Coolify o mediante un cliente FTP como FileZilla.',
+            ],
+        ]);
+    }
+
+    // ── Correos empresariales ─────────────────────────────────────────────────
+
+    /**
+     * GET /hosting/{uuid}/emails
+     * Lista los buzones de correo del dominio del servicio.
+     */
+    public function emails(string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+        $domain  = $this->emailDomain($service);
+
+        if (! $domain) {
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'domain'    => null,
+                    'mailboxes' => [],
+                    'message'   => 'Agrega un dominio personalizado para activar los correos empresariales.',
+                ],
+            ]);
+        }
+
+        try {
+            $mailboxes = $this->mailcow->listMailboxes($domain);
+
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'domain'    => $domain,
+                    'mailboxes' => $mailboxes,
+                    'total'     => count($mailboxes),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('HostingController: error listando correos', [
+                'service_id' => $service->id,
+                'domain'     => $domain,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo obtener el listado de correos. Intenta de nuevo.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
+    /**
+     * POST /hosting/{uuid}/emails
+     * Crea un nuevo buzón de correo empresarial.
+     *
+     * Body: { local_part: "nombre", password: "...", quota_mb?: 500 }
+     */
+    public function createEmail(Request $request, string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+        $domain  = $this->emailDomain($service);
+
+        if (! $domain) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Necesitas un dominio personalizado para crear correos empresariales.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'local_part' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9._+-]+$/'],
+            'password'   => ['required', 'string', 'min:8', 'max:128'],
+            'quota_mb'   => ['sometimes', 'integer', 'min:100', 'max:10240'],
+        ], [
+            'local_part.regex' => 'La parte local del correo solo puede contener letras, números, puntos, guiones y guiones bajos.',
+        ]);
+
+        $address = strtolower($validated['local_part']) . '@' . $domain;
+
+        try {
+            $mailbox = $this->mailcow->createMailbox(
+                $validated['local_part'],
+                $domain,
+                $validated['password'],
+                (int) ($validated['quota_mb'] ?? config('mailcow.default_quota_mb', 500))
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => "Correo {$address} creado exitosamente.",
+                'data'    => $mailbox,
+            ], 201);
+        } catch (\Throwable $e) {
+            Log::warning('HostingController: error creando correo', [
+                'service_id' => $service->id,
+                'address'    => $address,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo crear el correo. Verifica que la dirección no exista ya.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
+            ], 422);
+        }
+    }
+
+    /**
+     * DELETE /hosting/{uuid}/emails/{account}
+     * Elimina un buzón de correo empresarial.
+     * {account} es la dirección completa codificada en URL (ej: info%40midominio.com).
+     */
+    public function deleteEmail(string $uuid, string $account): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+        $domain  = $this->emailDomain($service);
+        $address = rawurldecode($account);
+
+        if (! $domain) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Servicio sin dominio de correo configurado.',
+            ], 422);
+        }
+
+        // Validar que la dirección pertenece al dominio del servicio
+        if (! str_ends_with(strtolower($address), '@' . strtolower($domain))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La dirección de correo no pertenece al dominio de este servicio.',
+            ], 403);
+        }
+
+        try {
+            $this->mailcow->deleteMailbox($address);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Correo {$address} eliminado.",
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('HostingController: error eliminando correo', [
+                'service_id' => $service->id,
+                'address'    => $address,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo eliminar el correo. Intenta de nuevo.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
     // ── Helpers privados ──────────────────────────────────────────────────────
 
     private function hostingService(string $uuid): Service
@@ -271,6 +462,23 @@ class HostingController extends Controller
         unset($details['db_password']);
 
         return $details;
+    }
+
+    /**
+     * Resuelve el dominio del servicio para gestión de correos.
+     * Prioridad: dominio personalizado > subdominio asignado.
+     */
+    private function emailDomain(Service $service): ?string
+    {
+        $conn = $service->connection_details ?? [];
+
+        $domain = $service->domain ?? $conn['domain'] ?? null;
+        if ($domain) {
+            return strtolower(trim($domain));
+        }
+
+        // Solo se proveen correos en dominios personalizados, no en subdominios *.rokeindustries.com
+        return null;
     }
 
     private function coolifyResponse(callable $callback, int $status = 200): JsonResponse

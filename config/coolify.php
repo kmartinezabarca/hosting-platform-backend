@@ -5,4 +5,5 @@ return [
     'api_token'   => env('COOLIFY_API_TOKEN'),
     'team_id'     => env('COOLIFY_TEAM_ID', '0'),
     'server_uuid' => env('COOLIFY_SERVER_UUID'),
+    'verify_ssl'  => env('COOLIFY_VERIFY_SSL', true),
 ];

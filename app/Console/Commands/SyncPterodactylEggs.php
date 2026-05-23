@@ -151,7 +151,7 @@ class SyncPterodactylEggs extends Command
         if ($nestId) {
             $response = Http::baseUrl($baseUrl)
                 ->withToken($apiKey)
-                ->withoutVerifying()
+                ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
                 ->acceptJson()
                 ->get("/api/application/nests/{$nestId}");
 
@@ -164,7 +164,7 @@ class SyncPterodactylEggs extends Command
 
         $response = Http::baseUrl($baseUrl)
             ->withToken($apiKey)
-            ->withoutVerifying()
+            ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
             ->acceptJson()
             ->get('/api/application/nests', ['per_page' => 100]);
 

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\DocumentationRequestController;
+use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\QuotationPublicController;
 use App\Http\Controllers\Api\SoftwareController;
 use App\Http\Controllers\Client\ApiDocsController;
@@ -33,6 +34,12 @@ use Illuminate\Support\Facades\Route;
 
 // ── App version — public, no auth required ────────────────────────────────────
 Route::get('/app/version', [AppVersionController::class, 'show']);
+
+// Checkout autoritativo
+Route::get('/checkout/catalog', [CheckoutController::class, 'catalog']);
+Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
+    Route::post('/checkout/quote', [CheckoutController::class, 'quote']);
+});
 
 // Stripe webhook (no authentication required)
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handleWebhook']);

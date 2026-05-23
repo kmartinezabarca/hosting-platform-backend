@@ -149,7 +149,7 @@ class PetController extends Controller
         $request->validate(['photo' => 'required|image|max:5120']);
 
         $path = $request->file('photo')->store("pet-photos/{$request->user()->uuid}", 'public');
-        $url  = asset("storage/{$path}") . '?t=' . time();
+        $url  = $this->publicStorageUrl($request, $path);
         $pet->update(['photo_url' => $url]);
 
         return response()->json(['url' => $url]);
@@ -161,10 +161,15 @@ class PetController extends Controller
         $request->validate(['photo' => 'required|image|max:8192']);
 
         $path = $request->file('photo')->store("pet-covers/{$request->user()->uuid}", 'public');
-        $url  = asset("storage/{$path}") . '?t=' . time();
+        $url  = $this->publicStorageUrl($request, $path);
         $pet->update(['cover_url' => $url]);
 
         return response()->json(['url' => $url]);
+    }
+
+    private function publicStorageUrl(Request $request, string $path): string
+    {
+        return rtrim($request->getSchemeAndHttpHost(), '/') . '/api/rp/media/' . ltrim($path, '/') . '?t=' . time();
     }
 
     private function buildSlug(string $name): string

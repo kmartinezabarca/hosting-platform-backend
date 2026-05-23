@@ -12,22 +12,26 @@ use Illuminate\Support\Facades\Validator;
 
 class DomainController extends Controller
 {
+    private const ALLOWED_STATUSES = ['active', 'pending', 'expired', 'cancelled', 'transferred'];
+
+    private const DOMAIN_REGEX = '/^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i';
+
     /**
      * Get user's domains
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $user = Auth::user();
-            $query = Domain::where('user_id', $user->id);
+            $user    = Auth::user();
+            $perPage = min((int) $request->get('per_page', 15), 100);
+            $query   = Domain::where('user_id', $user->id);
 
-            // Filter by status if provided
-            if ($request->has('status')) {
+            if ($request->filled('status') && in_array($request->status, self::ALLOWED_STATUSES, true)) {
                 $query->where('status', $request->status);
             }
 
             $domains = $query->orderBy('created_at', 'desc')
-                           ->paginate($request->get('per_page', 15));
+                             ->paginate($perPage);
 
             return response()->json([
                 'success' => true,
@@ -80,12 +84,14 @@ class DomainController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'domain_name' => 'required|string|max:255',
+                'domain_name'         => ['required', 'string', 'max:253', 'regex:' . self::DOMAIN_REGEX],
                 'registration_period' => 'required|integer|min:1|max:10',
-                'auto_renew' => 'boolean',
-                'privacy_protection' => 'boolean',
-                'nameservers' => 'nullable|array',
-                'nameservers.*' => 'string'
+                'auto_renew'          => 'boolean',
+                'privacy_protection'  => 'boolean',
+                'nameservers'         => 'nullable|array|max:6',
+                'nameservers.*'       => ['string', 'max:253', 'regex:' . self::DOMAIN_REGEX],
+            ], [
+                'domain_name.regex' => 'El nombre de dominio no tiene un formato válido.',
             ]);
 
             if ($validator->fails()) {
@@ -241,7 +247,9 @@ class DomainController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'domain_name' => 'required|string|max:255'
+                'domain_name' => ['required', 'string', 'max:253', 'regex:' . self::DOMAIN_REGEX],
+            ], [
+                'domain_name.regex' => 'El nombre de dominio no tiene un formato válido.',
             ]);
 
             if ($validator->fails()) {

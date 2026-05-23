@@ -21,7 +21,9 @@ class FileManagerController extends Controller
      */
     public function listFiles(Request $request, string $uuid): JsonResponse
     {
-        $validated = $request->validate(['directory' => ['required', 'string']]);
+        $validated = $request->validate([
+            'directory' => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
+        ]);
         $service   = $this->findOwnedService($request, $uuid);
 
         try {
@@ -60,9 +62,9 @@ class FileManagerController extends Controller
     public function deleteFiles(Request $request, string $uuid): JsonResponse
     {
         $validated = $request->validate([
-            'root'    => ['required', 'string'],
-            'files'   => ['required', 'array', 'min:1'],
-            'files.*' => ['required', 'string'],
+            'root'    => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
+            'files'   => ['required', 'array', 'min:1', 'max:50'],
+            'files.*' => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
         ]);
 
         $service = $this->findOwnedService($request, $uuid);
@@ -87,7 +89,9 @@ class FileManagerController extends Controller
      */
     public function getDownloadUrl(Request $request, string $uuid): JsonResponse
     {
-        $validated = $request->validate(['file' => ['required', 'string']]);
+        $validated = $request->validate([
+            'file' => ['required', 'string', 'max:512', 'not_regex:/\.\.[\/\\\\]/'],
+        ]);
         $service   = $this->findOwnedService($request, $uuid);
 
         try {

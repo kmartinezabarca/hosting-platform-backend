@@ -77,6 +77,11 @@ class PterodactylService
 
     /**
      * Selecciona automáticamente el nodo con más allocations libres.
+     *
+     * Si existen registros en `server_nodes` (node_type=pterodactyl, activos, con
+     * pterodactyl_node_id), la selección se restringe a esos nodos, respetando
+     * el campo `priority` (mayor = preferido). Si no hay nodos registrados, se
+     * considera cualquier nodo reportado por Pterodactyl (comportamiento original).
      */
     public function autoSelectNode(): int
     {
@@ -89,16 +94,34 @@ class PterodactylService
             throw new RuntimeException('No hay nodos configurados en Pterodactyl.');
         }
 
+        // Restringir a nodos del catálogo local si existen registros Pterodactyl
+        $registeredNodeIds = \App\Models\ServerNode::active()
+            ->pterodactyl()
+            ->whereNotNull('pterodactyl_node_id')
+            ->orderByDesc('priority')
+            ->pluck('pterodactyl_node_id')
+            ->all();
+
+        if (! empty($registeredNodeIds)) {
+            $nodes = $nodes->filter(
+                fn ($node) => in_array($node['attributes']['id'], $registeredNodeIds, true)
+            );
+
+            if ($nodes->isEmpty()) {
+                throw new RuntimeException('Ningún nodo registrado en el catálogo está disponible en Pterodactyl.');
+            }
+        }
+
         // Contamos allocations libres por nodo para elegir el menos cargado
-        $best = null;
+        $best     = null;
         $bestFree = -1;
 
         foreach ($nodes as $node) {
-            $nodeId = $node['attributes']['id'];
+            $nodeId    = $node['attributes']['id'];
             $freeCount = $this->countFreeAllocations($nodeId);
             if ($freeCount > $bestFree) {
                 $bestFree = $freeCount;
-                $best = $nodeId;
+                $best     = $nodeId;
             }
         }
 
@@ -568,7 +591,7 @@ class PterodactylService
     {
         return Http::baseUrl($this->baseUrl)
             ->withToken($this->apiKey)
-            ->withoutVerifying()
+            ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
             ->timeout(config('pterodactyl.timeout', 60))
             ->acceptJson()
             ->asJson();
@@ -579,7 +602,7 @@ class PterodactylService
     {
         return Http::baseUrl($this->baseUrl)
             ->withToken(config('pterodactyl.client_api_key', ''))
-            ->withoutVerifying()
+            ->when(! config('pterodactyl.verify_ssl', true), fn ($h) => $h->withoutVerifying())
             ->timeout(config('pterodactyl.timeout', 60))
             ->acceptJson()
             ->asJson();

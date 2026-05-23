@@ -192,28 +192,53 @@ class DashboardController extends Controller
                 return response()->json(['error' => 'Unauthorized'], 401);
             }
 
-            // ¡CORREGIDO! Hacemos "eager loading" de la relación 'plan' y su 'category'.
+            // Eager-load del plan y la categoría para evitar N+1.
             $services = Service::where('user_id', $user->id)
                 ->with(['plan.category'])
                 ->latest()
-                ->limit(3)
+                ->limit(4)
                 ->get()
                 ->map(function ($service) {
-                    $plan = $service->plan;
+                    $plan      = $service->plan;
+                    $category  = $plan?->category;
+                    $conn      = is_array($service->connection_details) ? $service->connection_details : [];
+
+                    // El servicio puede traer métricas live en `service->metrics` si el job de polling
+                    // las dejó cacheadas, o en `connection_details->metrics` para hosting.
+                    $metricsRaw = $service->metrics
+                        ?? data_get($conn, 'metrics')
+                        ?? data_get($conn, 'live')
+                        ?? null;
+
+                    $metrics = null;
+                    if (is_array($metricsRaw) || is_object($metricsRaw)) {
+                        $m = (array) $metricsRaw;
+                        $metrics = [
+                            'cpu'        => isset($m['cpu_absolute']) ? round((float)$m['cpu_absolute']) : (isset($m['cpu']) ? round((float)$m['cpu']) : null),
+                            'ram'        => isset($m['ram']) ? round((float)$m['ram']) : (isset($m['memory_pct']) ? round((float)$m['memory_pct']) : null),
+                            'ram_human'  => $m['ram_human']    ?? null,
+                            'players'    => $m['players']      ?? null,
+                            'visits'     => $m['visits']       ?? ($m['visits_today'] ?? null),
+                            'uptime_pct' => $m['uptime_pct']   ?? null,
+                        ];
+                    }
 
                     return [
-                        'uuid' => $service->uuid,
-                        'category_slug' => $plan->category ? $plan->category->slug : null,
-                        'name' => $plan->name ?? 'Servicio Desconocido',
-                        'type' => $plan->category->name ?? 'Desconocido',
-                        'status' => $service->status,
-                        'plan' => $plan->description ?? 'Plan Estándar',
-                        'price' => '$' . number_format($service->price, 2) . '/' . $service->billing_cycle,
-                        'next_billing' => optional($service->next_due_date)->format('d M, Y'),
-                        'created_at' => $service->created_at->format('d M, Y'),
-                        'specs' => $plan->specifications,
-                        'domain' => $service->connection_details['display'] ?? $service->name,
-                        'ip' => $service->connection_details['display'] ?? ($service->connection_details['server_ip'] ?? null)
+                        'uuid'          => $service->uuid,
+                        'category_slug' => $category?->slug,
+                        'name'          => $service->name ?: ($plan->name ?? 'Servicio'),
+                        'plan_name'     => $plan->name ?? null,
+                        'software'      => data_get($conn, 'software') ?? data_get($plan?->specifications, 'software'),
+                        'type'          => $category?->name ?? 'Servicio',
+                        'status'        => $service->status,
+                        'plan'          => $plan->description ?? null,
+                        'price'         => '$' . number_format($service->price, 2) . '/' . $service->billing_cycle,
+                        'next_billing'  => optional($service->next_due_date)->isoFormat('D MMM, YYYY'),
+                        'created_at'    => $service->created_at->isoFormat('D MMM, YYYY'),
+                        'specs'         => $plan?->specifications,
+                        'domain'        => data_get($conn, 'display') ?? data_get($conn, 'fqdn') ?? $service->name,
+                        'ip'            => data_get($conn, 'server_ip') ?? data_get($conn, 'ip_address') ?? null,
+                        'metrics'       => $metrics,
                     ];
                 });
 
@@ -317,8 +342,7 @@ class DashboardController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Failed to fetch activity',
-                'message' => $e->getMessage(),
+                'message' => 'Error al obtener la actividad.',
             ], 500);
         }
     }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Client;
 
+use App\Models\CheckoutQuote;
 use App\Models\ServicePlan;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -15,15 +16,19 @@ class ContractServiceRequest extends FormRequest
 
     public function rules(): array
     {
-        $planSlug = $this->input('plan_id');
-        $plan     = $planSlug ? ServicePlan::where('slug', $planSlug)->first() : null;
+        $quoteUuid = $this->input('quote_id');
+        $quote     = $quoteUuid ? CheckoutQuote::where('uuid', $quoteUuid)->first() : null;
+        $planSlug  = $quote ? $quote->servicePlan?->slug : $this->input('plan_id');
+        $plan      = $planSlug ? ServicePlan::where('slug', $planSlug)->first() : null;
 
+        $usesQuote         = filled($quoteUuid);
         $isPterodactylPlan = $plan?->isPterodactylManaged() ?? false;
         $isNoCharge        = $plan?->isNoCharge() ?? false;   // free | trial → no requiere pago
 
         return [
-            'plan_id'       => ['required', 'string', Rule::exists('service_plans', 'slug')],
-            'billing_cycle' => ['required', Rule::in(['monthly', 'quarterly', 'semi_annually', 'annually'])],
+            'quote_id'      => ['required_without:plan_id', 'nullable', 'uuid', Rule::exists('checkout_quotes', 'uuid')],
+            'plan_id'       => ['required_without:quote_id', 'nullable', 'string', Rule::exists('service_plans', 'slug')],
+            'billing_cycle' => ['required_without:quote_id', 'nullable', Rule::in(['trial', 'monthly', 'quarterly', 'semi_annually', 'annually'])],
             'domain'        => ['nullable', 'string', 'max:255'],
             'service_name'  => ['required', 'string', 'max:255'],
 
@@ -35,9 +40,11 @@ class ContractServiceRequest extends FormRequest
             // Pago — NOT requerido para planes free/trial.
             // Para planes paid: se debe proveer payment_intent_id O payment_method_id.
             'payment_intent_id' => $isNoCharge
+                || $usesQuote
                 ? ['sometimes', 'nullable', 'string']
                 : ['required_without:payment_method_id', 'nullable', 'string', 'starts_with:pi_'],
             'payment_method_id' => $isNoCharge
+                || $usesQuote
                 ? ['sometimes', 'nullable', 'string']
                 : ['required_without:payment_intent_id', 'nullable', 'string'],
 
@@ -56,6 +63,8 @@ class ContractServiceRequest extends FormRequest
             'invoice.cfdi_use_code' => ['required_with:invoice', 'string', 'max:10'],
             'invoice.constancia' => ['nullable', 'string'],
 
+            'generate_cfdi'       => ['sometimes', 'boolean'],
+            'fiscal_profile_uuid' => ['sometimes', 'nullable', 'uuid'],
             'create_subscription' => ['sometimes', 'boolean'],
         ];
     }
