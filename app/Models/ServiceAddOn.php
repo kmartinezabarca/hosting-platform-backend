@@ -9,12 +9,10 @@ class ServiceAddOn extends Model
 {
     use HasUuidColumn;
 
-    protected $guarded = [];
-
-    // protected $fillable = [
-    //     'uuid', 'slug', 'name', 'description',
-    //     'price', 'currency', 'is_active', 'metadata'
-    // ];
+    protected $fillable = [
+        'uuid', 'service_id', 'add_on_id', 'slug', 'name',
+        'description', 'price', 'currency', 'is_active', 'metadata',
+    ];
 
     protected $casts = [
         'price'    => 'decimal:2',

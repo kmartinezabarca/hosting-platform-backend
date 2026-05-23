@@ -86,7 +86,7 @@ class BillingCycleController extends Controller
                 ], 422);
             }
 
-            $billingCycle = BillingCycle::create($request->all());
+            $billingCycle = BillingCycle::create($validator->validated());
 
             return response()->json([
                 'success' => true,
@@ -134,7 +134,7 @@ class BillingCycleController extends Controller
                 ], 422);
             }
 
-            $billingCycle->update($request->all());
+            $billingCycle->update($validator->validated());
 
             return response()->json([
                 'success' => true,

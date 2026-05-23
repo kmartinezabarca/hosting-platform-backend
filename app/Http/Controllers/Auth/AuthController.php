@@ -27,7 +27,7 @@ class AuthController extends Controller
                 'regex:/^[a-zA-Z0-9_-]+$/',
             ],
             'email'    => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'min:8', 'max:255', 'confirmed'],
         ], [
             'username.regex'  => 'El nombre de usuario solo puede contener letras, números, guiones y guiones bajos.',
             'username.unique' => 'Este nombre de usuario ya está en uso.',

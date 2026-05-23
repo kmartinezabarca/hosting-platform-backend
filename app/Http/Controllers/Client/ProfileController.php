@@ -131,7 +131,7 @@ class ProfileController extends Controller
                 }
             }
 
-            $perPage = $request->query('per_page', 15);
+            $perPage = min((int) $request->query('per_page', 15), 100);
             
             // Obtenemos las sesiones únicas por device_token o por combinación de IP + UserAgent si no hay token
             // Pero como el middleware asegura device_token, confiaremos en él.
@@ -304,8 +304,8 @@ class ProfileController extends Controller
         try {
             $user = Auth::user();
             $validated = $request->validate([
-                "current_password" => "required|string",
-                "password"         => "required|string|min:8|confirmed",
+                "current_password" => "required|string|max:255",
+                "password"         => "required|string|min:8|max:255|confirmed",
             ]);
 
             if (!Hash::check($request->current_password, $user->password)) {

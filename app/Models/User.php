@@ -43,6 +43,13 @@ class User extends Authenticatable implements MustVerifyEmail
         'two_factor_secret',
         'last_login_at',
         'kind',
+        // Notification preferences
+        'email_notifications',
+        'push_notifications',
+        'service_notifications',
+        'payment_notifications',
+        'ticket_notifications',
+        'invoice_notifications',
     ];
 
     /**
@@ -62,10 +69,17 @@ class User extends Authenticatable implements MustVerifyEmail
      * @var array<string, string>
      */
     protected $casts = [
-        'email_verified_at' => 'datetime',
-        'password' => 'hashed',
-        'two_factor_enabled' => 'boolean',
-        'last_login_at' => 'datetime',
+        'email_verified_at'     => 'datetime',
+        'password'              => 'hashed',
+        'two_factor_enabled'    => 'boolean',
+        'last_login_at'         => 'datetime',
+        // Notification preferences
+        'email_notifications'   => 'boolean',
+        'push_notifications'    => 'boolean',
+        'service_notifications' => 'boolean',
+        'payment_notifications' => 'boolean',
+        'ticket_notifications'  => 'boolean',
+        'invoice_notifications' => 'boolean',
     ];
 
     /**

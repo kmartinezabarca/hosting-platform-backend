@@ -21,7 +21,7 @@ class GlobalSearchController extends Controller
 
     public function search(Request $request): JsonResponse
     {
-        $q = trim($request->get('q', ''));
+        $q = mb_substr(trim($request->get('q', '')), 0, 100);
 
         if (strlen($q) < 2) {
             return response()->json(['success' => true, 'data' => []]);

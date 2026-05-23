@@ -56,7 +56,7 @@ class VaccineController extends Controller
             'name'         => $data['name'] ?? $vaccine->name,
             'name_en'      => $data['nameEn'] ?? $vaccine->name_en,
             'date'         => $data['date'] ?? $vaccine->date,
-            'next_due'     => $data['nextDue'] ?? $vaccine->next_due,
+            'next_due'     => array_key_exists('nextDue', $data) ? $data['nextDue'] : $vaccine->next_due,
             'applied_by'   => $data['appliedBy'] ?? $vaccine->applied_by,
             'batch_number' => $data['batchNumber'] ?? $vaccine->batch_number,
             'status'       => $data['status'] ?? $vaccine->status,

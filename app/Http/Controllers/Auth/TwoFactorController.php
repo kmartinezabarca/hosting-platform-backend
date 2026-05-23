@@ -125,8 +125,8 @@ class TwoFactorController extends Controller
     {
         try {
             $request->validate([
-                'password' => 'required|string',
-                'code' => 'required|string|size:6'
+                'password' => 'required|string|max:255',
+                'code'     => 'required|string|size:6',
             ]);
 
             $user = Auth::user();

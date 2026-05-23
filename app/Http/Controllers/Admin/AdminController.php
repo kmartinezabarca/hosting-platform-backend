@@ -81,8 +81,18 @@ class AdminController extends Controller
                   ->orWhere('email',      'like', "%{$search}%")
                   ->orWhere('phone',      'like', "%{$search}%")
             ))
-            ->when($request->get('status'), fn($q, $v) => $q->where('status', $v))
-            ->when($request->get('role'),   fn($q, $v) => $q->where('role', $v))
+            ->when($request->get('status'), function ($q) use ($request) {
+                $allowed = ['active', 'suspended', 'pending_verification', 'banned'];
+                if (in_array($request->get('status'), $allowed, true)) {
+                    $q->where('status', $request->get('status'));
+                }
+            })
+            ->when($request->get('role'), function ($q) use ($request) {
+                $allowed = ['super_admin', 'admin', 'support', 'client'];
+                if (in_array($request->get('role'), $allowed, true)) {
+                    $q->where('role', $request->get('role'));
+                }
+            })
             ->withCount(['services', 'invoices', 'tickets'])
             ->orderBy($sortBy, $sortOrder)
             ->paginate($perPage);
@@ -668,11 +678,16 @@ class AdminController extends Controller
     {
         $invoice = Receipt::findOrFail($id);
 
+        $validated = $request->validate([
+            'payment_method' => ['sometimes', 'string', 'max:100'],
+            'notes'          => ['sometimes', 'string', 'max:500'],
+        ]);
+
         $invoice->update([
             'status'         => 'paid',
             'paid_at'        => now(),
-            'payment_method' => $request->input('payment_method', 'manual'),
-            'notes'          => $request->input('notes', 'Marcado como pagado por administrador.'),
+            'payment_method' => $validated['payment_method'] ?? 'manual',
+            'notes'          => $validated['notes'] ?? 'Marcado como pagado por administrador.',
         ]);
 
         return response()->json([
@@ -699,9 +714,13 @@ class AdminController extends Controller
     {
         $invoice = Receipt::findOrFail($id);
 
+        $validated = $request->validate([
+            'reason' => ['sometimes', 'string', 'max:500'],
+        ]);
+
         $invoice->update([
             'status' => 'cancelled',
-            'notes'  => $request->input('reason', 'Cancelada por administrador.'),
+            'notes'  => $validated['reason'] ?? 'Cancelada por administrador.',
         ]);
 
         return response()->json([

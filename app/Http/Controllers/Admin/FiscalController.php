@@ -81,9 +81,11 @@ class FiscalController extends Controller
             ->when($request->filled('fiscal_regime_code'), fn($q) => $q->where('fiscal_regime_code', $request->get('fiscal_regime_code')))
             ->orderByDesc('created_at');
 
+        $perPage = min(max((int) $request->get('per_page', 20), 1), 100);
+
         return response()->json([
             'success' => true,
-            'data'    => $query->paginate((int) $request->get('per_page', 20)),
+            'data'    => $query->paginate($perPage),
         ]);
     }
 

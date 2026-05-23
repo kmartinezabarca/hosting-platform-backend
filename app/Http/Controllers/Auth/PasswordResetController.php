@@ -160,7 +160,7 @@ class PasswordResetController extends Controller
             $request->validate([
                 'token' => ['required'],
                 'email' => ['required', 'email:rfc,dns'],
-                'password' => ['required', 'confirmed', 'min:8'],
+                'password' => ['required', 'confirmed', 'min:8', 'max:255'],
             ]);
 
             $response = Password::reset(

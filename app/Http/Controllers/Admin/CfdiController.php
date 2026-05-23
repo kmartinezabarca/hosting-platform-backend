@@ -20,15 +20,22 @@ class CfdiController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $filters = $request->validate([
+            'status'     => ['sometimes', 'string', Rule::in(['scheduled', 'pending_stamp', 'stamped', 'failed', 'cancelled'])],
+            'rfc'        => ['sometimes', 'string', 'max:13'],
+            'service_id' => ['sometimes', 'integer', 'min:1'],
+            'per_page'   => ['sometimes', 'integer', 'min:1', 'max:100'],
+        ]);
+
         $query = Invoice::with(['service.user:id,uuid,first_name,last_name,email'])
-            ->when($request->filled('status'), fn($q) => $q->where('cfdi_status', $request->get('status')))
-            ->when($request->filled('rfc'),    fn($q) => $q->where('rfc', 'like', '%' . $request->get('rfc') . '%'))
-            ->when($request->filled('service_id'), fn($q) => $q->where('service_id', $request->get('service_id')))
+            ->when(! empty($filters['status']),     fn($q) => $q->where('cfdi_status', $filters['status']))
+            ->when(! empty($filters['rfc']),        fn($q) => $q->where('rfc', 'like', '%' . $filters['rfc'] . '%'))
+            ->when(! empty($filters['service_id']), fn($q) => $q->where('service_id', $filters['service_id']))
             ->orderByDesc('created_at');
 
         return response()->json([
             'success' => true,
-            'data'    => $query->paginate((int) $request->get('per_page', 20)),
+            'data'    => $query->paginate((int) ($filters['per_page'] ?? 20)),
         ]);
     }
 

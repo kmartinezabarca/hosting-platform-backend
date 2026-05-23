@@ -382,7 +382,7 @@ class ServiceController extends Controller
     {
         $user    = Auth::user();
         $service = $this->ownedService($uuid);
-        $name    = $request->input('name') ?: 'Backup ' . now()->format('d/m/Y H:i');
+        $name    = mb_substr(trim($request->input('name', '')), 0, 160) ?: 'Backup ' . now()->format('d/m/Y H:i');
 
         if ($identifier = $this->pteroId($service)) {
             try {

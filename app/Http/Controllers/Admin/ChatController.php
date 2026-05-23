@@ -55,7 +55,7 @@ class ChatController extends Controller
               ->whereColumn('ticket_replies.user_id', 'tickets.user_id');
         }]);
 
-        $rooms = $query->paginate((int)($request->get('per_page', 20)));
+        $rooms = $query->paginate(min((int)($request->get('per_page', 20)), 100));
 
         return response()->json([
             'success' => true,
@@ -115,7 +115,7 @@ class ChatController extends Controller
             'unread_for_admin' => DB::raw('CASE WHEN tickets.last_reply_by = tickets.user_id THEN 1 ELSE 0 END'),
         ]);
 
-        $rooms = $query->paginate((int)($request->get('per_page', 20)));
+        $rooms = $query->paginate(min((int)($request->get('per_page', 20)), 100));
 
         return response()->json([
             'success' => true,

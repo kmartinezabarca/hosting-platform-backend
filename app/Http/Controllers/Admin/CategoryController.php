@@ -169,7 +169,7 @@ class CategoryController extends Controller
                 ], 422);
             }
 
-            $category = Category::create($request->all());
+            $category = Category::create($validator->validated());
 
             return response()->json([
                 'success' => true,
@@ -219,7 +219,7 @@ class CategoryController extends Controller
                 ], 422);
             }
 
-            $category->update($request->all());
+            $category->update($validator->validated());
 
             return response()->json([
                 'success' => true,

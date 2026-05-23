@@ -431,8 +431,11 @@ class AgentController extends Controller
             }
 
             // Ordenamiento
-            $sortBy = $request->get('sort_by', 'created_at');
-            $sortOrder = $request->get('sort_order', 'desc');
+            $allowedTicketSorts = ['created_at', 'updated_at', 'priority', 'status'];
+            $sortBy    = in_array($request->get('sort_by'), $allowedTicketSorts, true)
+                ? $request->get('sort_by')
+                : 'created_at';
+            $sortOrder = $request->get('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
             $query->orderBy($sortBy, $sortOrder);
 
             // Paginación

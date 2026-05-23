@@ -85,8 +85,8 @@ class NotificationController extends Controller
             'title'       => 'required|string|max:255',
             'message'     => 'required|string|max:1000',
             'type'        => 'required|string|in:info,warning,success,error',
-            'action_url'  => 'nullable|string',
-            'action_text' => 'nullable|string',
+            'action_url'  => 'nullable|string|url|max:500',
+            'action_text' => 'nullable|string|max:100',
             'user_ids'    => 'nullable|array',
             'user_ids.*'  => 'exists:users,id',
         ]);
@@ -126,8 +126,8 @@ class NotificationController extends Controller
             'title'       => 'required|string|max:255',
             'message'     => 'required|string|max:1000',
             'type'        => 'required|string|in:info,warning,success,error',
-            'action_url'  => 'nullable|string',
-            'action_text' => 'nullable|string',
+            'action_url'  => 'nullable|string|url|max:500',
+            'action_text' => 'nullable|string|max:100',
         ]);
 
         $notificationData = [
