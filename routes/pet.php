@@ -5,7 +5,6 @@ use App\Http\Controllers\Pet\AuthController;
 use App\Http\Controllers\Pet\BillingController;
 use App\Http\Controllers\Pet\InboxController;
 use App\Http\Controllers\Pet\LostController;
-use App\Http\Controllers\Pet\MediaController;
 use App\Http\Controllers\Pet\MedicalRecordController;
 use App\Http\Controllers\Pet\OwnerController;
 use App\Http\Controllers\Pet\PetController;
@@ -28,7 +27,6 @@ use Illuminate\Support\Facades\Route;
 */
 
 // ── Rutas públicas (sin autenticación) ────────────────────────────────────────
-Route::get('/media/{path}', [MediaController::class, 'show'])->where('path', '.*');
 Route::get('/pets/{slug}',              [PublicController::class, 'petBySlug']);
 Route::middleware('throttle:30,1')->group(function () {
     Route::post('/pets/{slug}/scan',    [PublicController::class, 'recordScan']);

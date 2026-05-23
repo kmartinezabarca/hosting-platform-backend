@@ -169,7 +169,7 @@ class PetController extends Controller
 
     private function publicStorageUrl(Request $request, string $path): string
     {
-        return rtrim($request->getSchemeAndHttpHost(), '/') . '/api/rp/media/' . ltrim($path, '/') . '?t=' . time();
+        return rtrim($request->getSchemeAndHttpHost(), '/') . '/storage/' . ltrim($path, '/') . '?t=' . time();
     }
 
     private function buildSlug(string $name): string
