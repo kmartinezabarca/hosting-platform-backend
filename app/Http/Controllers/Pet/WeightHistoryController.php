@@ -7,6 +7,7 @@ use App\Models\Pet\Pet;
 use App\Models\Pet\WeightHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class WeightHistoryController extends Controller
 {
@@ -41,11 +42,35 @@ class WeightHistoryController extends Controller
         return response()->json($this->format($entry), 201);
     }
 
+    public function uploadPhoto(Request $request, string $id): JsonResponse
+    {
+        $entry = WeightHistory::whereHas('pet', fn($q) => $q->where('owner_id', $request->user()->uuid))
+            ->where('id', $id)
+            ->firstOrFail();
+
+        $request->validate(['photo' => 'required|image|max:5120']);
+
+        if ($entry->photo_url) {
+            Storage::disk('public')->delete($entry->photo_url);
+        }
+
+        $path = $request->file('photo')->store("weight-photos/{$entry->id}", 'public');
+        $entry->update(['photo_url' => $path]);
+
+        return response()->json([
+            'photoUrl' => Storage::disk('public')->url($path),
+        ]);
+    }
+
     public function destroy(Request $request, string $id): JsonResponse
     {
         $entry = WeightHistory::whereHas('pet', fn($q) => $q->where('owner_id', $request->user()->uuid))
             ->where('id', $id)
             ->firstOrFail();
+
+        if ($entry->photo_url) {
+            Storage::disk('public')->delete($entry->photo_url);
+        }
 
         $entry->delete();
         return response()->json(['ok' => true]);
@@ -66,6 +91,9 @@ class WeightHistoryController extends Controller
                 ? $entry->recorded_at->toDateString()
                 : (string) $entry->recorded_at,
             'notes'      => $entry->notes ?? '',
+            'photoUrl'   => $entry->photo_url
+                ? Storage::disk('public')->url($entry->photo_url)
+                : null,
             'createdAt'  => $entry->created_at,
         ];
     }

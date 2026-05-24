@@ -16,7 +16,7 @@ class WeightHistory extends Model
     protected $keyType = 'string';
     public $timestamps = false;
 
-    protected $fillable = ['pet_id', 'weight', 'recorded_at', 'notes'];
+    protected $fillable = ['pet_id', 'weight', 'recorded_at', 'notes', 'photo_url'];
 
     protected $casts = [
         'weight'      => 'float',

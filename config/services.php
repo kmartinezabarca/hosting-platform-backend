@@ -55,6 +55,14 @@ return [
         'vapid_public_key'      => env('ROKEPET_VAPID_PUBLIC_KEY'),
         'vapid_private_key'     => env('ROKEPET_VAPID_PRIVATE_KEY'),
         'vapid_subject'         => env('ROKEPET_VAPID_SUBJECT', 'mailto:hola@roke.pet'),
+        // FCM (Firebase Cloud Messaging) — for Flutter mobile push notifications
+        // 1. Firebase Console → Project Settings → Service Accounts → Generate new private key
+        // 2. Save the JSON file as storage/firebase-credentials.json
+        // 3. Add to .env:
+        //      FIREBASE_CREDENTIALS=firebase-credentials.json
+        //      FCM_PROJECT_ID=hosting-plataform
+        'firebase_credentials'  => env('FIREBASE_CREDENTIALS'),
+        'fcm_project_id'        => env('FCM_PROJECT_ID', 'hosting-plataform'),
     ],
 
     'pterodactyl' => [

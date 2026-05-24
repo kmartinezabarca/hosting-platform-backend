@@ -73,13 +73,26 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
             Route::post  ('/suspend',       [ServiceController::class, 'suspendService']);
             Route::post  ('/reactivate',    [ServiceController::class, 'reactivateService']);
 
+            // ── Plan upgrade / downgrade ─────────────────────────────────────
+            Route::get ('/upgrade-options', [ServiceController::class, 'upgradeOptions']);
+            Route::post('/upgrade',         [ServiceController::class, 'upgradePlan']);
+
+            // ── Activity log ─────────────────────────────────────────────────
+            Route::get ('/activity',        [ServiceController::class, 'activityLog']);
+
             // ── Backups ──────────────────────────────────────────────────────
-            Route::get   ('/backups',                      [ServiceController::class, 'getServiceBackups']);
-            Route::post  ('/backups',                      [ServiceController::class, 'createServiceBackup']);
-            Route::post  ('/backups/{backupId}/restore',   [ServiceController::class, 'restoreServiceBackup']);
-            Route::get   ('/backups/{backupId}/download',  [ServiceController::class, 'downloadServiceBackup']);
-            Route::get   ('/backups/{backupId}/file',      [ServiceController::class, 'streamServiceBackup']);
-            Route::delete('/backups/{backupId}',           [ServiceController::class, 'deleteServiceBackup']);
+            Route::get   ('/backups',                                         [ServiceController::class, 'getServiceBackups']);
+            Route::post  ('/backups',                                         [ServiceController::class, 'createServiceBackup']);
+            Route::post  ('/backups/{backupId}/restore',                      [ServiceController::class, 'restoreServiceBackup']);
+            Route::get   ('/backups/{backupId}/download',                     [ServiceController::class, 'downloadServiceBackup']);
+            Route::get   ('/backups/{backupId}/file',                         [ServiceController::class, 'streamServiceBackup']);
+            Route::delete('/backups/{backupId}',                              [ServiceController::class, 'deleteServiceBackup']);
+
+            // ── Backup schedules ─────────────────────────────────────────────
+            Route::get   ('/backups/schedules',                               [ServiceController::class, 'getBackupSchedules']);
+            Route::post  ('/backups/schedules',                               [ServiceController::class, 'createBackupSchedule']);
+            Route::put   ('/backups/schedules/{scheduleUuid}',                [ServiceController::class, 'updateBackupSchedule']);
+            Route::delete('/backups/schedules/{scheduleUuid}',                [ServiceController::class, 'deleteBackupSchedule']);
 
             // ── Archivos ─────────────────────────────────────────────────────
             Route::prefix('files')->group(function () {
@@ -91,6 +104,14 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
 
             // ── Game server ──────────────────────────────────────────────────
             Route::prefix('game-server')->group(function () {
+                Route::get ('/metrics',                       [GameServerController::class, 'metricsHistory']);
+                Route::get ('/ddos',                          [GameServerController::class, 'ddosStatus']);
+                Route::post('/ddos/allowlist',                [GameServerController::class, 'ddosAllowlistAdd']);
+                Route::delete('/ddos/allowlist/{ip}',         [GameServerController::class, 'ddosAllowlistRemove']);
+                Route::get   ('/firewall',                    [GameServerController::class, 'firewallStatus']);
+                Route::put   ('/firewall/settings',           [GameServerController::class, 'firewallUpdateSettings']);
+                Route::post  ('/firewall/blocked-ips',        [GameServerController::class, 'firewallBlockIp']);
+                Route::delete('/firewall/blocked-ips/{ip}',   [GameServerController::class, 'firewallUnblockIp']);
                 Route::get ('/startup',           [GameServerController::class, 'getStartupConfig']);
                 Route::get ('/usage',             [GameServerController::class, 'getServiceUsage']);
                 Route::post('/power',             [GameServerController::class, 'power']);

@@ -51,12 +51,16 @@ class PlanController extends Controller
             'trial_enabled'        => 'sometimes|boolean',
             'trial_days'           => 'sometimes|integer|min:0|max:90',
             'max_pets'             => 'nullable|integer|min:1',
-            'features'             => 'sometimes|array',
-            'features.*'           => 'string|max:200',
+            'features'             => 'nullable|array',
             'stripe_price_monthly' => 'nullable|string|max:100',
             'stripe_price_yearly'  => 'nullable|string|max:100',
             'is_active'            => 'sometimes|boolean',
             'sort_order'           => 'sometimes|integer|min:0|max:255',
+            'highlighted'          => 'sometimes|boolean',
+            'audience'             => 'nullable|string|max:120',
+            'badge'                => 'nullable|string|max:80',
+            'cta_label'            => 'nullable|string|max:100',
+            'checkout_url'         => 'nullable|url|max:500',
             'metadata'             => 'nullable|array',
         ]);
 
@@ -81,12 +85,16 @@ class PlanController extends Controller
             'trial_enabled'        => 'sometimes|boolean',
             'trial_days'           => 'sometimes|integer|min:0|max:90',
             'max_pets'             => 'nullable|integer|min:1',
-            'features'             => 'sometimes|array',
-            'features.*'           => 'string|max:200',
+            'features'             => 'nullable|array',
             'stripe_price_monthly' => 'nullable|string|max:100',
             'stripe_price_yearly'  => 'nullable|string|max:100',
             'is_active'            => 'sometimes|boolean',
             'sort_order'           => 'sometimes|integer|min:0|max:255',
+            'highlighted'          => 'sometimes|boolean',
+            'audience'             => 'nullable|string|max:120',
+            'badge'                => 'nullable|string|max:80',
+            'cta_label'            => 'nullable|string|max:100',
+            'checkout_url'         => 'nullable|url|max:500',
             'metadata'             => 'nullable|array',
         ]);
 
@@ -135,18 +143,24 @@ class PlanController extends Controller
     private function format(PetPlan $p, bool $admin = false): array
     {
         $base = [
-            'id'            => $p->id,
-            'name'          => $p->name,
-            'slug'          => $p->slug,
-            'description'   => $p->description,
-            'priceMonthly'  => $p->price_monthly,
-            'priceYearly'   => $p->price_yearly,
-            'trialEnabled'  => $p->trial_enabled,
-            'trialDays'     => $p->trial_days,
-            'maxPets'       => $p->max_pets,
-            'features'      => $p->features ?? [],
-            'isActive'      => $p->is_active,
-            'sortOrder'     => $p->sort_order,
+            'id'           => $p->id,
+            'code'         => $p->slug,
+            'name'         => $p->name,
+            'slug'         => $p->slug,
+            'description'  => $p->description,
+            'audience'     => $p->audience,
+            'badge'        => $p->badge ?: null,
+            'highlighted'  => (bool) $p->highlighted,
+            'ctaLabel'     => $p->cta_label,
+            'checkoutUrl'  => $p->checkout_url ?: null,
+            'priceMonthly' => $p->price_monthly,
+            'priceYearly'  => $p->price_yearly,
+            'trialEnabled' => $p->trial_enabled,
+            'trialDays'    => $p->trial_days,
+            'maxPets'      => $p->max_pets,
+            'features'     => $this->normalizeFeatures($p->features ?? []),
+            'isActive'     => $p->is_active,
+            'sortOrder'    => $p->sort_order,
         ];
 
         if ($admin) {
@@ -158,6 +172,23 @@ class PlanController extends Controller
         }
 
         return $base;
+    }
+
+    private function normalizeFeatures(array $features): array
+    {
+        $result = [];
+        foreach ($features as $feature) {
+            if (is_string($feature) && trim($feature) !== '') {
+                $result[] = ['label' => trim($feature), 'included' => true];
+            } elseif (is_array($feature) && !empty($feature['label'])) {
+                $result[] = [
+                    'label'       => $feature['label'],
+                    'description' => $feature['description'] ?? null,
+                    'included'    => $feature['included'] ?? true,
+                ];
+            }
+        }
+        return $result;
     }
 
     private function requireAdmin(Request $request): void

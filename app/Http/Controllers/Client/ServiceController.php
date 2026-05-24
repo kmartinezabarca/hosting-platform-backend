@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServicePlan;
 use App\Models\ActivityLog;
 use App\Models\Backup;
+use App\Models\BackupSchedule;
 use App\Services\Backup\BackupService;
 
 use Illuminate\Http\Request;
@@ -284,6 +285,206 @@ class ServiceController extends Controller
         }
     }
 
+    // ── Plan upgrade / downgrade ──────────────────────────────────────────────
+
+    /**
+     * GET /services/{uuid}/upgrade-options
+     * Lista los planes disponibles en la misma categoría para upgrade/downgrade.
+     */
+    public function upgradeOptions(string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->with(['plan.category', 'plan.pricing.billingCycle'])
+            ->firstOrFail();
+
+        $categoryId = $service->plan?->category_id;
+
+        if (! $categoryId) {
+            return response()->json(['success' => false, 'message' => 'No se pudo determinar la categoría del plan.'], 422);
+        }
+
+        $plans = ServicePlan::with(['features', 'pricing.billingCycle'])
+            ->where('category_id', $categoryId)
+            ->where('is_active', true)
+            ->orderBy('base_price')
+            ->get()
+            ->map(function ($plan) use ($service) {
+                $currentPrice = (float) $service->price;
+                $planPrice    = (float) $plan->base_price;
+                return [
+                    'id'          => $plan->id,
+                    'uuid'        => $plan->uuid,
+                    'slug'        => $plan->slug,
+                    'name'        => $plan->name,
+                    'description' => $plan->description,
+                    'base_price'  => $planPrice,
+                    'currency'    => 'MXN',
+                    'specs'       => $plan->specifications ?? [],
+                    'limits'      => $plan->pterodactyl_limits ?? [],
+                    'features'    => $plan->features->pluck('description')->toArray(),
+                    'is_current'  => $plan->id === $service->plan_id,
+                    'direction'   => $planPrice > $currentPrice ? 'upgrade'
+                                   : ($planPrice < $currentPrice ? 'downgrade' : 'same'),
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'current_plan' => [
+                    'id'    => $service->plan_id,
+                    'name'  => $service->plan?->name,
+                    'price' => (float) $service->price,
+                ],
+                'billing_cycle' => $service->billing_cycle,
+                'plans'         => $plans,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /services/{uuid}/upgrade
+     * Cambia el plan del servicio.
+     * Body: { plan_uuid: string }
+     * - Actualiza plan_id, price en el servicio.
+     * - Si es game server Pterodactyl: actualiza limits en el panel.
+     * - No procesa pago diferencial aquí (se factura en próximo ciclo o vía invoice separada).
+     */
+    public function upgradePlan(Request $request, string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)
+            ->where('uuid', $uuid)
+            ->with(['plan.category'])
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'plan_uuid' => ['required', 'string', 'exists:service_plans,uuid'],
+        ]);
+
+        $newPlan = ServicePlan::where('uuid', $validated['plan_uuid'])
+            ->where('is_active', true)
+            ->firstOrFail();
+
+        // Validar misma categoría
+        if ($newPlan->category_id !== $service->plan?->category_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No puedes cambiar a un plan de otra categoría.',
+            ], 422);
+        }
+
+        if ($newPlan->id === $service->plan_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ya tienes este plan activo.',
+            ], 422);
+        }
+
+        $oldPlanName  = $service->plan?->name ?? '—';
+        $oldPrice     = (float) $service->price;
+        $newPrice     = (float) $newPlan->base_price;
+        $direction    = $newPrice >= $oldPrice ? 'upgrade' : 'downgrade';
+
+        // Actualizar servicio
+        $service->update([
+            'plan_id' => $newPlan->id,
+            'price'   => $newPrice,
+        ]);
+
+        // Si es Pterodactyl: actualizar límites de RAM/CPU/disco en el panel
+        if ($service->isPterodactylManaged() && $service->pterodactyl_server_id) {
+            $limits = $newPlan->pterodactyl_limits ?? [];
+            if (! empty($limits)) {
+                try {
+                    $this->pterodactyl->updateServerBuild((int) $service->pterodactyl_server_id, [
+                        'memory'       => (int) ($limits['memory']       ?? 0),
+                        'swap'         => (int) ($limits['swap']         ?? 0),
+                        'disk'         => (int) ($limits['disk']         ?? 0),
+                        'io'           => (int) ($limits['io']           ?? 500),
+                        'cpu'          => (int) ($limits['cpu']          ?? 0),
+                        'threads'      => $limits['threads']             ?? null,
+                        'feature_limits' => [
+                            'databases'  => (int) ($newPlan->pterodactyl_feature_limits['databases'] ?? 0),
+                            'backups'    => (int) ($newPlan->pterodactyl_feature_limits['backups']   ?? 0),
+                            'allocations'=> (int) ($newPlan->pterodactyl_feature_limits['allocations'] ?? 1),
+                        ],
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('upgrade: no se pudieron actualizar los límites en Pterodactyl', [
+                        'service_id' => $service->id,
+                        'error'      => $e->getMessage(),
+                    ]);
+                    // No es fatal — el cambio de plan ya quedó registrado
+                }
+            }
+        }
+
+        ActivityLog::record(
+            "Plan {$direction}: {$oldPlanName} → {$newPlan->name}",
+            "El cliente cambió de plan de «{$oldPlanName}» a «{$newPlan->name}». Precio anterior: \${$oldPrice} → nuevo: \${$newPrice}.",
+            'service',
+            ['service_id' => $service->id, 'old_plan' => $oldPlanName, 'new_plan' => $newPlan->name],
+            $user->id,
+        );
+
+        return response()->json([
+            'success'   => true,
+            'message'   => ucfirst($direction) . " completado. Ahora tienes el plan «{$newPlan->name}».",
+            'data'      => [
+                'direction' => $direction,
+                'old_plan'  => $oldPlanName,
+                'new_plan'  => $newPlan->name,
+                'old_price' => $oldPrice,
+                'new_price' => $newPrice,
+            ],
+        ]);
+    }
+
+    // ── Activity log ──────────────────────────────────────────────────────────
+
+    /**
+     * GET /services/{uuid}/activity
+     * Devuelve el historial de actividad del servicio (últimas 100 entradas).
+     * Query params: page, per_page (max 50).
+     */
+    public function activityLog(Request $request, string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('uuid', $uuid)
+            ->where('user_id', $user->id)
+            ->firstOrFail();
+
+        $perPage = min(50, max(5, (int) $request->query('per_page', 20)));
+
+        $logs = ActivityLog::where('type', 'service')
+            ->where(function ($q) use ($service) {
+                $q->whereJsonContains('meta->service_id', $service->id)
+                  ->orWhere('meta->service_id', (string) $service->id);
+            })
+            ->where('user_id', $user->id)
+            ->orderByDesc('occurred_at')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'items'        => $logs->map(fn ($log) => [
+                    'uuid'        => $log->uuid,
+                    'action'      => $log->action,
+                    'description' => $log->service,
+                    'type'        => $log->type,
+                    'occurred_at' => $log->occurred_at?->toISOString(),
+                    'meta'        => $log->meta,
+                ]),
+                'current_page' => $logs->currentPage(),
+                'last_page'    => $logs->lastPage(),
+                'total'        => $logs->total(),
+            ],
+        ]);
+    }
+
     /**
      * POST /services/{uuid}/cancel
      */
@@ -538,6 +739,129 @@ class ServiceController extends Controller
         }
 
         return $disk->download($backup->path, $backup->name . '.zip');
+    }
+
+    // ─── Backup schedules (client) ────────────────────────────────────────────
+
+    /**
+     * GET /services/{uuid}/backups/schedules
+     * Lista los schedules de backup del servicio del usuario.
+     */
+    public function getBackupSchedules(string $uuid): JsonResponse
+    {
+        $service   = $this->ownedService($uuid);
+        $schedules = BackupSchedule::where('scope', 'service')
+            ->where('scope_id', $service->id)
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn (BackupSchedule $s) => $this->mapSchedule($s));
+
+        return response()->json(['success' => true, 'data' => $schedules]);
+    }
+
+    /**
+     * POST /services/{uuid}/backups/schedules
+     * Crea un schedule de backup para el servicio.
+     */
+    public function createBackupSchedule(string $uuid, Request $request): JsonResponse
+    {
+        $service = $this->ownedService($uuid);
+
+        $data = $request->validate([
+            'name'           => ['required', 'string', 'max:100'],
+            'frequency'      => ['required', 'in:daily,weekly,monthly'],
+            'run_at_time'    => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'run_at_day'     => ['nullable', 'integer', 'min:0', 'max:31'],
+            'retention_days' => ['nullable', 'integer', 'min:1', 'max:90'],
+            'is_enabled'     => ['nullable', 'boolean'],
+        ]);
+
+        $type = $this->pteroId($service) ? 'game_server' : 'hosting';
+
+        $schedule = BackupSchedule::create([
+            'name'           => $data['name'],
+            'type'           => $type,
+            'scope'          => 'service',
+            'scope_id'       => $service->id,
+            'frequency'      => $data['frequency'],
+            'run_at_time'    => $data['run_at_time'] ?? '03:00',
+            'run_at_day'     => $data['run_at_day'] ?? 1,
+            'retention_days' => $data['retention_days'] ?? 7,
+            'is_enabled'     => $data['is_enabled'] ?? true,
+        ]);
+
+        $schedule->update(['next_run_at' => $schedule->computeNextRun()]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->mapSchedule($schedule->fresh()),
+            'message' => 'Programación de backup creada.',
+        ], 201);
+    }
+
+    /**
+     * PUT /services/{uuid}/backups/schedules/{scheduleUuid}
+     * Actualiza un schedule (activa/desactiva, cambia frecuencia, etc.)
+     */
+    public function updateBackupSchedule(string $uuid, string $scheduleUuid, Request $request): JsonResponse
+    {
+        $service  = $this->ownedService($uuid);
+        $schedule = BackupSchedule::where('uuid', $scheduleUuid)
+            ->where('scope', 'service')
+            ->where('scope_id', $service->id)
+            ->firstOrFail();
+
+        $data = $request->validate([
+            'name'           => ['sometimes', 'string', 'max:100'],
+            'frequency'      => ['sometimes', 'in:daily,weekly,monthly'],
+            'run_at_time'    => ['sometimes', 'nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'run_at_day'     => ['sometimes', 'nullable', 'integer', 'min:0', 'max:31'],
+            'retention_days' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:90'],
+            'is_enabled'     => ['sometimes', 'boolean'],
+        ]);
+
+        $schedule->update($data);
+        $schedule->update(['next_run_at' => $schedule->computeNextRun()]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->mapSchedule($schedule->fresh()),
+            'message' => 'Programación actualizada.',
+        ]);
+    }
+
+    /**
+     * DELETE /services/{uuid}/backups/schedules/{scheduleUuid}
+     * Elimina un schedule.
+     */
+    public function deleteBackupSchedule(string $uuid, string $scheduleUuid): JsonResponse
+    {
+        $service  = $this->ownedService($uuid);
+        $schedule = BackupSchedule::where('uuid', $scheduleUuid)
+            ->where('scope', 'service')
+            ->where('scope_id', $service->id)
+            ->firstOrFail();
+
+        $schedule->delete();
+
+        return response()->json(['success' => true, 'message' => 'Programación eliminada.']);
+    }
+
+    /** Formatea un BackupSchedule para el frontend. */
+    private function mapSchedule(BackupSchedule $s): array
+    {
+        return [
+            'uuid'           => $s->uuid,
+            'name'           => $s->name,
+            'frequency'      => $s->frequency,
+            'run_at_time'    => $s->run_at_time,
+            'run_at_day'     => $s->run_at_day,
+            'retention_days' => $s->retention_days,
+            'is_enabled'     => $s->is_enabled,
+            'last_run_at'    => optional($s->last_run_at)->toISOString(),
+            'next_run_at'    => optional($s->next_run_at)->toISOString(),
+            'created_at'     => optional($s->created_at)->toISOString(),
+        ];
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────

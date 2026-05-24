@@ -73,6 +73,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/backups.log'));
+
+        // Historial de métricas de recursos (CPU, RAM, disco, red) de game servers.
+        // Muestrea todos los servidores activos cada 5 min y persiste en service_metrics.
+        $schedule->command('services:collect-metrics')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/service-metrics.log'));
     }
 
     /**

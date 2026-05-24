@@ -17,7 +17,7 @@ class MedicalRecord extends Model
 
     protected $fillable = [
         'pet_id', 'date', 'follow_up_date', 'type',
-        'description', 'description_en', 'vet', 'clinic', 'notes',
+        'description', 'description_en', 'vet', 'vet_license', 'clinic', 'notes', 'photo_url',
     ];
 
     public function pet(): BelongsTo

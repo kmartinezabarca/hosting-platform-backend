@@ -112,12 +112,37 @@ class CoolifyService
         $this->assertOk($response, 'stopApplication');
     }
 
+    public function restartApplication(string $appUuid): void
+    {
+        $response = $this->http()->post("/api/v1/applications/{$appUuid}/restart");
+        $this->assertOk($response, 'restartApplication');
+    }
+
+    public function deployApplication(string $appUuid): array
+    {
+        $response = $this->http()->post('/api/v1/deploy', ['uuid' => $appUuid, 'force' => false]);
+        $this->assertOk($response, 'deployApplication');
+        return $response->json() ?? [];
+    }
+
     public function getApplication(string $appUuid): array
     {
         $response = $this->http()->get("/api/v1/applications/{$appUuid}");
         $this->assertOk($response, 'getApplication');
 
         return $response->json();
+    }
+
+    /**
+     * Actualiza campos de una aplicación en Coolify (PATCH).
+     * Campos comunes: redirect_http_to_https, fqdn, name, etc.
+     */
+    public function updateApplication(string $appUuid, array $data): array
+    {
+        $response = $this->http()->patch("/api/v1/applications/{$appUuid}", $data);
+        $this->assertOk($response, 'updateApplication');
+
+        return $response->json() ?? [];
     }
 
     /**

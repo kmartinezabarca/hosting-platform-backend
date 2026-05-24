@@ -1,5 +1,5 @@
 # Auditoría de Seguridad y Calidad — Hosting Platform Backend
-> Fecha: 2026-05-22 · Estado: **COMPLETADA**
+> Fecha: 2026-05-22 · Actualizado: 2026-05-23 · Estado: **COMPLETADA**
 
 ---
 
@@ -202,11 +202,55 @@ php artisan storage:link
 
 Verifica que el directorio `public/storage` exista (como link simbólico) después de ejecutarlo.
 
-> Si ya lo ejecutaste antes, no hace falta repetirlo — a menos que el symlink se haya borrado.
+> En deployments con Deployer/Capistrano el symlink apunta a la release actual.
+> Hay que ejecutarlo en cada release nueva o configurarlo como tarea post-deploy.
 
 ---
 
-### 2.4 Migración pendiente
+### 2.4 Nginx — Corregir regla que bloquea `/storage/` con 403 — **CRÍTICO**
+
+> **Este fue el bug que causó el error 403 Forbidden en las imágenes de ROKE Pet.**
+
+#### Problema encontrado
+
+El archivo `/etc/nginx/sites-enabled/api.rokeindustries.dev.conf` tenía esta regla:
+
+```nginx
+location ~ /(?:storage|bootstrap)/.* { deny all; }
+```
+
+Esta regla bloquea **todas** las URLs que contengan `/storage/` o `/bootstrap/`, incluyendo
+las fotos públicas de mascotas (`/storage/pet-photos/...`).
+
+La intención original era proteger el directorio `storage/` de Laravel (logs, cache, sesiones),
+pero es innecesaria porque nginx ya tiene como raíz `public/` — nunca puede servir el
+`storage/` real de Laravel. Al mismo tiempo, sí bloqueaba `public/storage` (el symlink
+de archivos públicos subidos por los usuarios).
+
+#### Fix aplicado en el servidor
+
+Cambiar en `/etc/nginx/sites-enabled/api.rokeindustries.dev.conf`:
+
+```nginx
+# ANTES (bloqueaba las fotos):
+location ~ /(?:storage|bootstrap)/.* { deny all; }
+
+# DESPUÉS (solo bloquea bootstrap, deja pasar los archivos públicos):
+location ~ /bootstrap/.* { deny all; }
+```
+
+Luego recargar nginx:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+> **Aplica esto también en el config de producción** si tiene la misma regla.
+> Revisar todos los archivos en `/etc/nginx/sites-enabled/` que sirvan esta API.
+
+---
+
+### 2.5 Migración pendiente
 
 Si no la has ejecutado todavía, corre:
 
@@ -219,7 +263,7 @@ php artisan migrate
 
 ---
 
-### 2.5 Verificar Sanctum — expiración de tokens
+### 2.6 Verificar Sanctum — expiración de tokens
 
 Los tokens de Sanctum no expiran por defecto. En producción se recomienda configurar
 un tiempo de expiración en `config/sanctum.php`:
@@ -239,7 +283,7 @@ SANCTUM_TOKEN_EXPIRATION=1440
 
 ---
 
-### 2.6 Revisar STATUS en tu base de datos (usuarios)
+### 2.7 Revisar STATUS en tu base de datos (usuarios)
 
 La whitelist de `status` en `AdminController::getUsers()` ahora acepta:
 ```
@@ -255,7 +299,7 @@ app/Http/Controllers/Admin/AdminController.php
 
 ---
 
-### 2.7 Revisar ROLES en tu base de datos (usuarios)
+### 2.8 Revisar ROLES en tu base de datos (usuarios)
 
 La whitelist de `role` en `AdminController::getUsers()` ahora acepta:
 ```
@@ -265,7 +309,7 @@ Si tienes otros roles, agrégalos en la misma función.
 
 ---
 
-### 2.8 Limpiar caché y verificar en producción
+### 2.9 Limpiar caché y verificar en producción
 
 Después de hacer el deploy, ejecutar:
 
@@ -278,7 +322,7 @@ php artisan optimize
 
 ---
 
-### 2.9 Test manual recomendado antes de ir a producción
+### 2.10 Test manual recomendado antes de ir a producción
 
 | Qué probar | Por qué |
 |------------|---------|
@@ -295,19 +339,21 @@ php artisan optimize
 
 ## RESUMEN RÁPIDO
 
-| Categoría | Archivos tocados | Estado |
-|-----------|-----------------|--------|
-| Seguridad crítica (suscripciones) | 1 | ✅ Aplicado |
-| SSL condicional | 4 | ✅ Aplicado |
-| IPs hardcodeadas | 2 | ✅ Aplicado |
-| Path traversal | 2 | ✅ Aplicado |
-| Mass assignment | 2 | ✅ Aplicado |
-| Middlewares | 1 | ✅ Aplicado |
-| Filtros/paginación admin | 10 | ✅ Aplicado |
-| Validaciones client | 8 | ✅ Aplicado |
-| Validaciones auth | 3 | ✅ Aplicado |
-| ROKE Pet — URLs de imágenes | 1 | ✅ Aplicado |
-| **`php artisan storage:link`** | — | ⚠️ **Pendiente (tú) — obligatorio para imágenes** |
-| **Variables de entorno** | — | ⚠️ **Pendiente (tú)** |
-| **`php artisan migrate`** | — | ⚠️ **Pendiente (tú)** |
-| **Sanctum token expiration** | — | ⚠️ Recomendado |
+| Categoría | Archivos / Config tocados | Estado |
+|-----------|--------------------------|--------|
+| Seguridad crítica (suscripciones) | 1 archivo | ✅ Aplicado |
+| SSL condicional | 4 archivos | ✅ Aplicado |
+| IPs hardcodeadas | 2 archivos | ✅ Aplicado |
+| Path traversal | 2 archivos | ✅ Aplicado |
+| Mass assignment | 2 modelos | ✅ Aplicado |
+| Middlewares (throttle duplicado) | 1 archivo | ✅ Aplicado |
+| Filtros/paginación admin | 10 archivos | ✅ Aplicado |
+| Validaciones client | 8 archivos | ✅ Aplicado |
+| Validaciones auth | 3 archivos | ✅ Aplicado |
+| ROKE Pet — URLs de imágenes | 1 archivo | ✅ Aplicado |
+| **`php artisan storage:link`** | servidor dev | ✅ Ejecutado (dev) — repetir en prod |
+| **Nginx — quitar deny de `/storage/`** | conf nginx dev | ✅ Corregido (dev) — **repetir en prod** |
+| **Variables de entorno** | `.env` producción | ⚠️ **Pendiente (tú)** |
+| **`php artisan migrate`** | servidor | ⚠️ **Pendiente (tú)** |
+| **Nginx producción — mismo fix** | conf nginx prod | ⚠️ **Pendiente (tú) — ver §2.4** |
+| **Sanctum token expiration** | `.env` / config | ⚠️ Recomendado |

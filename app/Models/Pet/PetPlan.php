@@ -28,6 +28,11 @@ class PetPlan extends Model
         'stripe_price_yearly',
         'is_active',
         'sort_order',
+        'highlighted',
+        'audience',
+        'badge',
+        'cta_label',
+        'checkout_url',
         'metadata',
     ];
 
@@ -40,6 +45,7 @@ class PetPlan extends Model
         'features'       => 'array',
         'is_active'      => 'boolean',
         'sort_order'     => 'integer',
+        'highlighted'    => 'boolean',
         'metadata'       => 'array',
     ];
 

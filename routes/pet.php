@@ -14,6 +14,7 @@ use App\Http\Controllers\Pet\PushController;
 use App\Http\Controllers\Pet\ReminderController;
 use App\Http\Controllers\Pet\StripeController;
 use App\Http\Controllers\Pet\VaccineController;
+use App\Http\Controllers\Pet\VetContactController;
 use App\Http\Controllers\Pet\VetLinkController;
 use App\Http\Controllers\Pet\WeightHistoryController;
 use Illuminate\Support\Facades\Route;
@@ -101,17 +102,26 @@ Route::middleware('auth:sanctum')->group(function () {
     // Vaccines
     Route::post('/my-pets/{petId}/vaccines', [VaccineController::class, 'store']);
     Route::put('/vaccines/{id}',             [VaccineController::class, 'update']);
+    Route::post('/vaccines/{id}/photo',      [VaccineController::class, 'uploadPhoto']);
     Route::delete('/vaccines/{id}',          [VaccineController::class, 'destroy']);
 
     // Medical records
     Route::post('/my-pets/{petId}/records', [MedicalRecordController::class, 'store']);
     Route::put('/records/{id}',             [MedicalRecordController::class, 'update']);
+    Route::post('/records/{id}/photo',      [MedicalRecordController::class, 'uploadPhoto']);
     Route::delete('/records/{id}',          [MedicalRecordController::class, 'destroy']);
 
     // Weight history
     Route::get('/my-pets/{petId}/weight',  [WeightHistoryController::class, 'index']);
     Route::post('/my-pets/{petId}/weight', [WeightHistoryController::class, 'store']);
+    Route::post('/weight/{id}/photo',      [WeightHistoryController::class, 'uploadPhoto']);
     Route::delete('/weight/{id}',          [WeightHistoryController::class, 'destroy']);
+
+    // Vet contacts (agenda de veterinarios por dueño)
+    Route::get('/vets',         [VetContactController::class, 'index']);
+    Route::post('/vets',        [VetContactController::class, 'store']);
+    Route::put('/vets/{id}',    [VetContactController::class, 'update']);
+    Route::delete('/vets/{id}', [VetContactController::class, 'destroy']);
 
     // Reminders
     Route::get('/reminders', [ReminderController::class, 'show']);

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Models\GameServerPing;
 use App\Models\Service;
+use App\Models\ServiceMetric;
 use App\Models\ActivityLog;
 use App\Exceptions\PterodactylApiException;
 use App\Services\GameServers\GameServerRuntimeService;
@@ -190,6 +191,380 @@ class GameServerController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $statusData]);
+    }
+
+    // ── Anti-DDoS ─────────────────────────────────────────────────────────────
+
+    /**
+     * GET /services/{uuid}/game-server/ddos
+     * Devuelve el estado de protección DDoS, información del nodo y lista de IPs permitidas.
+     */
+    public function ddosStatus(string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->with(['plan', 'serverNode'])
+            ->firstOrFail();
+
+        $conn      = $service->connection_details ?? [];
+        $allowlist = $conn['ddos_allowlist'] ?? [];
+        $tier      = $this->resolveDdosTier($service);
+        $node      = $service->serverNode;
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'protection' => [
+                    'active'         => true,
+                    'tier'           => $tier['name'],
+                    'description'    => $tier['description'],
+                    'mitigation'     => $tier['mitigation'],
+                    'bandwidth_gbps' => $tier['bandwidth_gbps'],
+                    'protocols'      => $tier['protocols'],
+                ],
+                'location' => [
+                    'name'       => $node?->location          ?? 'Datacenter ROKE',
+                    'hostname'   => $node?->hostname          ?? null,
+                    'ip_address' => $node?->ip_address        ?? ($conn['server_ip'] ?? null),
+                ],
+                'allowlist' => array_values($allowlist),
+            ],
+        ]);
+    }
+
+    /**
+     * POST /services/{uuid}/game-server/ddos/allowlist
+     * Agrega una IP o CIDR a la lista de IPs permitidas durante la mitigación.
+     * Body: { ip: "1.2.3.4" | "1.2.3.0/24", label?: "Mi casa" }
+     */
+    public function ddosAllowlistAdd(Request $request, string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'ip'    => ['required', 'string', 'max:50', function ($attr, $value, $fail) {
+                $value = trim($value);
+                // Accept IPv4, IPv6 or CIDR
+                $ip = preg_replace('#/\d+$#', '', $value);
+                if (! filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $fail('La dirección IP no es válida. Usa IPv4, IPv6 o notación CIDR (ej: 192.168.1.0/24).');
+                }
+            }],
+            'label' => ['sometimes', 'nullable', 'string', 'max:64'],
+        ]);
+
+        $conn      = $service->connection_details ?? [];
+        $allowlist = $conn['ddos_allowlist'] ?? [];
+
+        // Verificar duplicados
+        $ip = trim($validated['ip']);
+        $exists = collect($allowlist)->firstWhere('ip', $ip);
+        if ($exists) {
+            return response()->json(['success' => false, 'message' => 'Esta IP ya está en la lista.'], 422);
+        }
+
+        // Limitar a 20 IPs
+        if (count($allowlist) >= 20) {
+            return response()->json(['success' => false, 'message' => 'Se alcanzó el límite de 20 IPs permitidas.'], 422);
+        }
+
+        $entry = [
+            'ip'         => $ip,
+            'label'      => $validated['label'] ?? null,
+            'added_at'   => now()->toISOString(),
+        ];
+
+        $allowlist[] = $entry;
+
+        $service->update([
+            'connection_details' => array_merge($conn, ['ddos_allowlist' => $allowlist]),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $entry], 201);
+    }
+
+    /**
+     * DELETE /services/{uuid}/game-server/ddos/allowlist/{ip}
+     * Elimina una IP de la lista de permitidas.
+     * {ip} es la dirección IP codificada en URL.
+     */
+    public function ddosAllowlistRemove(Request $request, string $uuid, string $ip): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $target    = rawurldecode($ip);
+        $conn      = $service->connection_details ?? [];
+        $allowlist = collect($conn['ddos_allowlist'] ?? []);
+
+        if ($allowlist->firstWhere('ip', $target) === null) {
+            return response()->json(['success' => false, 'message' => 'IP no encontrada en la lista.'], 404);
+        }
+
+        $filtered = $allowlist->reject(fn ($e) => $e['ip'] === $target)->values()->all();
+
+        $service->update([
+            'connection_details' => array_merge($conn, ['ddos_allowlist' => $filtered]),
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'IP eliminada de la lista.']);
+    }
+
+    /**
+     * Resuelve el tier de protección DDoS según las especificaciones del plan.
+     */
+    private function resolveDdosTier(Service $service): array
+    {
+        // 1. Buscar campo explícito en especificaciones del plan
+        $specs = $service->plan?->specifications ?? [];
+        if (! empty($specs['ddos_protection'])) {
+            $t = $specs['ddos_protection'];
+            return [
+                'name'           => $t['tier']          ?? 'Personalizado',
+                'description'    => $t['description']   ?? 'Protección anti-DDoS activa.',
+                'mitigation'     => $t['mitigation']    ?? 'automatic',
+                'bandwidth_gbps' => $t['bandwidth_gbps'] ?? 100,
+                'protocols'      => $t['protocols']     ?? ['UDP', 'TCP', 'ICMP'],
+            ];
+        }
+
+        // 2. Derivar del precio del servicio
+        $price = (float) ($service->price ?? $service->plan?->base_price ?? 0);
+
+        if ($price >= 50) {
+            return [
+                'name'           => 'Premium',
+                'description'    => 'Mitigación automática de alta capacidad. Filtra ataques volumétricos, de protocolo y de capa 7.',
+                'mitigation'     => 'automatic',
+                'bandwidth_gbps' => 1000,
+                'protocols'      => ['UDP flood', 'TCP SYN flood', 'ICMP flood', 'DNS amplification', 'NTP amplification', 'Layer 7'],
+            ];
+        }
+
+        if ($price >= 20) {
+            return [
+                'name'           => 'Estándar',
+                'description'    => 'Mitigación automática contra los vectores de ataque más comunes.',
+                'mitigation'     => 'automatic',
+                'bandwidth_gbps' => 300,
+                'protocols'      => ['UDP flood', 'TCP SYN flood', 'ICMP flood', 'DNS amplification'],
+            ];
+        }
+
+        return [
+            'name'           => 'Básico',
+            'description'    => 'Protección base contra ataques volumétricos de menor escala.',
+            'mitigation'     => 'automatic',
+            'bandwidth_gbps' => 100,
+            'protocols'      => ['UDP flood', 'TCP SYN flood', 'ICMP flood'],
+        ];
+    }
+
+    // ── Firewall ──────────────────────────────────────────────────────────────
+
+    /**
+     * GET /services/{uuid}/game-server/firewall
+     * Devuelve configuración de firewall del servidor.
+     */
+    public function firewallStatus(string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $conn     = $service->connection_details ?? [];
+        $firewall = $conn['firewall'] ?? [];
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'mode'                   => $firewall['mode']                   ?? 'open',
+                'max_connections_per_ip' => $firewall['max_connections_per_ip'] ?? 3,
+                'blocked_ips'            => $firewall['blocked_ips']            ?? [],
+            ],
+        ]);
+    }
+
+    /**
+     * PUT /services/{uuid}/game-server/firewall/settings
+     * Actualiza modo de firewall y límite de conexiones por IP.
+     * Body: { mode: "open"|"whitelist", max_connections_per_ip: int }
+     */
+    public function firewallUpdateSettings(Request $request, string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'mode'                   => ['sometimes', 'string', 'in:open,whitelist'],
+            'max_connections_per_ip' => ['sometimes', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        $conn              = $service->connection_details ?? [];
+        $firewall          = $conn['firewall'] ?? [];
+
+        if (isset($validated['mode'])) {
+            $firewall['mode'] = $validated['mode'];
+        }
+        if (isset($validated['max_connections_per_ip'])) {
+            $firewall['max_connections_per_ip'] = $validated['max_connections_per_ip'];
+        }
+
+        $conn['firewall']         = $firewall;
+        $service->connection_details = $conn;
+        $service->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Configuración de firewall actualizada.',
+            'data'    => [
+                'mode'                   => $firewall['mode']                   ?? 'open',
+                'max_connections_per_ip' => $firewall['max_connections_per_ip'] ?? 3,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /services/{uuid}/game-server/firewall/blocked-ips
+     * Bloquea una IP o CIDR.
+     * Body: { ip: "1.2.3.4", reason?: "spam" }
+     */
+    public function firewallBlockIp(Request $request, string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'ip'     => ['required', 'string', 'max:50'],
+            'reason' => ['nullable', 'string', 'max:200'],
+        ]);
+
+        $ip = trim($validated['ip']);
+
+        // Validate IPv4, IPv6 or CIDR
+        $isValid = filter_var($ip, FILTER_VALIDATE_IP)
+            || preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $ip)
+            || preg_match('/^[0-9a-fA-F:]+\/\d{1,3}$/', $ip);
+
+        if (! $isValid) {
+            return response()->json(['success' => false, 'message' => 'Dirección IP o CIDR inválida.'], 422);
+        }
+
+        $conn     = $service->connection_details ?? [];
+        $firewall = $conn['firewall'] ?? [];
+        $list     = $firewall['blocked_ips'] ?? [];
+
+        if (count($list) >= 50) {
+            return response()->json(['success' => false, 'message' => 'Límite de 50 IPs bloqueadas alcanzado.'], 422);
+        }
+        if (collect($list)->contains(fn ($e) => $e['ip'] === $ip)) {
+            return response()->json(['success' => false, 'message' => 'Esta IP ya está bloqueada.'], 422);
+        }
+
+        $entry = [
+            'ip'       => $ip,
+            'reason'   => $validated['reason'] ?? null,
+            'added_at' => now()->toISOString(),
+        ];
+
+        $list[]                   = $entry;
+        $firewall['blocked_ips']  = $list;
+        $conn['firewall']         = $firewall;
+        $service->connection_details = $conn;
+        $service->save();
+
+        return response()->json(['success' => true, 'data' => $entry], 201);
+    }
+
+    /**
+     * DELETE /services/{uuid}/game-server/firewall/blocked-ips/{ip}
+     * Desbloquea una IP o CIDR.
+     */
+    public function firewallUnblockIp(Request $request, string $uuid, string $ip): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $ipDecoded = rawurldecode($ip);
+        $conn      = $service->connection_details ?? [];
+        $firewall  = $conn['firewall'] ?? [];
+        $list      = $firewall['blocked_ips'] ?? [];
+
+        $filtered = array_values(array_filter($list, fn ($e) => $e['ip'] !== $ipDecoded));
+
+        $firewall['blocked_ips']  = $filtered;
+        $conn['firewall']         = $firewall;
+        $service->connection_details = $conn;
+        $service->save();
+
+        return response()->json(['success' => true, 'message' => "IP {$ipDecoded} desbloqueada."]);
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/metrics
+     * Historial de métricas de recursos (CPU, RAM, disco, red) de las últimas N horas.
+     * Query param: hours=24 (default), max=48
+     */
+    public function metricsHistory(Request $request, string $uuid): JsonResponse
+    {
+        $service = Service::where('user_id', Auth::id())
+            ->where('uuid', $uuid)
+            ->with('plan')
+            ->firstOrFail();
+
+        $hours = min(48, max(1, (int) $request->query('hours', 24)));
+
+        $samples = ServiceMetric::where('service_id', $service->id)
+            ->where('sampled_at', '>=', now()->subHours($hours))
+            ->orderBy('sampled_at')
+            ->get(['cpu_percent', 'memory_bytes', 'memory_limit_bytes', 'disk_bytes',
+                   'disk_limit_bytes', 'network_rx_bytes', 'network_tx_bytes', 'state', 'sampled_at']);
+
+        // Límites del plan como fallback si las métricas son 0
+        $memLimit  = ($service->plan?->pterodactyl_limits['memory'] ?? 0) * 1024 * 1024;
+        $diskLimit = ($service->plan?->pterodactyl_limits['disk']   ?? 0) * 1024 * 1024;
+
+        // También incluir los pings de las mismas horas para overlay de estado online
+        $pings = GameServerPing::where('service_id', $service->id)
+            ->where('sampled_at', '>=', now()->subHours($hours))
+            ->orderBy('sampled_at')
+            ->get(['ping_ms', 'is_online', 'players', 'sampled_at']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'samples' => $samples->map(function ($m) use ($memLimit, $diskLimit) {
+                    $mLim = $m->memory_limit_bytes ?: $memLimit;
+                    $dLim = $m->disk_limit_bytes   ?: $diskLimit;
+                    return [
+                        'cpu'        => round($m->cpu_percent, 1),
+                        'memory_pct' => $mLim > 0 ? round(($m->memory_bytes / $mLim) * 100, 1) : 0,
+                        'disk_pct'   => $dLim > 0 ? round(($m->disk_bytes   / $dLim) * 100, 1) : 0,
+                        'net_rx_mb'  => round($m->network_rx_bytes / 1024 / 1024, 2),
+                        'net_tx_mb'  => round($m->network_tx_bytes / 1024 / 1024, 2),
+                        'state'      => $m->state,
+                        'ts'         => $m->sampled_at->toISOString(),
+                    ];
+                })->values(),
+                'pings' => $pings->map(fn ($p) => [
+                    'ping_ms'   => $p->ping_ms,
+                    'is_online' => $p->is_online,
+                    'players'   => $p->players,
+                    'ts'        => $p->sampled_at->toISOString(),
+                ])->values(),
+                'plan_limits' => [
+                    'memory_mb' => (int) round($memLimit  / 1024 / 1024),
+                    'disk_mb'   => (int) round($diskLimit / 1024 / 1024),
+                ],
+                'hours' => $hours,
+            ],
+        ]);
     }
 
     /**

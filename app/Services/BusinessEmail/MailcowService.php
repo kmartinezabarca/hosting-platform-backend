@@ -131,6 +131,58 @@ class MailcowService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Alias / Forwarders
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function listAliases(string $domain): array
+    {
+        $result = $this->get('/api/v1/get/alias/all/' . rawurlencode(strtolower($domain)));
+
+        if (! is_array($result)) {
+            return [];
+        }
+
+        return array_values(array_map(fn (array $a) => $this->formatAlias($a), $result));
+    }
+
+    public function createAlias(string $address, string $goto, bool $active = true): array
+    {
+        $result = $this->post('/api/v1/add/alias', [
+            'address'      => strtolower($address),
+            'goto'         => strtolower($goto),
+            'active'       => $active ? '1' : '0',
+            'sogo_visible' => '1',
+        ]);
+
+        // Mailcow returns [{"type":"success","log":["mailbox","add","alias",...],"msg":["alias_added"]}]
+        // Fetch back the created alias to return its ID
+        $aliases = $this->listAliases(substr(strrchr($address, '@'), 1));
+        foreach ($aliases as $a) {
+            if (strtolower($a['address']) === strtolower($address)) {
+                return $a;
+            }
+        }
+
+        return ['address' => $address, 'goto' => $goto, 'active' => $active];
+    }
+
+    public function deleteAlias(int $id): void
+    {
+        $this->deleteBody('/api/v1/delete/alias', [$id]);
+    }
+
+    private function formatAlias(array $raw): array
+    {
+        return [
+            'id'         => (int) ($raw['id'] ?? 0),
+            'address'    => $raw['address'] ?? '',
+            'goto'       => $raw['goto']    ?? '',
+            'active'     => (bool) ($raw['active'] ?? true),
+            'created_at' => $raw['created'] ?? null,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
