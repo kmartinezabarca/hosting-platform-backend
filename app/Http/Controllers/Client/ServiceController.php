@@ -250,7 +250,7 @@ class ServiceController extends Controller
 
                 // Sparkline + métricas derivadas de service_metrics
                 $sparkData = $sparklines->get($service->id, collect());
-                $sparkline = $sparkData->takeLast(12)
+                $sparkline = $sparkData->slice(-12)
                     ->pluck('cpu_percent')
                     ->map(fn($v) => (int) round((float) $v))
                     ->values()

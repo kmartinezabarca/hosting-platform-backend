@@ -383,7 +383,7 @@ class DashboardController extends Controller
 
             // Sparkline: last 15 cpu_percent values (already ordered asc → just take last 15)
             $allSparklines = $recentMetrics->map(
-                fn($rows) => $rows->takeLast(15)
+                fn($rows) => $rows->slice(-15)
                     ->pluck('cpu_percent')
                     ->map(fn($v) => round((float) $v))
                     ->values()
