@@ -73,6 +73,8 @@ return [
     'cloudflare' => [
         'token'   => env('CLOUDFLARE_API_TOKEN'),
         'zone_id' => env('CLOUDFLARE_ZONE_ID'),
+        'zone_name' => env('CLOUDFLARE_ZONE_NAME', 'rokeindustries.com'),
+        'minecraft_srv_target' => env('CLOUDFLARE_MINECRAFT_SRV_TARGET', 'mc.rokeindustries.com'),
     ],
 
 ];

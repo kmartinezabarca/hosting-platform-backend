@@ -18,10 +18,12 @@ class PaymentMethod extends Model
         'provider',
         'provider_id',
         'name',
+        'last4',
+        'cardholder_name',
         'details',
         'is_default',
         'is_active',
-        'expires_at'
+        'expires_at',
     ];
 
     protected $casts = [

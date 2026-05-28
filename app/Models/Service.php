@@ -47,6 +47,7 @@ class Service extends Model
         'pterodactyl_server_uuid',
         'pterodactyl_user_id',
         'connection_details',
+        'connection_secrets',
         'configuration',
         'next_due_date',
         'billing_cycle',
@@ -69,6 +70,8 @@ class Service extends Model
      */
     protected $casts = [
         'connection_details'    => 'array',
+        // connection_secrets se maneja con accessor/mutator propio (ver abajo)
+        // para tolerar filas antiguas guardadas como JSON plano antes de encryption.
         'configuration'         => 'array',
         'next_due_date'         => 'date',
         'price'                 => 'decimal:2',
@@ -78,6 +81,41 @@ class Service extends Model
         'pending_changes_count' => 'integer',
         'max_players'           => 'integer',
     ];
+
+    /**
+     * Accessor tolerante para connection_secrets.
+     *
+     * El campo usa cast encrypted:array. Si la fila fue guardada como JSON plano
+     * (antes de que se agregara el cast), Laravel lanza DecryptException con
+     * "The payload is invalid". Este accessor lo atrapa y devuelve null para no
+     * romper los endpoints que solo necesitan otros campos del modelo.
+     *
+     * Para corregir los datos legados ejecuta:
+     *   php artisan app:re-encrypt-connection-secrets
+     */
+    public function getConnectionSecretsAttribute(mixed $value): ?array
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        try {
+            // El cast encrypted:array ya desencripta — si llegamos aquí el valor
+            // pasó por el cast. Si no, es JSON plano: intentamos parsearlo.
+            return is_array($value) ? $value : (json_decode($value, true) ?? null);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Mutator para connection_secrets — siempre encripta antes de guardar.
+     */
+    public function setConnectionSecretsAttribute(?array $value): void
+    {
+        $this->attributes['connection_secrets'] = $value !== null
+            ? encrypt(json_encode($value))
+            : null;
+    }
 
     /**
      * Boot the model.

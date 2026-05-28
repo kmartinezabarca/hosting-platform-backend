@@ -157,7 +157,7 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
-                'provisioner' => 'nullable|in:pterodactyl,coolify,manual',
+                'provisioner' => 'nullable|in:pterodactyl,coolify,hestia,manual',
                 'provisioner_config' => 'nullable|array',
                 'provisioner_config.egg' => 'nullable|string|max:255',
                 'provisioner_config.version' => 'nullable|string|max:100',
@@ -276,7 +276,7 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
-                'provisioner' => 'nullable|in:pterodactyl,coolify,manual',
+                'provisioner' => 'nullable|in:pterodactyl,coolify,hestia,manual',
                 'provisioner_config' => 'nullable|array',
                 'provisioner_config.egg' => 'nullable|string|max:255',
                 'provisioner_config.version' => 'nullable|string|max:100',
@@ -519,6 +519,18 @@ class ServicePlanController extends Controller
             }
 
             $payload['provisioner_config'] = $config ?: null;
+        } elseif ($provisioner === 'hestia') {
+            $config['package'] = $payload['hestia_package'] ?? $config['package'] ?? null;
+            $config['web_template'] = $payload['hestia_web_template'] ?? $config['web_template'] ?? 'default';
+            $config['dns_template'] = $payload['hestia_dns_template'] ?? $config['dns_template'] ?? 'default';
+            $config['mail_enabled'] = $this->booleanConfigValue($payload['hestia_mail_enabled'] ?? $config['mail_enabled'] ?? true);
+            $config['db_enabled'] = $this->booleanConfigValue($payload['hestia_db_enabled'] ?? $config['db_enabled'] ?? true);
+
+            if (! empty($config['package'])) {
+                $payload['hestia_package'] = $config['package'];
+            }
+
+            $payload['provisioner_config'] = $config;
         } elseif ($provisioner === 'coolify') {
             $config['build_pack'] = $payload['provisioner_config']['build_pack'] ?? $config['build_pack'] ?? 'static';
             $config['db_enabled'] = $this->booleanConfigValue($payload['provisioner_config']['db_enabled'] ?? $config['db_enabled'] ?? false);
@@ -547,6 +559,14 @@ class ServicePlanController extends Controller
             $data['coolify_db_enabled'] = $plan->coolify_db_enabled;
         }
 
+        if ($plan->provisioner === 'hestia') {
+            $data['hestia_package'] = data_get($data, 'provisioner_config.package');
+            $data['hestia_web_template'] = data_get($data, 'provisioner_config.web_template', 'default');
+            $data['hestia_dns_template'] = data_get($data, 'provisioner_config.dns_template', 'default');
+            $data['hestia_mail_enabled'] = data_get($data, 'provisioner_config.mail_enabled', true);
+            $data['hestia_db_enabled'] = data_get($data, 'provisioner_config.db_enabled', true);
+        }
+
         return $data;
     }
 
@@ -570,7 +590,7 @@ class ServicePlanController extends Controller
         return array_intersect_key($payload, array_flip([
             'category_id', 'slug', 'name', 'description', 'base_price',
             'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
-            'provisioner', 'provisioner_config',
+            'provisioner', 'provisioner_config', 'hestia_package',
             'game_type', 'game_runtime_options', 'game_config_schema',
             'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
             'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',

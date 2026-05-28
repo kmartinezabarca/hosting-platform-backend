@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -58,6 +59,10 @@ class Handler extends ExceptionHandler
     {
         // Let the framework normalize AuthorizationException → HttpException(403)
         // and ModelNotFoundException → HttpException(404) before our handling
+        if ($e instanceof HttpResponseException) {
+            return $e->getResponse();
+        }
+
         $e = $this->prepareException($e);
 
         // Autenticación requerida
@@ -155,4 +160,3 @@ class Handler extends ExceptionHandler
         return redirect()->guest($exception->redirectTo() ?? route('login'));
     }
 }
-

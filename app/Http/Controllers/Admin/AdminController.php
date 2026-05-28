@@ -20,9 +20,11 @@ use App\Models\TicketReply;
 use App\Models\User;
 use App\Notifications\InvoiceReady;
 use App\Services\Admin\ServiceSupportOverviewService;
+use App\Services\Coolify\HostingProvisioningService;
 use App\Services\DashboardStatsService;
 use App\Services\InvoiceService;
 use App\Services\PaymentReceiptService;
+use App\Services\Pterodactyl\GameServerProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -177,15 +179,24 @@ class AdminController extends Controller
         $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
         $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
 
-        $services = Service::with([
+        // ── Filtro de servicios sin aprovisionar ────────────────────────────
+        // Detecta servicios "activos" que no tienen servidor/app en la infraestructura:
+        // Pterodactyl → pterodactyl_server_id IS NULL
+        // Coolify     → external_id IS NULL
+        // Se activa con ?needs_provisioning=1
+        $needsProvisioningFilter = $request->boolean('needs_provisioning');
+
+        $query = Service::with([
                 'user:id,first_name,last_name,email',
-                'plan:id,name,slug,base_price,category_id',
+                'plan:id,name,slug,base_price,category_id,provisioner',
                 'plan.category:id,slug,name',
             ])
             ->select([
                 'id', 'uuid', 'user_id', 'plan_id',
                 'name', 'domain', 'status', 'price',
                 'billing_cycle', 'next_due_date', 'created_at',
+                // Columnas necesarias para detectar aprovisionamiento (no cifradas)
+                'pterodactyl_server_id', 'external_id',
             ])
             ->when($search, fn($q) => $q->where(fn($q) =>
                 $q->where('name',   'like', "%{$search}%")
@@ -198,10 +209,65 @@ class AdminController extends Controller
             ))
             ->when($request->get('status'),  fn($q, $v) => $q->where('status', $v))
             ->when($request->get('plan_id'), fn($q, $v) => $q->where('plan_id', $v))
-            ->orderBy($sortBy, $sortOrder)
-            ->paginate($perPage);
+            ->when($needsProvisioningFilter, function ($q) {
+                // Solo servicios activos con provisioner configurado que aún no tienen
+                // un recurso real en la infraestructura
+                $q->where('status', 'active')
+                  ->whereHas('plan', fn($p) => $p->whereIn('provisioner', ['pterodactyl', 'coolify']))
+                  ->where(fn($q) =>
+                      $q->whereHas('plan', fn($p) => $p->where('provisioner', 'pterodactyl'))
+                        ->whereNull('pterodactyl_server_id')
+                        ->orWhere(fn($q) =>
+                            $q->whereHas('plan', fn($p) => $p->where('provisioner', 'coolify'))
+                              ->whereNull('external_id')
+                        )
+                  );
+            })
+            ->orderBy($sortBy, $sortOrder);
 
-        return response()->json(['success' => true, 'data' => $services]);
+        $services = $query->paginate($perPage);
+
+        // Inyectar flag needs_provisioning en cada servicio del resultado
+        $services->through(function (Service $service) {
+            $provisioner = $service->plan?->provisioner;
+            $service->needs_provisioning = $this->detectsNeedsProvisioning($service, $provisioner);
+            return $service;
+        });
+
+        // Contar el total de ghost services (para el banner de alerta)
+        $ghostCount = Service::where('status', 'active')
+            ->whereHas('plan', fn($p) => $p->whereIn('provisioner', ['pterodactyl', 'coolify']))
+            ->where(fn($q) =>
+                $q->whereHas('plan', fn($p) => $p->where('provisioner', 'pterodactyl'))
+                  ->whereNull('pterodactyl_server_id')
+                  ->orWhere(fn($q) =>
+                      $q->whereHas('plan', fn($p) => $p->where('provisioner', 'coolify'))
+                        ->whereNull('external_id')
+                  )
+            )->count();
+
+        return response()->json([
+            'success'     => true,
+            'data'        => $services,
+            'ghost_count' => $ghostCount,
+        ]);
+    }
+
+    /**
+     * Determina si un servicio activo carece de un recurso real en la infraestructura.
+     * Solo usa columnas no cifradas para que el check sea O(1) sin desencriptar nada.
+     */
+    private function detectsNeedsProvisioning(Service $service, ?string $provisioner): bool
+    {
+        if ($service->status !== 'active' || ! $provisioner) {
+            return false;
+        }
+
+        return match ($provisioner) {
+            'pterodactyl' => is_null($service->pterodactyl_server_id),
+            'coolify'     => is_null($service->external_id),
+            default       => false,
+        };
     }
 
     public function getService(string $uuid): JsonResponse
@@ -405,6 +471,58 @@ class AdminController extends Controller
             'message' => 'Estado del servicio actualizado.',
             'data'    => $service->fresh(),
         ]);
+    }
+
+    /**
+     * POST /admin/services/{uuid}/reprovision
+     * Re-ejecuta el flujo de aprovisionamiento completo para cualquier tipo de servicio
+     * (pterodactyl → Pterodactyl, coolify → Coolify, hestia → no implementado aún).
+     *
+     * Útil cuando el aprovisionamiento inicial falló o cuando se necesita recrear
+     * el servidor/hosting desde cero en la infraestructura.
+     */
+    public function reprovision(string $uuid): JsonResponse
+    {
+        $service = Service::with(['plan', 'user'])->where('uuid', $uuid)->firstOrFail();
+
+        $provisioner = $service->plan?->provisioner;
+
+        if (! $provisioner) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este servicio no tiene un provisioner configurado en su plan.',
+            ], 422);
+        }
+
+        try {
+            match ($provisioner) {
+                'pterodactyl' => app(GameServerProvisioningService::class)
+                    ->provision($service->fresh(['plan', 'user'])),
+                'coolify'     => app(HostingProvisioningService::class)
+                    ->provision($service->fresh(['plan', 'user'])),
+                default       => throw new \RuntimeException(
+                    "Re-aprovisionamiento no implementado para el provisioner '{$provisioner}'."
+                ),
+            };
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Re-aprovisionamiento completado exitosamente.',
+                'data'    => $service->fresh(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Admin reprovision fallido', [
+                'service_id'  => $service->id,
+                'provisioner' => $provisioner,
+                'error'       => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al re-aprovisionar: ' . $e->getMessage(),
+                'data'    => $service->fresh(),
+            ], 500);
+        }
     }
 
     // ──────────────────────────────────────────────

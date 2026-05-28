@@ -28,6 +28,7 @@ use App\Http\Controllers\Admin\GlobalSearchController;
 use App\Http\Controllers\Admin\GameSoftwareVersionController;
 use App\Http\Controllers\Admin\PetNotificationController;
 use App\Http\Controllers\Admin\PetSearchController;
+use App\Http\Controllers\Admin\AdminDomainController;
 
 /*
 |--------------------------------------------------------------------------
@@ -75,13 +76,15 @@ Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")
     Route::put("/users/{id}/status", [AdminController::class, "updateUserStatus"]);
 
     // Services management
-    Route::get("/services",                [AdminController::class, "getServices"]);
-    Route::post("/services",               [AdminController::class, "createService"]);
-    Route::get("/services/{uuid}/support-overview", [AdminController::class, "getServiceSupportOverview"]);
-    Route::get("/services/{uuid}",         [AdminController::class, "getService"]);
-    Route::put("/services/{uuid}",         [AdminController::class, "updateService"]);
-    Route::delete("/services/{uuid}",      [AdminController::class, "deleteService"]);
-    Route::put("/services/{uuid}/status",  [AdminController::class, "updateServiceStatus"]);
+    Route::get("/services",                          [AdminController::class, "getServices"]);
+    Route::post("/services",                         [AdminController::class, "createService"]);
+    // Rutas con segmentos estáticos deben ir ANTES de /{uuid} para evitar colisiones
+    Route::get("/services/{uuid}/support-overview",  [AdminController::class, "getServiceSupportOverview"]);
+    Route::post("/services/{uuid}/reprovision",      [AdminController::class, "reprovision"]);
+    Route::get("/services/{uuid}",                   [AdminController::class, "getService"]);
+    Route::put("/services/{uuid}",                   [AdminController::class, "updateService"]);
+    Route::delete("/services/{uuid}",                [AdminController::class, "deleteService"]);
+    Route::put("/services/{uuid}/status",            [AdminController::class, "updateServiceStatus"]);
 
     // Invoices management
     Route::get("/invoices/stats", [AdminController::class, "getInvoiceStats"]);
@@ -307,6 +310,10 @@ Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")
         Route::post('/{id}/files/delete',        [GameServerController::class, 'deleteFiles']);
         Route::get('/{id}/files/download',       [GameServerController::class, 'downloadUrl']);
     });
+
+    // ── Gestión de dominios (admin) ───────────────────────────────────────────
+    Route::get('/domains',                   [AdminDomainController::class, 'index']);
+    Route::post('/domains/{uuid}/renew',     [AdminDomainController::class, 'renew']);
 
     // ── Gestión de CFDIs ──────────────────────────────────────────────────────
     Route::prefix('cfdi')->group(function () {

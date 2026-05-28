@@ -2,10 +2,11 @@
 
 namespace App\Services;
 
-use App\Models\Invoice;
 use App\Models\PaymentMethod;
+use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Stripe\Exception\ApiErrorException;
@@ -75,15 +76,14 @@ class PaymentService
      */
     public function attachPaymentMethod(User $user, string $stripePaymentMethodId, bool $setAsDefault, ?string $name): PaymentMethod
     {
-        $customerId = $this->getOrCreateStripeCustomer($user);
-
-        // Prevent duplicates
         if (PaymentMethod::where('user_id', $user->id)
             ->where('stripe_payment_method_id', $stripePaymentMethodId)
             ->exists()
         ) {
             throw new \RuntimeException('payment_method_already_saved');
         }
+
+        $customerId = $this->getOrCreateStripeCustomer($user);
 
         $pm = StripePaymentMethod::retrieve($stripePaymentMethodId);
 
@@ -97,7 +97,16 @@ class PaymentService
             $pm = StripePaymentMethod::retrieve($pm->id);
         }
 
-        $card = $pm->card ?? null;
+        $card           = $pm->card ?? null;
+        $cardholderName = $pm->billing_details->name ?? null;
+
+        // Fecha de vencimiento: último instante del mes de expiración
+        $expiresAt = null;
+        if ($card && !empty($card->exp_month) && !empty($card->exp_year)) {
+            $expiresAt = Carbon::createFromDate((int) $card->exp_year, (int) $card->exp_month, 1)
+                ->endOfMonth()
+                ->startOfDay();
+        }
 
         if ($setAsDefault) {
             Customer::update($customerId, [
@@ -112,10 +121,15 @@ class PaymentService
             'stripe_payment_method_id' => $pm->id,
             'stripe_customer_id'       => $customerId,
             'type'                     => $pm->type ?? 'card',
-            'name'                     => $name ?? ($card ? "**** **** **** {$card->last4}" : 'Método de pago'),
+            'provider'                 => 'stripe',
+            'provider_id'              => $pm->id,
+            'name'                     => $name ?? $this->buildCardName($card),
+            'last4'                    => $card?->last4 ?? null,
+            'cardholder_name'          => $cardholderName,
             'details'                  => $this->extractCardDetails($card),
             'is_default'               => $setAsDefault,
             'is_active'                => true,
+            'expires_at'               => $expiresAt,
         ]);
     }
 
@@ -176,7 +190,7 @@ class PaymentService
      */
     public function recordTransaction(
         User    $user,
-        Invoice $invoice,
+        Receipt $receipt,
         string  $paymentIntentId,
         float   $amount,
         string  $currency,
@@ -186,7 +200,7 @@ class PaymentService
         return Transaction::create([
             'uuid'                    => (string) Str::uuid(),
             'user_id'                 => $user->id,
-            'invoice_id'              => $invoice->id,
+            'invoice_id'              => $receipt->id,
             'payment_method_id'       => $localPaymentMethodId,
             'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
             'provider_transaction_id' => $paymentIntentId,
@@ -214,7 +228,7 @@ class PaymentService
     {
         return [
             'total_spent'           => Transaction::where('user_id', $user->id)->where('type', 'payment')->where('status', 'completed')->sum('amount'),
-            'pending_amount'        => Invoice::where('user_id', $user->id)->where('status', 'pending')->sum('total'),
+            'pending_amount'        => Receipt::where('user_id', $user->id)->whereIn('status', ['sent', 'processing', 'overdue'])->sum('total'),
             'transactions_count'    => Transaction::where('user_id', $user->id)->where('status', 'completed')->count(),
             'payment_methods_count' => PaymentMethod::where('user_id', $user->id)->where('is_active', true)->count(),
             'last_payment'          => Transaction::where('user_id', $user->id)->where('type', 'payment')->where('status', 'completed')->latest()->first(),
@@ -224,6 +238,27 @@ class PaymentService
     // ──────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────
+
+    /**
+     * Devuelve el nombre/marca de la tarjeta para el campo `name`.
+     * Solo la marca — los últimos 4 dígitos se guardan por separado en `last4`.
+     * Ejemplos: "Visa", "Mastercard", "American Express".
+     */
+    private function buildCardName(?\Stripe\StripeObject $card): string
+    {
+        return match (strtolower($card?->brand ?? '')) {
+            'visa'             => 'Visa',
+            'mastercard'       => 'Mastercard',
+            'amex'             => 'American Express',
+            'discover'         => 'Discover',
+            'diners'           => 'Diners Club',
+            'diners_club'      => 'Diners Club',
+            'jcb'              => 'JCB',
+            'unionpay'         => 'UnionPay',
+            'cartes_bancaires' => 'Cartes Bancaires',
+            default            => ucfirst($card?->brand ?? 'Tarjeta'),
+        };
+    }
 
     private function extractCardDetails(?\Stripe\StripeObject $card): array
     {

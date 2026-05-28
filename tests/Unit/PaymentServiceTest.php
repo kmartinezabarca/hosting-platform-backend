@@ -2,11 +2,14 @@
 
 namespace Tests\Unit;
 
-use App\Models\Invoice;
 use App\Models\PaymentMethod;
+use App\Models\Receipt;
 use App\Models\User;
 use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Stripe\ApiRequestor;
+use Stripe\HttpClient\ClientInterface;
+use Stripe\HttpClient\CurlClient;
 use Tests\TestCase;
 
 class PaymentServiceTest extends TestCase
@@ -16,6 +19,36 @@ class PaymentServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        ApiRequestor::setHttpClient(new class implements ClientInterface {
+            public function request($method, $absUrl, $headers, $params, $hasFile, $apiMode = 'v1', $maxNetworkRetries = null): array
+            {
+                if (str_contains($absUrl, '/v1/customers')) {
+                    return [json_encode([
+                        'id' => 'cus_test_generated',
+                        'object' => 'customer',
+                    ]), 200, []];
+                }
+
+                if (str_contains($absUrl, '/v1/payment_intents')) {
+                    return [json_encode([
+                        'id' => 'pi_test_generated',
+                        'object' => 'payment_intent',
+                        'amount' => $params['amount'] ?? 0,
+                        'currency' => $params['currency'] ?? 'mxn',
+                    ]), 200, []];
+                }
+
+                return [json_encode(['id' => 'obj_test', 'object' => 'mock']), 200, []];
+            }
+        });
+    }
+
+    protected function tearDown(): void
+    {
+        ApiRequestor::setHttpClient(CurlClient::instance());
+
+        parent::tearDown();
     }
 
     public function test_get_or_create_stripe_customer_returns_existing_id(): void
@@ -69,7 +102,7 @@ class PaymentServiceTest extends TestCase
     public function test_record_transaction_creates_valid_record(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create(['user_id' => $user->id]);
+        $invoice = Receipt::factory()->create(['user_id' => $user->id]);
 
         $paymentMethod = PaymentMethod::factory()->create(['user_id' => $user->id]);
 
@@ -99,7 +132,7 @@ class PaymentServiceTest extends TestCase
 
         PaymentMethod::factory()->count(2)->create(['user_id' => $user->id, 'is_active' => true]);
 
-        $invoice = Invoice::factory()->create([
+        $invoice = Receipt::factory()->create([
             'user_id' => $user->id,
             'status' => 'sent',
             'total' => 150.00,

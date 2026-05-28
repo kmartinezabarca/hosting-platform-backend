@@ -49,6 +49,12 @@
         }
     },
     "scripts": {
+        "test": [
+            "phpunit"
+        ],
+        "test:ci": [
+            "@php -d xdebug.mode=coverage vendor/bin/phpunit --log-junit build/logs/junit.xml --coverage-clover build/coverage/clover.xml --coverage-cobertura build/coverage/cobertura.xml"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"

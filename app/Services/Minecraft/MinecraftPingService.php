@@ -65,6 +65,17 @@ class MinecraftPingService
             $data['description'] = $data['description']['text'] ?? null;
         }
 
+        if (isset($data['players']['sample']) && is_array($data['players']['sample'])) {
+            $data['players']['sample'] = collect($data['players']['sample'])
+                ->map(fn ($player) => [
+                    'name' => is_array($player) ? ($player['name'] ?? null) : null,
+                    'id'   => is_array($player) ? ($player['id']   ?? null) : null,
+                ])
+                ->filter(fn ($player) => ! empty($player['name']))
+                ->values()
+                ->all();
+        }
+
         return $data;
     }
 

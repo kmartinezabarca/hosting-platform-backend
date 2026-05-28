@@ -12,6 +12,8 @@ return [
 
     'user' => env('FRP_USER', 'rokeryzen'),
 
+    'local_ip' => env('FRP_LOCAL_IP', '100.94.93.51'),
+
     /*
     |--------------------------------------------------------------------------
     | Remote Paths
@@ -19,6 +21,8 @@ return [
     */
 
     'config_path' => env('FRP_CONFIG_PATH', '/etc/frp/frpc.toml'),
+
+    'service_name' => env('FRP_SERVICE_NAME', 'frpc'),
 
     /*
     |--------------------------------------------------------------------------

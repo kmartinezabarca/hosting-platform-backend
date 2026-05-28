@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class ApiResponseMiddleware
@@ -16,6 +17,10 @@ class ApiResponseMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
+
+        if ($response instanceof RedirectResponse) {
+            return $response;
+        }
 
         // Asegurar que todas las respuestas tengan headers JSON apropiados
         if ($response instanceof \Illuminate\Http\JsonResponse) {
@@ -83,4 +88,3 @@ class ApiResponseMiddleware
         return json_last_error() === JSON_ERROR_NONE;
     }
 }
-

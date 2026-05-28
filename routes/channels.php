@@ -113,3 +113,10 @@ Broadcast::channel('system.maintenance', function (User $user) {
     return true; // Todos los usuarios autenticados pueden recibir notificaciones de mantenimiento
 });
 
+// Canal privado por game server — recibe ping en tiempo real vía Reverb
+// El scheduler CollectGameServerPings hace broadcast en este canal cada 5 min.
+Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $serviceUuid) {
+    $service = \App\Models\Service::where('uuid', $serviceUuid)->first();
+    return $service && (int) $service->user_id === (int) $user->id;
+});
+

@@ -39,6 +39,7 @@ class ServicePlan extends Model
         // Aprovisionamiento automático
         'provisioner',
         'provisioner_config',
+        'hestia_package',
 
         'game_type',
         'game_runtime_options',
@@ -261,6 +262,16 @@ class ServicePlan extends Model
                 'build_pack' => $config['build_pack'] ?? 'static',
                 'db_enabled' => (bool) ($config['db_enabled'] ?? false),
                 'db_type'    => $config['db_type'] ?? 'mariadb',
+            ];
+        }
+
+        if ($this->provisioner === 'hestia') {
+            return [
+                'package' => $config['package'] ?? $this->attributes['hestia_package'] ?? null,
+                'web_template' => $config['web_template'] ?? 'default',
+                'dns_template' => $config['dns_template'] ?? 'default',
+                'mail_enabled' => (bool) ($config['mail_enabled'] ?? true),
+                'db_enabled' => (bool) ($config['db_enabled'] ?? true),
             ];
         }
 

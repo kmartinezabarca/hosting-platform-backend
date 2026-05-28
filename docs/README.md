@@ -22,7 +22,9 @@ API REST construida con **Laravel 10** que alimenta el portal de clientes y el p
 | Game servers | Pterodactyl Panel API + Wings WebSocket |
 | Hosting compartido | HestiaCP API |
 | VPS | Proxmox API |
-| DNS / Dominios | Namecheap API + Cloudflare API |
+| DNS / Dominios | Cloudflare API (registrar-agnóstico) |
+| Hosting compartido | Coolify + Docker + Nginx |
+| Correo empresarial | Mailcow API |
 
 ---
 
@@ -83,8 +85,7 @@ php artisan queue:work redis  # Colas
 | `PTERODACTYL_API_URL` / `PTERODACTYL_API_KEY` | API de Pterodactyl Panel |
 | `HESTIA_HOST` / `HESTIA_TOKEN` | API de HestiaCP |
 | `PROXMOX_HOST` / `PROXMOX_USER` / `PROXMOX_PASSWORD` | API de Proxmox |
-| `NAMECHEAP_API_KEY` / `NAMECHEAP_USERNAME` | Namecheap API |
-| `CLOUDFLARE_TOKEN` / `CLOUDFLARE_ZONE_ID` | Cloudflare API |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ZONE_ID` | Cloudflare API (DNS) |
 | `FACTURAMA_USER` / `FACTURAMA_PASSWORD` | Facturama (CFDI) |
 | `SENDGRID_API_KEY` | SendGrid correo transaccional |
 | `REVERB_APP_ID` / `REVERB_APP_KEY` / `REVERB_APP_SECRET` | Laravel Reverb WebSockets |

@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 
+use App\Models\Agent;
 use App\Models\Ticket;
 use App\Models\TicketReply;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
 
 class TicketController extends Controller
@@ -108,8 +111,10 @@ class TicketController extends Controller
     /**
      * Create a new ticket
      */
-    public function store(Request $request): JsonResponse
+public function store(Request $request): JsonResponse
 {
+    $user = Auth::user();
+
     // Validaciones con mensajes personalizados
     $validator = Validator::make(
         $request->all(),
@@ -118,7 +123,12 @@ class TicketController extends Controller
             'message'     => 'required|string',
             'priority'    => 'required|in:low,medium,high,urgent',
             'department'  => 'required|in:technical,billing,sales,abuse',
-            'service_id'  => 'nullable|exists:services,id',
+            'service_id'  => [
+                'nullable',
+                Rule::exists('services', 'id')->where(fn ($query) => $query->where('user_id', $user->id)),
+            ],
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'file|mimes:jpg,jpeg,png,gif,pdf,zip,txt|max:20480',
         ],
         [
             'subject.required'    => 'Indica un asunto para tu solicitud.',
@@ -129,6 +139,9 @@ class TicketController extends Controller
             'department.required' => 'Selecciona un departamento.',
             'department.in'       => 'El departamento seleccionado no es válido.',
             'service_id.exists'   => 'El servicio seleccionado no existe.',
+            'attachments.*.file'  => 'Uno de los adjuntos no es un archivo válido.',
+            'attachments.*.mimes' => 'Los adjuntos deben ser JPG, PNG, GIF, PDF, ZIP o TXT.',
+            'attachments.*.max'   => 'Cada archivo adjunto debe pesar máximo 20 MB.',
         ]
     );
 
@@ -139,8 +152,6 @@ class TicketController extends Controller
             'errors'  => $validator->errors(),
         ], 422);
     }
-
-    $user = Auth::user();
 
     try {
         $ticket = DB::transaction(function () use ($request, $user) {
@@ -156,10 +167,14 @@ class TicketController extends Controller
                 'department'    => $request->input('department'),
             ]);
 
+            $attachmentsData = $this->storeTicketAttachments($request, $ticket);
+
             TicketReply::create([
                 'ticket_id'      => $ticket->id,
                 'user_id'        => $user->id,
                 'message'        => $request->input('message'),
+                'is_internal'    => false,
+                'attachments'    => !empty($attachmentsData) ? $attachmentsData : null,
             ]);
 
             return $ticket;
@@ -217,42 +232,14 @@ class TicketController extends Controller
             return response()->json(['success' => false, 'message' => 'No se puede responder a un ticket cerrado.'], 400);
         }
 
-        $attachmentsData = [];
-
-        if ($request->hasFile('attachments')) {
-
-            foreach ($request->file('attachments') as $index => $file) {
-
-                if (!$file->isValid()) {
-                    continue;
-                }
-
-                $originalName = $file->getClientOriginalName();
-                $pathPrefix = 'ticket_attachments/' . $ticket->uuid;
-                $filePath = $file->store($pathPrefix, 'public');
-
-                // Si $filePath es false, el guardado falló
-                if ($filePath === false) {
-                    throw new \Exception('No se pudo guardar el archivo: ' . $originalName);
-                }
-
-                $attachmentsData[] = [
-                    'path'      => $filePath,
-                    'name'      => $originalName,
-                    'size'      => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
-                ];
-            }
-        } else {
-            \Illuminate\Support\Facades\Log::info('No se encontraron archivos en la petición.');
-        }
+        $attachmentsData = $this->storeTicketAttachments($request, $ticket);
 
         // 2. Crear la respuesta en la base de datos
         $reply = TicketReply::create([
             'ticket_id'      => $ticket->id,
             'user_id'        => $user->id,
             'message'        => $request->input('message', ''),
-            'is_staff_reply' => false,
+            'is_internal'    => false,
             'attachments'    => !empty($attachmentsData) ? $attachmentsData : null,
         ]);
 
@@ -328,7 +315,40 @@ class TicketController extends Controller
                 'message' => 'Error closing ticket',
                 'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
+    }
+}
+
+    private function storeTicketAttachments(Request $request, Ticket $ticket): array
+    {
+        if (!$request->hasFile('attachments')) {
+            return [];
         }
+
+        $files = $request->file('attachments');
+        $files = is_array($files) ? $files : [$files];
+        $attachmentsData = [];
+
+        foreach ($files as $file) {
+            if (!$file || !$file->isValid()) {
+                continue;
+            }
+
+            $originalName = $file->getClientOriginalName();
+            $filePath = $file->store('ticket_attachments/' . $ticket->uuid, 'public');
+
+            if ($filePath === false) {
+                throw new \Exception('No se pudo guardar el archivo: ' . $originalName);
+            }
+
+            $attachmentsData[] = [
+                'path'      => $filePath,
+                'name'      => $originalName,
+                'size'      => $file->getSize(),
+                'mime_type' => $file->getMimeType(),
+            ];
+        }
+
+        return $attachmentsData;
     }
 
     /**
@@ -338,15 +358,89 @@ class TicketController extends Controller
     {
         try {
             $user = Auth::user();
+            $activeStatuses = ['open', 'in_progress', 'waiting_customer'];
+
+            $baseQuery = Ticket::where('user_id', $user->id);
+            $totalTickets = (clone $baseQuery)->count();
+            $openTickets = (clone $baseQuery)->where('status', 'open')->count();
+            $activeTickets = (clone $baseQuery)->whereIn('status', $activeStatuses)->count();
+            $inProgressTickets = (clone $baseQuery)->where('status', 'in_progress')->count();
+            $waitingCustomerTickets = (clone $baseQuery)->where('status', 'waiting_customer')->count();
+            $pendingTickets = (clone $baseQuery)->whereIn('status', ['pending', 'waiting_customer'])->count();
+            $resolvedTickets = (clone $baseQuery)->where('status', 'resolved')->count();
+            $closedTickets = (clone $baseQuery)->where('status', 'closed')->count();
+            $resolvedOrClosedTickets = (clone $baseQuery)->whereIn('status', ['resolved', 'closed'])->count();
+            $highPriorityTickets = (clone $baseQuery)
+                ->whereIn('priority', ['high', 'urgent'])
+                ->whereNotIn('status', ['resolved', 'closed'])
+                ->count();
+
+            $firstStaffReplies = DB::table('ticket_replies')
+                ->join('tickets', 'tickets.id', '=', 'ticket_replies.ticket_id')
+                ->where('tickets.user_id', $user->id)
+                ->whereNull('tickets.deleted_at')
+                ->whereNull('ticket_replies.deleted_at')
+                ->where('ticket_replies.is_internal', false)
+                ->whereColumn('ticket_replies.user_id', '!=', 'tickets.user_id')
+                ->groupBy('ticket_replies.ticket_id', 'tickets.created_at')
+                ->select([
+                    'tickets.created_at as ticket_created_at',
+                    DB::raw('MIN(ticket_replies.created_at) as first_staff_reply_at'),
+                ])
+                ->get();
+
+            $responseTimes = $firstStaffReplies
+                ->map(function ($row) {
+                    $createdAt = Carbon::parse($row->ticket_created_at);
+                    $firstReplyAt = Carbon::parse($row->first_staff_reply_at);
+
+                    return max(0, $createdAt->diffInMinutes($firstReplyAt, false));
+                })
+                ->filter(fn ($minutes) => $minutes >= 0)
+                ->values();
+
+            $avgFirstResponseMinutes = $responseTimes->isNotEmpty()
+                ? (int) round($responseTimes->avg())
+                : null;
+
+            $latestActivityAt = (clone $baseQuery)
+                ->whereNotNull('last_reply_at')
+                ->max('last_reply_at') ?: (clone $baseQuery)->max('updated_at');
+
+            $availableAgents = Agent::available()->count();
+            $onlineAgents = Agent::active()
+                ->whereNotNull('last_activity_at')
+                ->where('last_activity_at', '>=', now()->subMinutes(15))
+                ->count();
 
             $stats = [
-                'total_tickets' => Ticket::where('user_id', $user->id)->count(),
-                'open_tickets' => Ticket::where('user_id', $user->id)->where('status', 'open')->count(),
-                'in_progress_tickets' => Ticket::where('user_id', $user->id)->where('status', 'in_progress')->count(),
-                'waiting_customer_tickets' => Ticket::where('user_id', $user->id)->where('status', 'waiting_customer')->count(),
-                'resolved_tickets' => Ticket::where('user_id', $user->id)->where('status', 'resolved')->count(),
-                'closed_tickets' => Ticket::where('user_id', $user->id)->where('status', 'closed')->count(),
-                'high_priority_tickets' => Ticket::where('user_id', $user->id)->whereIn('priority', ['high', 'urgent'])->whereNotIn('status', ['resolved', 'closed'])->count()
+                'total_tickets' => $totalTickets,
+                'open_tickets' => $openTickets,
+                'active_tickets' => $activeTickets,
+                'in_progress_tickets' => $inProgressTickets,
+                'waiting_customer_tickets' => $waitingCustomerTickets,
+                'resolved_tickets' => $resolvedTickets,
+                'closed_tickets' => $closedTickets,
+                'high_priority_tickets' => $highPriorityTickets,
+                'avg_first_response_minutes' => $avgFirstResponseMinutes,
+                'avg_first_response_label' => $this->formatResponseMinutes($avgFirstResponseMinutes),
+                'tickets_with_staff_response' => $responseTimes->count(),
+                'latest_activity_at' => $latestActivityAt
+                    ? Carbon::parse($latestActivityAt)->toISOString()
+                    : null,
+                'support' => [
+                    'online' => $onlineAgents > 0,
+                    'available_agents' => $availableAgents,
+                    'recently_active_agents' => $onlineAgents,
+                ],
+                // Aliases kept for existing ROKE screens that still consume the old stats shape.
+                'total' => $totalTickets,
+                'open' => $openTickets,
+                'pending' => $pendingTickets,
+                'resolved' => $resolvedOrClosedTickets,
+                'closed' => $closedTickets,
+                'avg_response_minutes' => $avgFirstResponseMinutes,
+                'avgResponseMinutes' => $avgFirstResponseMinutes,
             ];
 
             return response()->json([
@@ -360,6 +454,33 @@ class TicketController extends Controller
                 'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }
+    }
+
+    private function formatResponseMinutes(?int $minutes): ?string
+    {
+        if ($minutes === null) {
+            return null;
+        }
+
+        if ($minutes < 60) {
+            return $minutes . ' min';
+        }
+
+        $hours = intdiv($minutes, 60);
+        $remainingMinutes = $minutes % 60;
+
+        if ($hours < 24) {
+            return $remainingMinutes > 0
+                ? "{$hours} h {$remainingMinutes} min"
+                : "{$hours} h";
+        }
+
+        $days = intdiv($hours, 24);
+        $remainingHours = $hours % 24;
+
+        return $remainingHours > 0
+            ? "{$days} d {$remainingHours} h"
+            : "{$days} d";
     }
 
     /**
@@ -385,4 +506,3 @@ class TicketController extends Controller
         return $prefix . $year . str_pad($newNumber, 6, '0', STR_PAD_LEFT);
     }
 }
-

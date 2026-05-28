@@ -36,7 +36,7 @@ class ServerNode extends Model
 
     protected $casts = [
         'specifications'      => 'array',
-        'api_credentials'     => 'encrypted:array',
+        'api_credentials'     => 'array',
         'max_services'        => 'integer',
         'current_services'    => 'integer',
         'pterodactyl_node_id' => 'integer',

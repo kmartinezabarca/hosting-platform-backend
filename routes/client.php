@@ -57,6 +57,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::get ('/plans',             [ServiceController::class, 'getServicePlans']);
         Route::post('/contract',          [ServiceController::class, 'contractService']);
         Route::get ('/user',              [ServiceController::class, 'getUserServices']);
+        Route::post('/sync-status',       [ServiceController::class, 'syncStatus']);
         Route::get ('/upcoming-charges',  [ServiceController::class, 'upcomingCharges']);
         Route::get ('/metrics',           [GameServerController::class, 'getAllServicesMetrics']);
         Route::get ('/game-servers/{nest_id}/eggs', [GameServerController::class, 'listEggs']);
@@ -100,6 +101,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
                 Route::get ('/upload',           [FileManagerController::class, 'getUploadUrl']);
                 Route::post('/delete',           [FileManagerController::class, 'deleteFiles']);
                 Route::get ('/download',         [FileManagerController::class, 'getDownloadUrl']);
+                Route::get ('/content',          [FileManagerController::class, 'getFileContent']);
             });
 
             // ── Game server ──────────────────────────────────────────────────
@@ -135,6 +137,8 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
                 Route::get ('/status',           [GameServerController::class, 'getStatus']);
                 // Ping history (last 24 h, sampled every 5 min by scheduler)
                 Route::get ('/pings',            [GameServerController::class, 'getPingHistory']);
+                // Ping instantáneo — usar solo al montar o al detectar state=running (no polling)
+                Route::get ('/ping-now',         [GameServerController::class, 'pingNow']);
             });
         });
     });
@@ -193,14 +197,18 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
     });
 
     // ── Domains ───────────────────────────────────────────────────────────────
+    // NOTA: El sistema NO compra dominios automáticamente. Los clientes importan
+    // dominios que ya poseen (desde cualquier registrador) y ROKE gestiona el DNS
+    // vía Cloudflare. La verificación de ownership usa un reto TXT.
     Route::prefix('domains')->group(function () {
-        Route::get  ('/',                       [DomainController::class, 'index']);
-        Route::post ('/',                       [DomainController::class, 'store']);
-        Route::get  ('/stats',                  [DomainController::class, 'getStats']);
-        Route::post ('/check-availability',     [DomainController::class, 'checkAvailability']);
-        Route::get  ('/{uuid}',                 [DomainController::class, 'show']);
-        Route::put  ('/{uuid}',                 [DomainController::class, 'update']);
-        Route::post ('/{uuid}/renew',           [DomainController::class, 'renew']);
+        Route::get  ('/',                          [DomainController::class, 'index']);
+        Route::post ('/',                          [DomainController::class, 'store']);
+        Route::get  ('/stats',                     [DomainController::class, 'getStats']);
+        Route::get  ('/{uuid}',                    [DomainController::class, 'show']);
+        Route::put  ('/{uuid}',                    [DomainController::class, 'update']);
+        Route::post ('/{uuid}/renew',              [DomainController::class, 'renew']);
+        Route::post ('/{uuid}/verify-ownership',   [DomainController::class, 'initOwnershipVerification']);
+        Route::post ('/{uuid}/confirm-ownership',  [DomainController::class, 'confirmOwnershipVerification']);
     });
 
     // ── Notifications ─────────────────────────────────────────────────────────

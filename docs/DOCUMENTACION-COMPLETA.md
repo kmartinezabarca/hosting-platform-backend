@@ -50,7 +50,9 @@ API REST construida con **Laravel 10** que alimenta el portal de clientes y el p
 | Game servers | Pterodactyl Panel API + Wings WebSocket |
 | Hosting compartido | HestiaCP API |
 | VPS | Proxmox API |
-| DNS / Dominios | Namecheap API + Cloudflare API |
+| DNS / Dominios | Cloudflare API (registrar-agnóstico) |
+| Hosting compartido | Coolify + Docker + Nginx |
+| Correo empresarial | Mailcow API |
 
 ---
 
@@ -111,8 +113,7 @@ php artisan queue:work redis  # Colas
 | `PTERODACTYL_API_URL` / `PTERODACTYL_API_KEY` | API de Pterodactyl Panel |
 | `HESTIA_HOST` / `HESTIA_TOKEN` | API de HestiaCP |
 | `PROXMOX_HOST` / `PROXMOX_USER` / `PROXMOX_PASSWORD` | API de Proxmox |
-| `NAMECHEAP_API_KEY` / `NAMECHEAP_USERNAME` | Namecheap API |
-| `CLOUDFLARE_TOKEN` / `CLOUDFLARE_ZONE_ID` | Cloudflare API |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ZONE_ID` | Cloudflare API (DNS) |
 | `FACTURAMA_USER` / `FACTURAMA_PASSWORD` | Facturama (CFDI) |
 | `SENDGRID_API_KEY` | SendGrid correo transaccional |
 | `REVERB_APP_ID` / `REVERB_APP_KEY` / `REVERB_APP_SECRET` | Laravel Reverb WebSockets |
@@ -127,7 +128,7 @@ php artisan queue:work redis  # Colas
 
 ## Visión general
 
-El backend sigue una arquitectura **MVC clásica de Laravel** con capas de servicio para las integraciones externas. El sistema orquesta múltiples proveedores de infraestructura (Pterodactyl, HestiaCP, Proxmox, Namecheap, Cloudflare) bajo una API REST unificada, con autenticación stateful via cookies Sanctum y notificaciones en tiempo real por WebSockets (Reverb).
+El backend sigue una arquitectura **MVC clásica de Laravel** con capas de servicio para las integraciones externas. El sistema orquesta múltiples proveedores de infraestructura (Pterodactyl, Coolify, Proxmox, Cloudflare) bajo una API REST unificada, con autenticación stateful via cookies Sanctum y notificaciones en tiempo real por WebSockets (Reverb).
 
 ---
 
@@ -356,10 +357,12 @@ Frontend obtiene id_token de Google
   5. Si falla el timbrado: admin puede reintentar via `/admin/cfdi/{id}/retry`
   6. Cancelación: `/admin/cfdi/{id}/cancel` → cancela ante el SAT
 
-### Namecheap
+### Cloudflare (DNS)
 
-- **Propósito:** Registro y gestión de dominios.
-- **Operaciones:** Verificar disponibilidad, registrar, renovar, transferir.
+- **Propósito:** DNS autoritativo y protección para dominios de clientes.
+- **Arquitectura registrar-agnóstica:** Los clientes traen sus dominios de cualquier registrador (GoDaddy, Porkbun, Hostinger, etc.). ROKE no compra ni transfiere dominios automáticamente.
+- **Flujo:** cliente agrega dominio → verificación TXT → cliente apunta nameservers/CNAME/A a Cloudflare → DNS automático → SSL automático.
+- **Operaciones:** Registros A, AAAA, CNAME, MX, TXT, SRV; proxy CDN; gestión de zonas.
 
 ### Cloudflare
 
@@ -425,8 +428,8 @@ Comando para procesar: `php artisan queue:work redis --queue=emails,notification
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                    Service Layer                          │  │
-│  │  PterodactylService  HestiaService  ProxmoxService       │  │
-│  │  StripeService       FacturamaService  NamecheapService  │  │
+│  │  PterodactylService  CoolifyService   ProxmoxService      │  │
+│  │  StripeService       FacturamaService  MailcowService    │  │
 │  │  CloudflareService   SendGridService                     │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────┬────────────────────────────────────┘

@@ -2,7 +2,7 @@
 
 ## Visión general
 
-El backend sigue una arquitectura **MVC clásica de Laravel** con capas de servicio para las integraciones externas. El sistema orquesta múltiples proveedores de infraestructura (Pterodactyl, HestiaCP, Proxmox, Namecheap, Cloudflare) bajo una API REST unificada, con autenticación stateful via cookies Sanctum y notificaciones en tiempo real por WebSockets (Reverb).
+El backend sigue una arquitectura **MVC clásica de Laravel** con capas de servicio para las integraciones externas. El sistema orquesta múltiples proveedores de infraestructura (Pterodactyl, Coolify, Proxmox, Cloudflare) bajo una API REST unificada, con autenticación stateful via cookies Sanctum y notificaciones en tiempo real por WebSockets (Reverb).
 
 ---
 
@@ -231,15 +231,13 @@ Frontend obtiene id_token de Google
   5. Si falla el timbrado: admin puede reintentar via `/admin/cfdi/{id}/retry`
   6. Cancelación: `/admin/cfdi/{id}/cancel` → cancela ante el SAT
 
-### Namecheap
-
-- **Propósito:** Registro y gestión de dominios.
-- **Operaciones:** Verificar disponibilidad, registrar, renovar, transferir.
-
 ### Cloudflare
 
-- **Propósito:** DNS y protección para dominios de clientes.
-- **Operaciones:** Crear/actualizar registros DNS, gestionar zonas.
+- **Propósito:** DNS autoritativo y protección para dominios de clientes.
+- **Arquitectura:** Los dominios son registrados por los clientes en **cualquier registrador** (GoDaddy, Porkbun, Hostinger, Namecheap, etc.). ROKE **no compra dominios** automáticamente. El cliente importa su dominio, ROKE verifica ownership con un reto TXT, y luego gestiona el DNS vía Cloudflare API.
+- **Operaciones:** Crear/actualizar/eliminar registros DNS (A, AAAA, CNAME, MX, TXT, SRV), gestionar zonas, proxy CDN.
+- **Verificación de ownership:** El backend genera un token `roke-verify=<random>` que el cliente publica como registro TXT en su registrador. Una vez propagado, `dns_get_record()` confirma la verificación.
+- **Game servers:** Los registros SRV de Minecraft y A records de Bedrock se crean automáticamente al aprovisionar un servidor.
 
 ### SendGrid
 
@@ -300,8 +298,8 @@ Comando para procesar: `php artisan queue:work redis --queue=emails,notification
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                    Service Layer                          │  │
-│  │  PterodactylService  HestiaService  ProxmoxService       │  │
-│  │  StripeService       FacturamaService  NamecheapService  │  │
+│  │  PterodactylService  CoolifyService   ProxmoxService      │  │
+│  │  StripeService       FacturamaService                    │  │
 │  │  CloudflareService   SendGridService                     │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────┬────────────────────────────────────┘

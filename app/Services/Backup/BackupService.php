@@ -316,6 +316,7 @@ class BackupService
         $conn = $opts['conn']
             ?? $backup->service?->connection_details
             ?? [];
+        $secrets = $backup->service?->connection_secrets ?? [];
 
         $dbName = $conn['db_name'] ?? null;
         if (!$dbName) {
@@ -344,7 +345,7 @@ class BackupService
             'host'     => $host,
             'port'     => $port,
             'username' => $conn['db_user'] ?? '',
-            'password' => $conn['db_password'] ?? '',
+            'password' => $secrets['db_password'] ?? $conn['db_password'] ?? '',
             'database' => $dbName,
         ], $sqlFile);
 

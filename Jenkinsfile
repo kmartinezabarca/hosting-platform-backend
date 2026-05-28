@@ -80,7 +80,8 @@ pipeline {
     parameters {
         choice(name: 'DEPLOY_ENV', choices: ['none', 'staging', 'production'])
         booleanParam(name: 'RUN_MIGRATIONS', defaultValue: true)
-        booleanParam(name: 'RUN_TESTS', defaultValue: false)
+        booleanParam(name: 'RUN_TESTS', defaultValue: true)
+        string(name: 'COVERAGE_MIN', defaultValue: '35', description: 'Cobertura minima de lineas para permitir deploy')
         booleanParam(name: 'KEEP_RELEASES', defaultValue: true)
     }
 
@@ -116,7 +117,7 @@ pipeline {
             steps {
                 sh '''
                     rm -rf vendor
-                    if [ "${DEPLOY_ENV}" = "production" ]; then
+                    if [ "${DEPLOY_ENV}" = "production" ] && [ "${RUN_TESTS}" != "true" ]; then
                         composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
                     else
                         composer install --no-scripts --optimize-autoloader --prefer-dist
@@ -128,7 +129,14 @@ pipeline {
         stage('Tests') {
             when { expression { params.RUN_TESTS } }
             steps {
-                sh './vendor/bin/phpunit || true'
+                sh '''
+                    mkdir -p build/logs build/coverage
+                    XDEBUG_MODE=coverage ./vendor/bin/phpunit \
+                        --log-junit build/logs/junit.xml \
+                        --coverage-clover build/coverage/clover.xml \
+                        --coverage-cobertura build/coverage/cobertura.xml
+                    php scripts/ci/check-coverage.php build/coverage/clover.xml "${COVERAGE_MIN}"
+                '''
             }
         }
 
@@ -239,6 +247,7 @@ REMOTE
                         ln -sf ${prodPath}/shared/.env "\$RELEASE_DIR/.env"
 
                         cd "\$RELEASE_DIR"
+                        composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
                         php artisan config:clear
                         php artisan migrate --force --no-interaction
                         php artisan config:cache
@@ -257,6 +266,11 @@ REMOTE
     }
 
     post {
+        always {
+            junit allowEmptyResults: true, testResults: 'build/logs/junit.xml'
+            archiveArtifacts allowEmptyArchive: true, artifacts: 'build/logs/*.xml, build/coverage/*.xml'
+        }
+
         success {
             script {
                 notify("SUCCESS")

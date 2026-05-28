@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Common;
 
 use App\Http\Controllers\Controller;
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\Service;
 use App\Models\Subscription;
 use App\Models\Transaction;
@@ -86,9 +86,9 @@ class StripeWebhookController extends Controller
 
                 // Mark the linked invoice paid
                 $invoice = $transaction->invoice;
-                if ($invoice && $invoice->status !== Invoice::STATUS_PAID) {
+                if ($invoice && $invoice->status !== Receipt::STATUS_PAID) {
                     $invoice->update([
-                        'status'  => Invoice::STATUS_PAID,
+                        'status'  => Receipt::STATUS_PAID,
                         'paid_at' => now(),
                     ]);
                 }

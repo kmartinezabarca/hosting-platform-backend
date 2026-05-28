@@ -48,7 +48,7 @@ class Transaction extends Model
      */
     public function invoice()
     {
-        return $this->belongsTo(Invoice::class);
+        return $this->belongsTo(Receipt::class, 'invoice_id');
     }
 
     /**
@@ -164,4 +164,3 @@ class Transaction extends Model
         return $query->where('type', 'refund');
     }
 }
-

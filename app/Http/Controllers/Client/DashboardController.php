@@ -7,7 +7,9 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ActivityLog;
 use App\Models\Service;
+use App\Models\ServiceMetric;
 use App\Models\SystemStatus;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserSession;
 use Illuminate\Support\Facades\Auth;
@@ -115,7 +117,149 @@ class DashboardController extends Controller
                 $systemStatus = 'degraded';
             }
 
-            // --- 6. Datos para Gráficos ---
+            // --- 6. Tickets abiertos ---
+            $openTickets = Ticket::where('user_id', $user->id)
+                ->whereIn('status', ['open', 'in_progress', 'pending', 'waiting_customer'])
+                ->count();
+
+            // --- 7. Fleet breakdown por tipo de categoría ---
+            $userServicesWithPlan = Service::where('user_id', $user->id)
+                ->with('plan.category')
+                ->get();
+
+            $fleetTypes = ['game_server' => 0, 'hosting' => 0, 'vps' => 0, 'other' => 0];
+            foreach ($userServicesWithPlan as $svc) {
+                $slug = $svc->plan?->category?->slug ?? '';
+                if ($slug === 'game-servers' || $slug === 'gameserver') {
+                    $fleetTypes['game_server']++;
+                } elseif (in_array($slug, ['hosting', 'shared-hosting', 'web-hosting'])) {
+                    $fleetTypes['hosting']++;
+                } elseif (in_array($slug, ['vps', 'dedicated', 'cloud'])) {
+                    $fleetTypes['vps']++;
+                } else {
+                    $fleetTypes['other']++;
+                }
+            }
+
+            // --- 8. CPU y red promedio desde ServiceMetric (últimas muestras por servicio) ---
+            $userServiceIds = Service::where('user_id', $user->id)->pluck('id');
+            $cpuAvg   = 0;
+            $netTxMbps = 0.0;
+            if ($userServiceIds->isNotEmpty()) {
+                // Latest metric per service_id
+                $latestMetrics = ServiceMetric::whereIn('service_id', $userServiceIds)
+                    ->select('service_id', DB::raw('MAX(sampled_at) as latest_at'))
+                    ->groupBy('service_id')
+                    ->get();
+
+                $cpuValues  = [];
+                $netTxTotal = 0.0;
+
+                foreach ($latestMetrics as $lm) {
+                    $metric = ServiceMetric::where('service_id', $lm->service_id)
+                        ->where('sampled_at', $lm->latest_at)
+                        ->first();
+                    if ($metric) {
+                        $cpuValues[] = $metric->cpu_percent ?? 0;
+                        // Approximate TX rate: divide cumulative bytes by sample interval (5 min) to get Mbps
+                        $netTxTotal += ($metric->network_tx_bytes ?? 0) / 300 / 125000;
+                    }
+                }
+                $cpuAvg    = count($cpuValues) > 0 ? round(array_sum($cpuValues) / count($cpuValues)) : 0;
+                $netTxMbps = round($netTxTotal, 1);
+            }
+
+            // --- 9. Alertas por servicio (servicios que no están activos o próximos a vencer) ---
+            $alerts = [];
+            $attentionServices = Service::where('user_id', $user->id)
+                ->with('plan')
+                ->whereNotIn('status', ['active'])
+                ->limit(5)
+                ->get();
+
+            foreach ($attentionServices as $svc) {
+                $issue = match ($svc->status) {
+                    'pending'     => 'Aprovisionando',
+                    'suspended'   => 'Suspendido',
+                    'maintenance' => 'En mantenimiento',
+                    'failed'      => 'Error de servicio',
+                    default       => ucfirst($svc->status),
+                };
+                $alerts[] = [
+                    'service_uuid' => $svc->uuid,
+                    'service_name' => $svc->name ?: ($svc->plan->name ?? 'Servicio'),
+                    'issue'        => $issue,
+                    'tone'         => in_array($svc->status, ['failed', 'suspended']) ? 'critical' : 'warning',
+                ];
+            }
+
+            // Servicios que vencen pronto (< 7 días)
+            $expiringSoon = Service::where('user_id', $user->id)
+                ->whereIn('status', ['active'])
+                ->whereNotNull('next_due_date')
+                ->where('next_due_date', '<=', now()->addDays(7))
+                ->with('plan')
+                ->limit(3)
+                ->get();
+
+            foreach ($expiringSoon as $svc) {
+                $daysLeft = now()->diffInDays($svc->next_due_date, false);
+                $already  = in_array($svc->uuid, array_column($alerts, 'service_uuid'));
+                if (!$already && $daysLeft >= 0) {
+                    $alerts[] = [
+                        'service_uuid' => $svc->uuid,
+                        'service_name' => $svc->name ?: ($svc->plan->name ?? 'Servicio'),
+                        'issue'        => "Vence en {$daysLeft} día" . ($daysLeft !== 1 ? 's' : ''),
+                        'tone'         => 'warning',
+                    ];
+                }
+            }
+
+            // Servicios con CPU alta (> 80%) desde ServiceMetric reciente
+            $highCpuMetrics = ServiceMetric::whereIn('service_id', $userServiceIds)
+                ->where('cpu_percent', '>', 80)
+                ->where('sampled_at', '>=', now()->subMinutes(60))
+                ->with('service.plan')
+                ->orderByDesc('cpu_percent')
+                ->limit(3)
+                ->get();
+
+            foreach ($highCpuMetrics as $m) {
+                $svc = $m->service;
+                if (!$svc) continue;
+                $already = in_array($svc->uuid, array_column($alerts, 'service_uuid'));
+                if (!$already) {
+                    $cpu = round($m->cpu_percent);
+                    // How long has it been high? (within last hour)
+                    $sinceMinutes = now()->diffInMinutes($m->sampled_at);
+                    $alerts[] = [
+                        'service_uuid' => $svc->uuid,
+                        'service_name' => $svc->name ?: ($svc->plan->name ?? 'Servicio'),
+                        'issue'        => "CPU > {$cpu}% por {$sinceMinutes} min",
+                        'tone'         => 'warning',
+                    ];
+                }
+            }
+
+            // --- 10. Próxima facturación ---
+            $nextBillingService = Service::where('user_id', $user->id)
+                ->whereIn('status', ['active'])
+                ->whereNotNull('next_due_date')
+                ->orderBy('next_due_date')
+                ->with('plan')
+                ->first();
+
+            $nextBilling = null;
+            if ($nextBillingService) {
+                $nextBilling = [
+                    'date'         => $nextBillingService->next_due_date?->toIso8601String(),
+                    'date_label'   => $nextBillingService->next_due_date?->isoFormat('D MMM'),
+                    'amount'       => (float) $nextBillingService->price,
+                    'service_name' => $nextBillingService->name ?: ($nextBillingService->plan->name ?? 'Servicio'),
+                ];
+            }
+
+            // --- 11. Datos para Gráficos ---
 
             // Historial de gasto de los últimos 12 meses
             $billingHistory = Service::where('user_id', $user->id)
@@ -144,34 +288,42 @@ class DashboardController extends Controller
                 'success' => true,
                 'data' => [
                     'services' => [
-                        'total' => $totalServices,
-                        'active' => $activeServices,
+                        'total'       => $totalServices,
+                        'active'      => $activeServices,
                         'maintenance' => $maintenanceServices,
-                        'suspended' => $suspendedServices,
-                        'trend' => $serviceTrend > 0 ? $serviceTrend : null,
+                        'suspended'   => $suspendedServices,
+                        'trend'       => $serviceTrend > 0 ? $serviceTrend : null,
                     ],
+                    'open_tickets' => $openTickets,
                     'domains' => [
-                        'total' => $totalDomains,
-                        'active' => $activeDomains,
+                        'total'   => $totalDomains,
+                        'active'  => $activeDomains,
                         'pending' => $pendingDomains,
-                        'trend' => null,
+                        'trend'   => null,
                     ],
                     'billing' => [
                         'monthly_spend' => number_format($monthlySpend, 2),
-                        'currency' => 'MXN',
-                        'cycle' => 'Mensual',
-                        'trend' => $billingTrend !== 0 ? $billingTrend : null,
+                        'currency'      => 'MXN',
+                        'cycle'         => 'Mensual',
+                        'trend'         => $billingTrend !== 0 ? $billingTrend : null,
                     ],
                     'performance' => [
-                        'uptime' => $performanceUptime,
+                        'uptime'         => $performanceUptime,
                         'uptime_history' => $uptimeHistory,
                     ],
+                    'fleet' => [
+                        'types'        => $fleetTypes,
+                        'cpu_avg'      => $cpuAvg,
+                        'net_tx_mbps'  => $netTxMbps,
+                    ],
+                    'alerts'       => array_values($alerts),
+                    'next_billing' => $nextBilling,
                     'system_status' => $systemStatus,
                     'charts' => [
-                        'billing_history' => $billingChartData,
+                        'billing_history'      => $billingChartData,
                         'service_distribution' => array_values(array_filter($serviceDistributionChartData)),
-                    ]
-                ]
+                    ],
+                ],
             ]);
         } catch (\Exception $e) {
             // Logueo de errores profesional para depuración
@@ -193,15 +345,67 @@ class DashboardController extends Controller
             }
 
             // Eager-load del plan y la categoría para evitar N+1.
-            $services = Service::where('user_id', $user->id)
+            $servicesList = Service::where('user_id', $user->id)
                 ->with(['plan.category'])
                 ->latest()
-                ->limit(4)
-                ->get()
-                ->map(function ($service) {
+                ->limit(8)
+                ->get();
+
+            $serviceIds = $servicesList->pluck('id');
+
+            // ── ONE query: pull all recent metrics for these services ─────────
+            // Covers last 24 h (288 samples @5-min interval × 8 services = ~2 304 rows max).
+            // We derive three things from this single collection:
+            //   1. Latest snapshot per service  → cpu, ram, state
+            //   2. Uptime %                     → running_samples / total_samples (24 h)
+            //   3. Sparkline                    → last 15 cpu_percent values (chronological)
+            $recentMetrics = $serviceIds->isNotEmpty()
+                ? ServiceMetric::whereIn('service_id', $serviceIds)
+                    ->where('sampled_at', '>=', now()->subHours(24))
+                    ->select('service_id', 'cpu_percent', 'memory_bytes', 'memory_limit_bytes',
+                             'disk_bytes', 'disk_limit_bytes', 'network_rx_bytes', 'network_tx_bytes',
+                             'state', 'sampled_at')
+                    ->orderBy('sampled_at')   // asc so last() gives newest
+                    ->get()
+                    ->groupBy('service_id')
+                : collect();
+
+            // Latest snapshot per service (last element after asc sort)
+            $latestMetrics = $recentMetrics->map(fn($rows) => $rows->last());
+
+            // Uptime % per service: fraction of 24-h samples where state = 'running'
+            $uptimePctPerService = $recentMetrics->map(function ($rows) {
+                $total   = $rows->count();
+                if ($total === 0) return null;
+                $running = $rows->where('state', 'running')->count();
+                return round(($running / $total) * 100, 2);
+            });
+
+            // Sparkline: last 15 cpu_percent values (already ordered asc → just take last 15)
+            $allSparklines = $recentMetrics->map(
+                fn($rows) => $rows->takeLast(15)
+                    ->pluck('cpu_percent')
+                    ->map(fn($v) => round((float) $v))
+                    ->values()
+                    ->toArray()
+            );
+
+            $services = $servicesList->map(function ($service) use ($latestMetrics, $allSparklines, $uptimePctPerService) {
                     $plan      = $service->plan;
                     $category  = $plan?->category;
                     $conn      = is_array($service->connection_details) ? $service->connection_details : [];
+                    $slug      = $category?->slug ?? '';
+
+                    // Normalise category slug → frontend type key
+                    $typeKey = match (true) {
+                        in_array($slug, ['game-servers', 'gameserver', 'game_server']) => 'game_server',
+                        in_array($slug, ['hosting', 'shared-hosting', 'web-hosting', 'shared_hosting']) => 'hosting',
+                        in_array($slug, ['vps', 'vps-hosting'])   => 'vps',
+                        in_array($slug, ['dedicated', 'bare-metal']) => 'dedicated',
+                        in_array($slug, ['database', 'databases']) => 'database',
+                        in_array($slug, ['domain', 'domains'])     => 'domain',
+                        default                                    => 'hosting',
+                    };
 
                     // El servicio puede traer métricas live en `service->metrics` si el job de polling
                     // las dejó cacheadas, o en `connection_details->metrics` para hosting.
@@ -223,22 +427,86 @@ class DashboardController extends Controller
                         ];
                     }
 
+                    // Computed uptime from 24-h ServiceMetric snapshots (no schema change needed)
+                    $computedUptime = $uptimePctPerService->get($service->id); // float|null
+
+                    // Fallback: pull last cached metric from ServiceMetric table (pre-fetched)
+                    if (!$metrics || ($metrics['cpu'] === null && $metrics['ram'] === null)) {
+                        $lastMetric = $latestMetrics->get($service->id);
+                        if ($lastMetric) {
+                            $ramSpec   = data_get($plan?->specifications, 'ram')
+                                ?? data_get($plan?->specifications, 'memory')
+                                ?? null;
+                            $ramMb     = $this->parseRamMb($ramSpec);
+                            $memBytes  = (int) ($lastMetric->memory_bytes ?? 0);
+                            $memLimit  = (int) ($lastMetric->memory_limit_bytes ?? 0);
+                            // Prefer limit bytes for accurate %; fall back to plan spec
+                            if ($memLimit > 0) {
+                                $ramPct = round(($memBytes / $memLimit) * 100);
+                            } elseif ($ramMb > 0 && $memBytes > 0) {
+                                $ramPct = round(($memBytes / 1024 / 1024 / $ramMb) * 100);
+                            } else {
+                                $ramPct = null;
+                            }
+                            $metrics = array_merge($metrics ?? [], [
+                                'cpu'        => $lastMetric->cpu_percent !== null ? round($lastMetric->cpu_percent) : null,
+                                'ram'        => $ramPct,
+                                'ram_human'  => $memBytes > 0
+                                    ? round($memBytes / 1024 / 1024) . ' MB'
+                                    : null,
+                                'players'    => $metrics['players'] ?? null,
+                                'visits'     => $metrics['visits']  ?? null,
+                                'uptime_pct' => $computedUptime,   // ← real value, never null when data exists
+                            ]);
+                        }
+                    } else {
+                        // Even if REST-cache metrics exist, override uptime with computed value when available
+                        if ($computedUptime !== null) {
+                            $metrics['uptime_pct'] = $computedUptime;
+                        }
+                    }
+
+                    // Sparkline: 15 CPU samples (oldest → newest) — pre-fetched
+                    $sparkline = $allSparklines->get($service->id, []);
+
+                    $isGameServer = $service->isGameServer();
+                    $ramSpec      = data_get($plan?->specifications, 'ram')
+                        ?? data_get($plan?->specifications, 'memory')
+                        ?? data_get($plan?->specifications, 'ram_gb');
+
+                    // Max players: from connection_details or plan specifications
+                    $maxPlayers = data_get($conn, 'max_players')
+                        ?? data_get($plan?->specifications, 'max_players')
+                        ?? data_get($plan?->specifications, 'players')
+                        ?? $service->max_players
+                        ?? null;
+
+                    // Next billing date in ISO format for frontend formatting
+                    $nextBillingDate = $service->next_due_date?->toDateString() ?? null;
+
                     return [
-                        'uuid'          => $service->uuid,
-                        'category_slug' => $category?->slug,
-                        'name'          => $service->name ?: ($plan->name ?? 'Servicio'),
-                        'plan_name'     => $plan->name ?? null,
-                        'software'      => data_get($conn, 'software') ?? data_get($plan?->specifications, 'software'),
-                        'type'          => $category?->name ?? 'Servicio',
-                        'status'        => $service->status,
-                        'plan'          => $plan->description ?? null,
-                        'price'         => '$' . number_format($service->price, 2) . '/' . $service->billing_cycle,
-                        'next_billing'  => optional($service->next_due_date)->isoFormat('D MMM, YYYY'),
-                        'created_at'    => $service->created_at->isoFormat('D MMM, YYYY'),
-                        'specs'         => $plan?->specifications,
-                        'domain'        => data_get($conn, 'display') ?? data_get($conn, 'fqdn') ?? $service->name,
-                        'ip'            => data_get($conn, 'server_ip') ?? data_get($conn, 'ip_address') ?? null,
-                        'metrics'       => $metrics,
+                        'uuid'              => $service->uuid,
+                        'category_slug'     => $slug,
+                        'name'              => $service->name ?: ($plan->name ?? 'Servicio'),
+                        'plan_name'         => $plan->name ?? null,
+                        'software'          => data_get($conn, 'software') ?? data_get($plan?->specifications, 'software'),
+                        'type'              => $typeKey,
+                        'status'            => $service->status,
+                        'is_game_server'    => $isGameServer,
+                        'ram_spec'          => $ramSpec ? (string) $ramSpec : null,
+                        'plan'              => $plan ? [
+                            'name'          => $plan->name,
+                            'price'         => (float) $service->price,
+                            'billing_cycle' => $service->billing_cycle,
+                        ] : null,
+                        'next_billing_date' => $nextBillingDate,
+                        'created_at'        => $service->created_at->isoFormat('D MMM, YYYY'),
+                        'specs'             => $plan?->specifications,
+                        'domain'            => data_get($conn, 'display') ?? data_get($conn, 'fqdn') ?? $service->name,
+                        'ip'                => data_get($conn, 'server_ip') ?? data_get($conn, 'ip_address') ?? null,
+                        'max_players'       => $maxPlayers ? (int) $maxPlayers : null,
+                        'metrics'           => $metrics,
+                        'sparkline'         => $sparkline,
                     ];
                 });
 
@@ -256,6 +524,20 @@ class DashboardController extends Controller
                 'message' => 'An unexpected error occurred.' // No exponer el mensaje de error real al cliente
             ], 500);
         }
+    }
+
+    /**
+     * Parse a RAM spec string like "4 GB", "512 MB", "2GB" into MB.
+     */
+    private function parseRamMb(mixed $spec): int
+    {
+        if (!$spec) return 0;
+        $s   = strtolower(trim((string) $spec));
+        $num = (float) preg_replace('/[^0-9.]/', '', $s);
+        if ($num <= 0) return 0;
+        if (str_contains($s, 'tb')) return (int) ($num * 1024 * 1024);
+        if (str_contains($s, 'gb')) return (int) ($num * 1024);
+        return (int) $num; // assume MB
     }
 
     /**
@@ -318,12 +600,13 @@ class DashboardController extends Controller
                 $when = $a->occurred_at ?: $a->created_at;
 
                 return [
-                    'id'      => $a->id,
-                    'action'  => $a->action,
-                    'service' => $a->service,
-                    'time'    => $when?->diffForHumans(),  // "2 hours ago"
-                    'type'    => $a->type,
-                    'meta'    => $a->meta,
+                    'id'          => $a->id,
+                    'type'        => $a->type,
+                    'action'      => $a->action,
+                    'description' => $a->action,
+                    'service'     => $a->service,
+                    'meta'        => $a->meta,
+                    'created_at'  => $when?->toIso8601String(),
                 ];
             });
 

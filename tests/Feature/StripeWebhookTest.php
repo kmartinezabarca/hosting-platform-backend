@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Notifications\PaymentNotification;
@@ -64,7 +64,7 @@ class StripeWebhookTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $invoice = Invoice::factory()->create([
+        $invoice = Receipt::factory()->create([
             'user_id' => $user->id,
             'status'  => 'sent',   // valid ENUM: draft|sent|processing|paid|overdue|cancelled|refunded
         ]);
@@ -86,9 +86,9 @@ class StripeWebhookTest extends TestCase
             'status' => 'completed',
         ]);
 
-        $this->assertDatabaseHas('invoices', [
+        $this->assertDatabaseHas('receipts', [
             'id'     => $invoice->id,
-            'status' => Invoice::STATUS_PAID,
+            'status' => Receipt::STATUS_PAID,
         ]);
     }
 

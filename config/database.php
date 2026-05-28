@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Str;
 
+$isTesting = env('APP_ENV') === 'testing';
+
 return [
 
     /*
@@ -80,11 +82,11 @@ return [
 
         'roke_pet' => [
             'driver'    => 'mysql',
-            'host'      => env('ROKEPET_DB_HOST', '127.0.0.1'),
-            'port'      => env('ROKEPET_DB_PORT', '3306'),
-            'database'  => env('ROKEPET_DB_DATABASE', 'roke_pet'),
-            'username'  => env('ROKEPET_DB_USERNAME', 'forge'),
-            'password'  => env('ROKEPET_DB_PASSWORD', ''),
+            'host'      => $isTesting ? env('DB_HOST', '127.0.0.1') : env('ROKEPET_DB_HOST', '127.0.0.1'),
+            'port'      => $isTesting ? env('DB_PORT', '3306') : env('ROKEPET_DB_PORT', '3306'),
+            'database'  => $isTesting ? env('DB_DATABASE', 'forge') : env('ROKEPET_DB_DATABASE', 'roke_pet'),
+            'username'  => $isTesting ? env('DB_USERNAME', 'forge') : env('ROKEPET_DB_USERNAME', 'forge'),
+            'password'  => $isTesting ? env('DB_PASSWORD', '') : env('ROKEPET_DB_PASSWORD', ''),
             'charset'   => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
             'prefix'    => '',

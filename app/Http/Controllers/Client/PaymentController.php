@@ -248,6 +248,17 @@ class PaymentController extends Controller
                 ->where('uuid', $uuid)
                 ->firstOrFail();
 
+            $activeMethodsCount = PaymentMethod::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->count();
+
+            if ($paymentMethod->is_default && $activeMethodsCount <= 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No puedes eliminar tu único método de pago predeterminado.',
+                ], 422);
+            }
+
             $this->paymentService->detachPaymentMethod($paymentMethod);
 
             ActivityLog::record(

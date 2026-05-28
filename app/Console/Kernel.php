@@ -81,6 +81,31 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/service-metrics.log'));
+
+        // Sincronización de runtime status (Pterodactyl / Coolify) → live_status / live_metrics.
+        // Corre cada minuto para que la UI muestre el estado real con baja latencia.
+        $schedule->command('services:sync-status')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/service-status-sync.log'));
+
+        // Alertas de vencimiento de dominios.
+        // Notifica a los clientes a los 30, 15 y 7 días antes del vencimiento.
+        // También marca como 'expired' los dominios cuya fecha ya pasó.
+        $schedule->command('domains:send-expiry-alerts')
+            ->dailyAt('09:00')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/domain-expiry.log'));
+
+        // Verificación diaria de certificados SSL de todos los servicios de hosting activos.
+        // Actualiza la tabla ssl_certificates y envía alertas a los 30, 15 y 7 días.
+        $schedule->command('ssl:check-certificates')
+            ->dailyAt('08:00')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/ssl-check.log'));
     }
 
     /**

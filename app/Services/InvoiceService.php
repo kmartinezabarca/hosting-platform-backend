@@ -76,11 +76,21 @@ class InvoiceService
     public function getStatsForUser(int $userId): array
     {
         $base = fn() => Receipt::where('user_id', $userId);
+        $paidBase = fn() => $base()->where('status', 'paid');
 
         // Total realmente FACTURADO = recibos del usuario que ya tienen
         // su CFDI timbrado (factura fiscal emitida).
         $invoicedAmount = $base()
             ->whereHas('invoice', fn ($q) => $q->where('cfdi_status', 'stamped'))
+            ->sum('total');
+
+        $now = now();
+        $totalPaidYear = $paidBase()
+            ->whereBetween(DB::raw('COALESCE(paid_at, created_at)'), [$now->copy()->startOfYear(), $now->copy()->endOfYear()])
+            ->sum('total');
+
+        $totalPaidMonth = $paidBase()
+            ->whereBetween(DB::raw('COALESCE(paid_at, created_at)'), [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()])
             ->sum('total');
 
         $stampedCount = \App\Models\Invoice::whereHas('receipt', fn ($q) => $q->where('user_id', $userId))
@@ -98,6 +108,8 @@ class InvoiceService
             'pending_amount'   => $base()->whereIn('status', ['draft', 'sent', 'overdue'])->sum('total'),
             // Alias claros + métrica fiscal real
             'total_paid'       => $base()->where('status', 'paid')->sum('total'),
+            'total_paid_year'  => $totalPaidYear,
+            'total_paid_month' => $totalPaidMonth,
             'total_invoiced'   => $invoicedAmount,   // solo CFDI timbrados
             'stamped_count'    => $stampedCount,
         ];

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\Service;
-use App\Services\BusinessEmail\MailcowService;
 use App\Services\CloudflareService;
 use App\Services\Coolify\CoolifyService;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +15,6 @@ class HostingController extends Controller
 {
     public function __construct(
         private readonly CoolifyService    $coolify,
-        private readonly MailcowService    $mailcow,
         private readonly CloudflareService $cloudflare,
     ) {}
 
@@ -85,13 +83,14 @@ class HostingController extends Controller
     {
         $service = $this->hostingService($uuid);
         $conn    = $service->connection_details ?? [];
+        $secrets = $service->connection_secrets ?? [];
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:32', 'regex:/^[a-zA-Z0-9_]+$/'],
             'type' => ['sometimes', 'string', 'in:mariadb,mysql,postgresql'],
         ]);
 
-        return $this->coolifyResponse(function () use ($service, $conn, $validated) {
+        return $this->coolifyResponse(function () use ($service, $conn, $secrets, $validated) {
             $db = $this->coolify->createDatabase([
                 'project_uuid' => $conn['coolify_project_uuid'],
                 'server_uuid'  => config('coolify.server_uuid'),
@@ -105,8 +104,10 @@ class HostingController extends Controller
                     'coolify_db_uuid' => $db['uuid'],
                     'db_name'         => $db['_db_name'],
                     'db_user'         => $db['_db_user'],
-                    'db_password'     => $db['_db_password'],
                     'db_type'         => $db['_db_type'],
+                ]),
+                'connection_secrets' => array_merge($secrets, [
+                    'db_password' => $db['_db_password'],
                 ]),
             ]);
 
@@ -123,9 +124,10 @@ class HostingController extends Controller
     {
         $service = $this->hostingService($uuid);
         $conn    = $service->connection_details ?? [];
+        $secrets = $service->connection_secrets ?? [];
         $target  = rawurldecode($dbUuid);
 
-        return $this->coolifyResponse(function () use ($service, $conn, $target) {
+        return $this->coolifyResponse(function () use ($service, $conn, $secrets, $target) {
             $this->coolify->deleteDatabase($target);
 
             // Limpiar connection_details si era la DB principal
@@ -135,8 +137,10 @@ class HostingController extends Controller
                         'coolify_db_uuid' => null,
                         'db_name'         => null,
                         'db_user'         => null,
-                        'db_password'     => null,
                         'db_type'         => null,
+                    ]),
+                    'connection_secrets' => array_merge($secrets, [
+                        'db_password' => null,
                     ]),
                 ]);
             }
@@ -441,6 +445,7 @@ class HostingController extends Controller
     {
         $service = $this->hostingService($uuid);
         $conn    = $service->connection_details ?? [];
+        $secrets = $service->connection_secrets ?? [];
 
         return response()->json([
             'success' => true,
@@ -451,7 +456,7 @@ class HostingController extends Controller
                     'host'     => $conn['ftp_host'] ?? $conn['fqdn'] ?? null,
                     'port'     => $conn['ftp_port'] ?? 21,
                     'username' => $conn['ftp_user'] ?? null,
-                    'password' => $conn['ftp_password'] ?? null,
+                    'password' => $secrets['ftp_password'] ?? $conn['ftp_password'] ?? null,
                 ],
                 'sftp' => [
                     'host'     => $conn['sftp_host'] ?? $conn['fqdn'] ?? null,
@@ -462,158 +467,6 @@ class HostingController extends Controller
                 'note'      => 'Puedes gestionar tus archivos desde el panel de Coolify o mediante un cliente FTP como FileZilla.',
             ],
         ]);
-    }
-
-    // ── Correos empresariales ─────────────────────────────────────────────────
-
-    /**
-     * GET /hosting/{uuid}/emails
-     * Lista los buzones de correo del dominio del servicio.
-     */
-    public function emails(string $uuid): JsonResponse
-    {
-        $service = $this->hostingService($uuid);
-        $domain  = $this->emailDomain($service);
-
-        if (! $domain) {
-            return response()->json([
-                'success' => true,
-                'data'    => [
-                    'domain'    => null,
-                    'mailboxes' => [],
-                    'message'   => 'Agrega un dominio personalizado para activar los correos empresariales.',
-                ],
-            ]);
-        }
-
-        try {
-            $mailboxes = $this->mailcow->listMailboxes($domain);
-
-            return response()->json([
-                'success' => true,
-                'data'    => [
-                    'domain'    => $domain,
-                    'mailboxes' => $mailboxes,
-                    'total'     => count($mailboxes),
-                ],
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('HostingController: error listando correos', [
-                'service_id' => $service->id,
-                'domain'     => $domain,
-                'error'      => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo obtener el listado de correos. Intenta de nuevo.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 502);
-        }
-    }
-
-    /**
-     * POST /hosting/{uuid}/emails
-     * Crea un nuevo buzón de correo empresarial.
-     *
-     * Body: { local_part: "nombre", password: "...", quota_mb?: 500 }
-     */
-    public function createEmail(Request $request, string $uuid): JsonResponse
-    {
-        $service = $this->hostingService($uuid);
-        $domain  = $this->emailDomain($service);
-
-        if (! $domain) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Necesitas un dominio personalizado para crear correos empresariales.',
-            ], 422);
-        }
-
-        $validated = $request->validate([
-            'local_part' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9._+-]+$/'],
-            'password'   => ['required', 'string', 'min:8', 'max:128'],
-            'quota_mb'   => ['sometimes', 'integer', 'min:100', 'max:10240'],
-        ], [
-            'local_part.regex' => 'La parte local del correo solo puede contener letras, números, puntos, guiones y guiones bajos.',
-        ]);
-
-        $address = strtolower($validated['local_part']) . '@' . $domain;
-
-        try {
-            $mailbox = $this->mailcow->createMailbox(
-                $validated['local_part'],
-                $domain,
-                $validated['password'],
-                (int) ($validated['quota_mb'] ?? config('mailcow.default_quota_mb', 500))
-            );
-
-            return response()->json([
-                'success' => true,
-                'message' => "Correo {$address} creado exitosamente.",
-                'data'    => $mailbox,
-            ], 201);
-        } catch (\Throwable $e) {
-            Log::warning('HostingController: error creando correo', [
-                'service_id' => $service->id,
-                'address'    => $address,
-                'error'      => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo crear el correo. Verifica que la dirección no exista ya.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 422);
-        }
-    }
-
-    /**
-     * DELETE /hosting/{uuid}/emails/{account}
-     * Elimina un buzón de correo empresarial.
-     * {account} es la dirección completa codificada en URL (ej: info%40midominio.com).
-     */
-    public function deleteEmail(string $uuid, string $account): JsonResponse
-    {
-        $service = $this->hostingService($uuid);
-        $domain  = $this->emailDomain($service);
-        $address = rawurldecode($account);
-
-        if (! $domain) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Servicio sin dominio de correo configurado.',
-            ], 422);
-        }
-
-        // Validar que la dirección pertenece al dominio del servicio
-        if (! str_ends_with(strtolower($address), '@' . strtolower($domain))) {
-            return response()->json([
-                'success' => false,
-                'message' => 'La dirección de correo no pertenece al dominio de este servicio.',
-            ], 403);
-        }
-
-        try {
-            $this->mailcow->deleteMailbox($address);
-
-            return response()->json([
-                'success' => true,
-                'message' => "Correo {$address} eliminado.",
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('HostingController: error eliminando correo', [
-                'service_id' => $service->id,
-                'address'    => $address,
-                'error'      => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo eliminar el correo. Intenta de nuevo.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 502);
-        }
     }
 
     // ── WordPress manager ─────────────────────────────────────────────────────
@@ -746,120 +599,6 @@ class HostingController extends Controller
         }
     }
 
-    // ── Alias / Forwarders ────────────────────────────────────────────────────
-
-    /**
-     * GET /hosting/{uuid}/aliases
-     * Lista los alias de correo del dominio del servicio.
-     */
-    public function aliases(string $uuid): JsonResponse
-    {
-        $service = $this->hostingService($uuid);
-        $domain  = $this->emailDomain($service);
-
-        if (! $domain) {
-            return response()->json([
-                'success' => true,
-                'data'    => ['domain' => null, 'aliases' => [], 'message' => 'Sin dominio de correo configurado.'],
-            ]);
-        }
-
-        try {
-            $aliases = $this->mailcow->listAliases($domain);
-            return response()->json([
-                'success' => true,
-                'data'    => ['domain' => $domain, 'aliases' => $aliases],
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('HostingController: error listando aliases', [
-                'service_id' => $service->id, 'error' => $e->getMessage(),
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudieron cargar los alias. Intenta de nuevo.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 502);
-        }
-    }
-
-    /**
-     * POST /hosting/{uuid}/aliases
-     * Body: { address: "info", goto: "user@domain.com,ext@gmail.com" }
-     */
-    public function createAlias(Request $request, string $uuid): JsonResponse
-    {
-        $service = $this->hostingService($uuid);
-        $domain  = $this->emailDomain($service);
-
-        if (! $domain) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Servicio sin dominio de correo configurado.',
-            ], 422);
-        }
-
-        $validated = $request->validate([
-            'address' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9._+\-]+$/'],
-            'goto'    => ['required', 'string', 'max:1000'],
-        ]);
-
-        $fullAddress = strtolower($validated['address']) . '@' . strtolower($domain);
-        $gotoRaw     = $validated['goto'];
-
-        // Validate each destination address
-        $destinations = array_filter(array_map('trim', explode(',', $gotoRaw)));
-        if (empty($destinations)) {
-            return response()->json(['success' => false, 'message' => 'Debes indicar al menos una dirección destino.'], 422);
-        }
-        foreach ($destinations as $dest) {
-            if (! filter_var($dest, FILTER_VALIDATE_EMAIL)) {
-                return response()->json(['success' => false, 'message' => "Dirección destino inválida: {$dest}"], 422);
-            }
-        }
-
-        try {
-            $alias = $this->mailcow->createAlias($fullAddress, implode(',', $destinations));
-            return response()->json(['success' => true, 'data' => $alias], 201);
-        } catch (\Throwable $e) {
-            Log::warning('HostingController: error creando alias', [
-                'service_id' => $service->id, 'address' => $fullAddress, 'error' => $e->getMessage(),
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo crear el alias. ' . ($e->getMessage() ?: 'Intenta de nuevo.'),
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 502);
-        }
-    }
-
-    /**
-     * DELETE /hosting/{uuid}/aliases/{id}
-     * Elimina un alias por su ID numérico de Mailcow.
-     */
-    public function deleteAlias(string $uuid, int $id): JsonResponse
-    {
-        $service = $this->hostingService($uuid);
-        $domain  = $this->emailDomain($service);
-
-        if (! $domain) {
-            return response()->json(['success' => false, 'message' => 'Sin dominio de correo configurado.'], 422);
-        }
-
-        try {
-            $this->mailcow->deleteAlias($id);
-            return response()->json(['success' => true, 'message' => 'Alias eliminado.']);
-        } catch (\Throwable $e) {
-            Log::warning('HostingController: error eliminando alias', [
-                'service_id' => $service->id, 'alias_id' => $id, 'error' => $e->getMessage(),
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo eliminar el alias. Intenta de nuevo.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
-            ], 502);
-        }
-    }
-
     // ── Helpers privados ──────────────────────────────────────────────────────
 
     private function hostingService(string $uuid): Service
@@ -922,23 +661,6 @@ class HostingController extends Controller
         unset($details['db_password']);
 
         return $details;
-    }
-
-    /**
-     * Resuelve el dominio del servicio para gestión de correos.
-     * Prioridad: dominio personalizado > subdominio asignado.
-     */
-    private function emailDomain(Service $service): ?string
-    {
-        $conn = $service->connection_details ?? [];
-
-        $domain = $service->domain ?? $conn['domain'] ?? null;
-        if ($domain) {
-            return strtolower(trim($domain));
-        }
-
-        // Solo se proveen correos en dominios personalizados, no en subdominios *.rokeindustries.com
-        return null;
     }
 
     /**

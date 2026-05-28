@@ -11,14 +11,18 @@ class FrpService
 {
     private string $host;
     private string $user;
+    private string $localIp;
     private string $configPath;
+    private string $serviceName;
     private string $sshOptions;
 
     public function __construct()
     {
         $this->host        = (string) config('frp.host', '100.94.93.51');
         $this->user        = (string) config('frp.user', 'rokeryzen');
+        $this->localIp     = (string) config('frp.local_ip', '100.94.93.51');
         $this->configPath  = (string) config('frp.config_path', '/etc/frp/frpc.toml');
+        $this->serviceName = (string) config('frp.service_name', 'frpc');
         $this->sshOptions  = (string) config('frp.ssh_options', '-o StrictHostKeyChecking=no -o ConnectTimeout=5');
     }
 
@@ -34,7 +38,7 @@ class FrpService
                 return [
                     'name'       => $p['name'],
                     'type'       => $p['type'] ?? 'tcp',
-                    'localIP'    => $p['localIP'] ?? '100.94.93.51',
+                    'localIP'    => $p['localIP'] ?? $this->localIp,
                     'localPort'  => (int) $p['localPort'],
                     'remotePort' => (int) $p['remotePort'],
                 ];
@@ -61,7 +65,7 @@ class FrpService
             $proxies[] = [
                 'name'       => $proxyName,
                 'type'       => 'tcp',
-                'localIP'    => '100.94.93.51',
+                'localIP'    => $this->localIp,
                 'localPort'  => $port,
                 'remotePort' => $port,
             ];
@@ -119,7 +123,7 @@ class FrpService
             $commands = [
                 "sudo tee {$this->configPath} < {$remoteTemp} > /dev/null",
                 "rm {$remoteTemp}",
-                "sudo systemctl reload frpc || sudo systemctl restart frpc"
+                "sudo systemctl restart {$this->serviceName}",
             ];
             
             Log::debug("FRP: Ejecutando comandos remotos: " . implode(' && ', $commands));

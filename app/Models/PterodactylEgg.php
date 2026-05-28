@@ -155,6 +155,62 @@ class PterodactylEgg extends Model
     }
 
     /**
+     * Clasifica el egg en una categoría de uso para la UI del cliente.
+     *
+     * Orden de prioridad importante: crossplay/proxy antes que mods/plugins
+     * para que Purpur-Geyser-Floodgate no caiga en "plugins".
+     */
+    public function getCategory(): string
+    {
+        $n = strtolower($this->egg_name . ' ' . ($this->nest_name ?? ''));
+
+        if (str_contains($n, 'geyser') || str_contains($n, 'floodgate') || str_contains($n, 'crossplay')) {
+            return 'crossplay';
+        }
+        if (str_contains($n, 'bungeecord') || str_contains($n, 'velocity') ||
+            str_contains($n, 'waterfall') || str_contains($n, 'lilypad') ||
+            str_contains($n, 'proxy')) {
+            return 'proxy';
+        }
+        if (str_contains($n, 'arclight') || str_contains($n, 'mohist') || str_contains($n, 'magma')) {
+            return 'both';
+        }
+        if (str_contains($n, 'neoforge') || str_contains($n, 'forge') ||
+            str_contains($n, 'fabric') || str_contains($n, 'quilt') ||
+            str_contains($n, 'rift') || str_contains($n, 'liteloader')) {
+            return 'mods';
+        }
+        if (str_contains($n, 'nukkit') || str_contains($n, 'pocketmine') ||
+            ($this->isBedrock() && str_contains($n, 'vanilla'))) {
+            return 'bedrock';
+        }
+        // Sponge contiene "vanilla" en SpongeVanilla — debe ser plugins, no vanilla
+        if (str_contains($n, 'sponge')) {
+            return 'plugins';
+        }
+        if (str_contains($n, 'vanilla')) {
+            return 'vanilla';
+        }
+
+        // Fallback: paper, spigot, purpur, craftbukkit → plugins
+        return 'plugins';
+    }
+
+    public function getCategoryLabel(): string
+    {
+        return match ($this->getCategory()) {
+            'plugins'   => 'Plugins',
+            'mods'      => 'Mods',
+            'both'      => 'Plugins + Mods',
+            'proxy'     => 'Proxy',
+            'crossplay' => 'Crossplay',
+            'bedrock'   => 'Bedrock',
+            'vanilla'   => 'Vanilla',
+            default     => 'Otro',
+        };
+    }
+
+    /**
      * API frontend.
      */
     public function toClientArray(): array
@@ -163,7 +219,6 @@ class PterodactylEgg extends Model
             'id'              => $this->id,
 
             'name'            => $this->getDisplayLabel(),
-
             'description'     => $this->egg_description,
 
             'nest'            => $this->nest_name,
@@ -176,6 +231,9 @@ class PterodactylEgg extends Model
 
             'supports_java'   => $this->isJava(),
             'supports_bedrock'=> $this->isBedrock(),
+
+            'category'        => $this->getCategory(),
+            'category_label'  => $this->getCategoryLabel(),
         ];
     }
 }

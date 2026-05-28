@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Events\GameServerPingBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\GameServerPing;
+use App\Models\PterodactylEgg;
 use App\Models\Service;
 use App\Models\ServiceMetric;
 use App\Models\ActivityLog;
@@ -142,8 +144,10 @@ class GameServerController extends Controller
         }
 
         $identifier  = $service->connection_details['identifier'] ?? null;
-        $host        = $service->connection_details['host']       ?? null;
-        $port        = (int) ($service->connection_details['port'] ?? 25565);
+        // connection_details almacena la IP como 'server_ip' / 'server_port'.
+        // 'host' / 'port' son alias legacy que pueden no estar presentes.
+        $host = $service->connection_details['host']       ?? $service->connection_details['server_ip']   ?? null;
+        $port = (int) ($service->connection_details['port'] ?? $service->connection_details['server_port'] ?? 25565);
 
         if (!$identifier) {
             return response()->json(['success' => false, 'message' => 'El servidor aún no tiene identificador asignado.'], 404);
@@ -181,6 +185,7 @@ class GameServerController extends Controller
                 if ($pingResult !== null) {
                     $statusData['players']     = $pingResult['players']['online']  ?? 0;
                     $statusData['max_players'] = $pingResult['players']['max']     ?? 0;
+                    $statusData['player_sample'] = $pingResult['players']['sample'] ?? [];
                     $statusData['motd']        = $pingResult['description']        ?? null;
                     $statusData['version']     = $pingResult['version']['name']    ?? null;
                     $statusData['ping_ms']     = $pingResult['ping_ms']            ?? null;
@@ -608,7 +613,6 @@ class GameServerController extends Controller
             ],
         ]);
     }
-
 
     /**
      * GET /services/metrics
@@ -1107,29 +1111,132 @@ class GameServerController extends Controller
 
     /**
      * GET /services/game-servers/{nest_id}/eggs
+     *
+     * Devuelve los eggs de Pterodactyl enriquecidos con datos de nuestro modelo:
+     * protocol, protocol_label, category, category_label, icon_url.
      */
     public function listEggs(int $nest_id): JsonResponse
     {
         $eggs = $this->pterodactyl->listNestEggs($nest_id);
 
-        $cleaned = collect($eggs ?? [])->map(function ($egg) {
+        // Índice de nuestro modelo por ptero_egg_id para O(1) lookup
+        $localEggs = PterodactylEgg::where('ptero_nest_id', $nest_id)
+            ->get()
+            ->keyBy('ptero_egg_id');
+
+        $cleaned = collect($eggs ?? [])->map(function ($egg) use ($localEggs) {
+            $eggId    = $egg['id']   ?? null;
+            $eggName  = $egg['name'] ?? '';
+
             $variables = $egg['relationships']['variables']['data'] ?? [];
 
             $versionVariable = collect($variables)->first(
                 fn ($var) => str_contains($var['attributes']['env_variable'] ?? '', 'VERSION')
             );
 
+            // Buscar en nuestro catálogo sincronizado
+            /** @var PterodactylEgg|null $local */
+            $local = $localEggs->get($eggId);
+
+            if ($local) {
+                $protocol       = $local->protocol()->value;
+                $protocolLabel  = $local->protocol()->label();
+                $category       = $local->getCategory();
+                $categoryLabel  = $local->getCategoryLabel();
+                $iconUrl        = $local->icon_url;
+            } else {
+                // Fallback: derivar categoría del nombre del egg
+                $temp          = new PterodactylEgg(['egg_name' => $eggName, 'nest_name' => '']);
+                $protocol      = 'java';
+                $protocolLabel = 'Java';
+                $category      = $temp->getCategory();
+                $categoryLabel = $temp->getCategoryLabel();
+                $iconUrl       = null;
+            }
+
             return [
-                'id'               => $egg['id']   ?? null,
-                'uuid'             => $egg['uuid']  ?? null,
-                'name'             => $egg['name']  ?? null,
+                'id'               => $eggId,
+                'uuid'             => $egg['uuid'] ?? null,
+                'name'             => $eggName,
                 'description'      => $egg['description'] ?? null,
                 'version_variable' => $versionVariable['attributes']['env_variable'] ?? null,
                 'version'          => $versionVariable['attributes']['default_value'] ?? null,
+                // Campos enriquecidos
+                'icon_url'         => $iconUrl,
+                'protocol'         => $protocol,
+                'protocol_label'   => $protocolLabel,
+                'category'         => $category,
+                'category_label'   => $categoryLabel,
             ];
         })->values();
 
         return response()->json(['success' => true, 'data' => $cleaned]);
+    }
+
+    /**
+     * GET /services/{uuid}/game-server/ping-now
+     *
+     * Realiza un ping SLP al servidor Minecraft en el momento y devuelve el resultado
+     * inmediatamente. También emite GameServerPingBroadcast en el canal Reverb para que
+     * otros tabs/clientes del mismo usuario reciban el valor actualizado.
+     *
+     * Úsalo solo al montar el componente o cuando el servidor cambia a "running" — no
+     * con un intervalo fijo (eso sería polling y encarece la infraestructura).
+     */
+    public function pingNow(string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+        if (!$service->isPterodactylManaged()) {
+            return response()->json(['success' => false, 'message' => 'Este servicio no es un servidor de juego.'], 422);
+        }
+
+        $host = $service->connection_details['host']       ?? $service->connection_details['server_ip']   ?? null;
+        $port = (int) ($service->connection_details['port'] ?? $service->connection_details['server_port'] ?? 25565);
+
+        if (!$host) {
+            return response()->json([
+                'success'    => true,
+                'ping_ms'    => null,
+                'is_online'  => false,
+                'players'    => null,
+                'sampled_at' => now()->toISOString(),
+            ]);
+        }
+
+        try {
+            $result   = $this->minecraftPing->ping($host, $port, timeoutMs: 3000);
+            $isOnline = $result !== null;
+            $pingMs   = $isOnline ? ($result['ping_ms'] ?? null) : null;
+            $players  = $isOnline ? ($result['players']['online'] ?? null) : null;
+            $sample   = $isOnline ? ($result['players']['sample'] ?? []) : [];
+        } catch (\Throwable $e) {
+            Log::warning('pingNow: error al pingear servidor', [
+                'service_id' => $service->id,
+                'error'      => $e->getMessage(),
+            ]);
+            $isOnline = false;
+            $pingMs   = null;
+            $players  = null;
+            $sample   = [];
+        }
+
+        // Broadcast en tiempo real para que el canal Reverb entregue el valor
+        try {
+            GameServerPingBroadcast::dispatch($service->uuid, $pingMs, $isOnline, $players, is_array($sample) ? $sample : []);
+        } catch (\Throwable) {
+            // No fatal si Reverb no está disponible
+        }
+
+        return response()->json([
+            'success'    => true,
+            'ping_ms'    => $pingMs,
+            'is_online'  => $isOnline,
+            'players'    => $players,
+            'player_sample' => is_array($sample) ? $sample : [],
+            'sampled_at' => now()->toISOString(),
+        ]);
     }
 
     private function findOwnedGameServerService(Request $request, string $uuid): Service

@@ -129,12 +129,8 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->prefix('hosting')->group
     Route::get('/{uuid}/databases',  [HostingController::class, 'databases']);
     Route::post('/{uuid}/databases', [HostingController::class, 'createDatabase']);
     Route::delete('/{uuid}/databases/{db}', [HostingController::class, 'deleteDatabase']);
-    Route::get('/{uuid}/emails',     [HostingController::class, 'emails']);
-    Route::post('/{uuid}/emails',    [HostingController::class, 'createEmail']);
-    Route::delete('/{uuid}/emails/{account}', [HostingController::class, 'deleteEmail']);
-    Route::get('/{uuid}/aliases',    [HostingController::class, 'aliases']);
-    Route::post('/{uuid}/aliases',   [HostingController::class, 'createAlias']);
-    Route::delete('/{uuid}/aliases/{id}', [HostingController::class, 'deleteAlias']);
+    // NOTE: Email hosting (Mailcow) has been removed. ROKE guides clients to
+    // Google Workspace / Microsoft 365 / Zoho Mail via the DNS records panel.
     Route::get ('/{uuid}/wordpress',          [HostingController::class, 'wordpress']);
     Route::post('/{uuid}/wordpress/restart',  [HostingController::class, 'wordpressRestart']);
     Route::post('/{uuid}/wordpress/deploy',   [HostingController::class, 'wordpressDeploy']);

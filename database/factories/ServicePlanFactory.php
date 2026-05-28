@@ -46,14 +46,13 @@ class ServicePlanFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'provisioner' => 'pterodactyl',
-            'pterodactyl_nest_id' => 1,
-            'pterodactyl_egg_id' => 1,
             'pterodactyl_node_id' => 1,
             'pterodactyl_limits' => [
                 'memory' => 1024,
                 'cpu' => 100,
                 'disk' => 1024,
             ],
+            'allowed_nest_ids' => [1],
             'game_type' => 'minecraft',
             'game_runtime_options' => [
                 'software' => ['paper', 'vanilla'],

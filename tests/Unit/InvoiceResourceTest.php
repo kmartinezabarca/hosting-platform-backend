@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Http\Resources\InvoiceResource;
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -15,7 +15,7 @@ class InvoiceResourceTest extends TestCase
     public function test_invoice_resource_transforms_basic_fields(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create([
+        $invoice = Receipt::factory()->create([
             'user_id' => $user->id,
             'status' => 'paid',
         ]);
@@ -34,7 +34,7 @@ class InvoiceResourceTest extends TestCase
     public function test_invoice_resource_includes_items_when_loaded(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create([
+        $invoice = Receipt::factory()->create([
             'user_id' => $user->id,
         ]);
 
@@ -57,7 +57,7 @@ class InvoiceResourceTest extends TestCase
     public function test_invoice_resource_formats_dates_correctly(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create([
+        $invoice = Receipt::factory()->create([
             'user_id' => $user->id,
             'due_date' => now()->addDays(30),
         ]);
@@ -72,7 +72,7 @@ class InvoiceResourceTest extends TestCase
     public function test_invoice_resource_formats_paid_at_datetime(): void
     {
         $user = User::factory()->create();
-        $invoice = Invoice::factory()->create([
+        $invoice = Receipt::factory()->create([
             'user_id' => $user->id,
             'status' => 'paid',
             'paid_at' => now(),

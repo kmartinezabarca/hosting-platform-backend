@@ -9,9 +9,11 @@ use App\Http\Resources\ServiceResource;
 use App\Services\CheckoutQuoteService;
 use App\Services\ServiceContractingService;
 use App\Services\Pterodactyl\PterodactylService;
+use App\Services\ServiceStatusSyncService;
 use App\Exceptions\PaymentRequiresActionException;
 use App\Models\Service;
 use App\Models\ServicePlan;
+use App\Models\ServiceMetric;
 use App\Models\ActivityLog;
 use App\Models\Backup;
 use App\Models\BackupSchedule;
@@ -21,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class ServiceController extends Controller
 {
@@ -29,6 +32,7 @@ class ServiceController extends Controller
         private readonly CheckoutQuoteService $checkoutQuotes,
         private readonly PterodactylService $pterodactyl,
         private readonly BackupService $backupService,
+        private readonly ServiceStatusSyncService $statusSync,
     ) {}
 
     /**
@@ -179,21 +183,217 @@ class ServiceController extends Controller
 
     /**
      * GET /services/user
-     * Servicios del usuario autenticado.
+     * Servicios del usuario autenticado con runtime status, métricas y enriquecimiento.
+     *
+     * Estructura devuelta por servicio:
+     *  - status          → status administrativo (billing): active|pending|suspended|failed|terminated
+     *  - live_status     → status del proveedor (Pterodactyl/Coolify): running|starting|stopped|deploying|error|...
+     *  - runtime_status  → status efectivo unificado para la UI
+     *  - live_metrics    → snapshot cacheado del último sync
+     *  - metrics         → snapshot derivado de service_metrics (game servers)
+     *  - hosting_info    → enriquecimiento para servicios de hosting
+     *  - sparkline       → últimos 12 valores CPU (game servers)
+     *  - live_synced_at  → timestamp ISO del último sync con el proveedor
      */
-    public function getUserServices(): JsonResponse
+    public function getUserServices(Request $request): JsonResponse
     {
         try {
-            $services = Service::where('user_id', Auth::id())
-                ->with(['plan', 'plan.category', 'plan.features'])
+            $userId = Auth::id();
+
+            $services = Service::where('user_id', $userId)
+                ->with(['plan.category', 'plan.features'])
                 ->orderByDesc('created_at')
                 ->get();
 
-            return response()->json(['success' => true, 'data' => $services]);
+            // Sync on-demand para servicios sin live_status o con datos viejos (>90s)
+            // Sólo se ejecuta si el cliente solicita explícitamente refresh=1 o si nunca se ha sincronizado.
+            $forceRefresh = (bool) $request->boolean('refresh');
+            $stalenessSec = 90;
+
+            foreach ($services as $service) {
+                $stale = ! $service->live_synced_at
+                    || ($service->live_synced_at instanceof Carbon
+                        && $service->live_synced_at->diffInSeconds(now()) > $stalenessSec);
+
+                if (($forceRefresh || $stale) && in_array($service->status, ['active', 'pending'], true)) {
+                    try {
+                        $this->statusSync->syncOne($service);
+                    } catch (\Throwable $e) {
+                        // syncOne ya loguea — seguimos
+                    }
+                }
+            }
+
+            // Pre-fetch sparklines (últimos 12 puntos CPU) en una sola query
+            $serviceIds = $services->pluck('id');
+            $sparklines = $serviceIds->isNotEmpty()
+                ? ServiceMetric::whereIn('service_id', $serviceIds)
+                    ->where('sampled_at', '>=', now()->subHours(2))
+                    ->orderBy('sampled_at')
+                    ->get(['service_id', 'cpu_percent', 'memory_bytes', 'memory_limit_bytes', 'state', 'sampled_at'])
+                    ->groupBy('service_id')
+                : collect();
+
+            $latestMetrics = $sparklines->map(fn($rows) => $rows->last());
+
+            $payload = $services->map(function (Service $service) use ($sparklines, $latestMetrics) {
+                $plan      = $service->plan;
+                $category  = $plan?->category;
+                $conn      = (array) ($service->connection_details ?? []);
+                $slug      = $category?->slug ?? '';
+
+                $isGameServer = in_array($slug, ['game-servers', 'gameserver', 'minecraft'], true);
+                $isHosting    = in_array($slug, ['hosting', 'web-hosting', 'webhosting'], true);
+
+                // Runtime status: prioriza live_status (proveedor) sobre status (billing)
+                $runtimeStatus = $this->resolveRuntimeStatus($service);
+
+                // Sparkline + métricas derivadas de service_metrics
+                $sparkData = $sparklines->get($service->id, collect());
+                $sparkline = $sparkData->takeLast(12)
+                    ->pluck('cpu_percent')
+                    ->map(fn($v) => (int) round((float) $v))
+                    ->values()
+                    ->toArray();
+
+                $latest = $latestMetrics->get($service->id);
+                $metrics = null;
+                if ($latest) {
+                    $memBytes = (int) ($latest->memory_bytes ?? 0);
+                    $memLimit = (int) ($latest->memory_limit_bytes ?? 0);
+                    $metrics = [
+                        'cpu'        => $latest->cpu_percent !== null ? (int) round((float) $latest->cpu_percent) : null,
+                        'memory'     => $memLimit > 0 ? (int) round(($memBytes / $memLimit) * 100) : null,
+                        'memory_bytes' => $memBytes,
+                        'memory_limit_bytes' => $memLimit,
+                        'state'      => $latest->state,
+                        'sampled_at' => optional($latest->sampled_at)->toIso8601String(),
+                    ];
+                }
+
+                // Uptime % derivado de últimos 24h de samples (state=running ratio)
+                $uptimePct = null;
+                if ($sparkData->count() > 0) {
+                    $total   = $sparkData->count();
+                    $running = $sparkData->where('state', 'running')->count();
+                    $uptimePct = $total > 0 ? round(($running / $total) * 100, 1) : null;
+                }
+
+                // Enriquecimiento hosting
+                $hostingInfo = null;
+                if ($isHosting) {
+                    $fqdn = $conn['fqdn'] ?? $conn['domain'] ?? null;
+                    $hostingInfo = [
+                        'fqdn'              => $fqdn,
+                        'url'               => $fqdn ? (str_starts_with($fqdn, 'http') ? $fqdn : 'https://' . $fqdn) : null,
+                        'ssl_enabled'       => isset($conn['ssl_enabled']) ? (bool) $conn['ssl_enabled'] : (bool) ($fqdn && str_starts_with((string) $fqdn, 'https')),
+                        'db_type'           => $conn['db_type'] ?? null,
+                        'db_name'           => $conn['db_name'] ?? null,
+                        'db_host'           => $conn['db_host'] ?? null,
+                        'db_port'           => $conn['db_port'] ?? null,
+                        'build_pack'        => $conn['build_pack'] ?? null,
+                        'environment'       => $conn['environment'] ?? $conn['environment_name'] ?? 'production',
+                        'last_deployed_at'  => $conn['last_deployed_at'] ?? null,
+                        'coolify_app_uuid'  => $conn['coolify_app_uuid'] ?? null,
+                        'panel_url'         => $conn['panel_url'] ?? null,
+                        'storage_quota'     => data_get($plan?->specifications, 'storage') ?? data_get($plan?->specifications, 'disk'),
+                        'bandwidth_quota'   => data_get($plan?->specifications, 'bandwidth'),
+                        'domains_quota'     => data_get($plan?->specifications, 'domains'),
+                        'email_quota'       => data_get($plan?->specifications, 'email'),
+                        'databases_quota'   => data_get($plan?->specifications, 'databases'),
+                    ];
+                }
+
+                $base = $service->toArray();
+
+                return array_merge($base, [
+                    'plan'             => $plan,
+                    'runtime_status'   => $runtimeStatus,
+                    'live_status'      => $service->live_status,
+                    'live_metrics'     => $service->live_metrics,
+                    'live_synced_at'   => optional($service->live_synced_at)->toIso8601String(),
+                    'metrics'          => $metrics,
+                    'uptime_pct'       => $uptimePct,
+                    'sparkline'        => $sparkline,
+                    'hosting_info'     => $hostingInfo,
+                    'is_game_server'   => $isGameServer,
+                    'is_hosting'       => $isHosting,
+                    'category_slug'    => $slug,
+                ]);
+            });
+
+            return response()->json(['success' => true, 'data' => $payload]);
         } catch (\Exception $e) {
-            Log::error('Error fetching user services: ' . $e->getMessage());
+            Log::error('Error fetching user services: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json(['success' => false, 'message' => 'Error fetching user services'], 500);
         }
+    }
+
+    /**
+     * POST /services/sync-status
+     * Fuerza un re-sync del live_status/live_metrics de todos los servicios del usuario.
+     * Útil cuando la UI quiere refrescar después de una acción (start/stop/restart).
+     */
+    public function syncStatus(): JsonResponse
+    {
+        try {
+            $services = Service::where('user_id', Auth::id())
+                ->whereIn('status', ['active', 'pending', 'maintenance'])
+                ->with('plan.category')
+                ->get();
+
+            $synced = 0;
+            foreach ($services as $service) {
+                try {
+                    $this->statusSync->syncOne($service);
+                    $synced++;
+                } catch (\Throwable $e) {
+                    // continuar con el resto
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "Sincronizados {$synced} servicio(s).",
+                'data'    => ['synced' => $synced, 'total' => $services->count()],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error en syncStatus: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Error sincronizando estados'], 500);
+        }
+    }
+
+    /**
+     * Determina el estado efectivo a mostrar al usuario.
+     *
+     * Reglas:
+     *  - Si el billing status es 'pending' → "provisioning" (aprovisionando)
+     *  - Si el billing status es 'failed'/'suspended'/'terminated'/'cancelled' → ese mismo
+     *  - Si hay live_status del proveedor → ese (running, starting, stopping, stopped, deploying, building, error)
+     *  - Si no hay live_status pero billing 'active' → 'unknown' (esperando sync)
+     *  - Fallback → billing status
+     */
+    private function resolveRuntimeStatus(Service $service): string
+    {
+        $billing = $service->status;
+        $live    = $service->live_status;
+
+        // Estados no-runtime: mostrar billing tal cual
+        if ($billing === 'pending')    return 'provisioning';
+        if ($billing === 'failed')     return 'failed';
+        if ($billing === 'suspended')  return 'suspended';
+        if ($billing === 'terminated') return 'terminated';
+        if ($billing === 'cancelled')  return 'cancelled';
+
+        // Estado runtime del proveedor
+        if ($live) {
+            return $live; // running|starting|stopping|stopped|deploying|building|error|degraded
+        }
+
+        // Active pero aún no sincronizado
+        if ($billing === 'active') return 'unknown';
+
+        return $billing ?? 'unknown';
     }
 
     /**

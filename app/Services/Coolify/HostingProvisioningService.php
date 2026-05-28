@@ -96,11 +96,13 @@ class HostingProvisioningService
                     'db_host'              => $db['internal_db_url'] ?? null,
                     'db_name'              => $db['_db_name'] ?? null,
                     'db_user'              => $db['_db_user'] ?? null,
-                    'db_password'          => $db['_db_password'] ?? null,
                     'db_type'              => $db['_db_type'] ?? null,
                     'dns_record_ids'       => $dnsRecordIds,
                     'panel_url'            => config('coolify.base_url'),
                 ],
+                'connection_secrets' => array_filter([
+                    'db_password' => $db['_db_password'] ?? null,
+                ], fn ($value) => $value !== null && $value !== ''),
             ]);
 
             // 6) Notificar

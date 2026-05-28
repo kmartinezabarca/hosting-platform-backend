@@ -216,11 +216,22 @@ class GameServerProvisioningService
                     ]);
                 }
             } catch (\Throwable $e) {
+                $service->update([
+                    'connection_details' => array_merge(
+                        $service->connection_details ?? [],
+                        [
+                            'frp_enabled' => false,
+                            'frp_error' => $e->getMessage(),
+                        ],
+                    ),
+                ]);
 
-                Log::warning('FRP proxy provisioning failed', [
+                Log::error('FRP proxy provisioning failed', [
                     'service_id' => $service->id,
                     'error'      => $e->getMessage(),
                 ]);
+
+                throw new RuntimeException("No se pudo configurar FRP para el puerto {$port}: {$e->getMessage()}", 0, $e);
             }
 
             // 9) Notificar al cliente
@@ -387,24 +398,33 @@ class GameServerProvisioningService
             ->whereIn('status', ['active', 'pending'])
             ->whereNotNull('connection_details')
             ->get()
-            ->map(fn($s) => $s->connection_details['hostname'] ?? null)
+            ->map(fn($s) => $this->hostnameLabel($s->connection_details['hostname'] ?? null))
             ->filter()
             ->values();
 
-        if (! $existing->contains(fn($h) => str_starts_with($h, $base))) {
+        if (! $existing->contains($base)) {
             return $base;
         }
 
         // Sufijo numérico incremental: base-2, base-3…
         for ($i = 2; $i <= 99; $i++) {
             $candidate = "{$base}-{$i}";
-            if (! $existing->contains(fn($h) => str_starts_with($h, $candidate))) {
+            if (! $existing->contains($candidate)) {
                 return $candidate;
             }
         }
 
         // Último recurso: base + ID de servicio
         return substr($base, 0, 20) . '-' . substr((string) $user->id, 0, 5);
+    }
+
+    private function hostnameLabel(?string $hostname): ?string
+    {
+        if (! is_string($hostname) || trim($hostname) === '') {
+            return null;
+        }
+
+        return explode('.', strtolower(trim($hostname)))[0] ?: null;
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Events\GameServerPingBroadcast;
 use App\Models\GameServerPing;
 use App\Models\Service;
 use App\Services\Minecraft\MinecraftPingService;
@@ -33,10 +34,12 @@ class CollectGameServerPings extends Command
             GameServerPing::where('sampled_at', '<', now()->subHours(48))->delete();
         }
 
+        // NOTA: connection_details está cifrada (encrypted:array cast en Service), por lo que
+        // NO se puede usar JSON_EXTRACT a nivel SQL — el campo en BD es ciphertext, no JSON.
+        // El filtro fino (presencia de 'host') se hace en PHP después de que Eloquent lo descifre.
         $query = Service::query()
             ->where('status', 'active')
-            ->whereNotNull('connection_details')
-            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(connection_details, '$.host')) IS NOT NULL");
+            ->whereNotNull('connection_details');
 
         if ($uuidOnly) {
             $query->where('uuid', $uuidOnly);
@@ -54,8 +57,10 @@ class CollectGameServerPings extends Command
 
         foreach ($services as $service) {
             $details = $service->connection_details ?? [];
-            $host    = $details['host'] ?? null;
-            $port    = (int) ($details['port'] ?? 25565);
+            // 'server_ip' / 'server_port' son las claves canónicas en connection_details.
+            // 'host' / 'port' son alias legacy; se mantiene el fallback por compatibilidad.
+            $host = $details['host']       ?? $details['server_ip']   ?? null;
+            $port = (int) ($details['port'] ?? $details['server_port'] ?? 25565);
 
             if (!$host) continue;
 
@@ -64,6 +69,7 @@ class CollectGameServerPings extends Command
                 $isOnline = $result !== null;
                 $pingMs   = $result['ping_ms']             ?? null;
                 $players  = $result['players']['online']   ?? null;
+                $sample   = $result['players']['sample']   ?? [];
             } catch (\Throwable $e) {
                 Log::warning('collect-pings: error al pingear servicio', [
                     'service_id' => $service->id,
@@ -73,6 +79,7 @@ class CollectGameServerPings extends Command
                 $isOnline = false;
                 $pingMs   = null;
                 $players  = null;
+                $sample   = [];
             }
 
             if ($this->option('verbose')) {
@@ -88,6 +95,22 @@ class CollectGameServerPings extends Command
                     'players'    => $players,
                     'sampled_at' => $now,
                 ]);
+
+                // Emitir en tiempo real vía Reverb → el frontend actualiza el HUD sin polling
+                try {
+                    GameServerPingBroadcast::dispatch(
+                        $service->uuid,
+                        $isOnline ? $pingMs : null,
+                        $isOnline,
+                        $players,
+                        is_array($sample) ? $sample : [],
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('collect-pings: no se pudo broadcast ping', [
+                        'service_uuid' => $service->uuid,
+                        'error'        => $e->getMessage(),
+                    ]);
+                }
             }
 
             $sampled++;

@@ -16,14 +16,16 @@ use Illuminate\Support\Facades\Log;
  *   php artisan game-servers:retrofit-dns          # todos los que les falte
  *   php artisan game-servers:retrofit-dns --dry-run
  *   php artisan game-servers:retrofit-dns --id=10  # solo un servicio
+ *   php artisan game-servers:retrofit-dns --id=10 --force  # recrear DNS existente
  */
 class RetrofitServiceDns extends Command
 {
     protected $signature = 'game-servers:retrofit-dns
                             {--dry-run  : Mostrar qué se haría sin aplicar cambios}
-                            {--id=      : Reparar solo el servicio con ese ID}';
+                            {--id=      : Reparar solo el servicio con ese ID}
+                            {--force   : Recrear DNS aunque el servicio ya tenga hostname}';
 
-    protected $description = 'Crea registros DNS de Cloudflare para servicios de juego que no los tienen';
+    protected $description = 'Crea o recrea registros DNS de Cloudflare para servicios de juego';
 
     /** Subdominos ya asignados en esta ejecución (para evitar duplicados en el mismo batch) */
     private array $assignedThisRun = [];
@@ -32,6 +34,7 @@ class RetrofitServiceDns extends Command
     {
         $dryRun = $this->option('dry-run');
         $idOnly = $this->option('id');
+        $force = (bool) $this->option('force');
 
         $query = Service::whereNotNull('pterodactyl_server_id')
             ->whereIn('status', ['active', 'pending']);
@@ -40,27 +43,34 @@ class RetrofitServiceDns extends Command
             $query->where('id', $idOnly);
         }
 
-        $services = $query->get()->filter(function (Service $s) {
+        $services = $query->get()->filter(function (Service $s) use ($force) {
+            if ($force) {
+                return true;
+            }
+
             $cd = $s->connection_details ?? [];
-            // Necesita DNS si no tiene hostname o si dns_record_ids está vacío
+            // Necesita DNS si no tiene hostname.
             return ! ($cd['hostname'] ?? null);
         });
 
         if ($services->isEmpty()) {
-            $this->info('Todos los servicios ya tienen hostname. Nada que hacer.');
+            $this->info('Todos los servicios ya tienen hostname. Usa --force para recrear DNS existente.');
             return self::SUCCESS;
         }
 
-        $this->info("Servicios sin hostname: {$services->count()}");
+        $this->info($force
+            ? "Servicios a recrear DNS: {$services->count()}"
+            : "Servicios sin hostname: {$services->count()}"
+        );
 
         foreach ($services as $service) {
-            $this->processService($service, $cloudflare, $dryRun);
+            $this->processService($service, $cloudflare, $dryRun, $force);
         }
 
         return self::SUCCESS;
     }
 
-    private function processService(Service $service, CloudflareService $cloudflare, bool $dryRun): void
+    private function processService(Service $service, CloudflareService $cloudflare, bool $dryRun, bool $force): void
     {
         $cd   = $service->connection_details ?? [];
         $port = (int) ($cd['server_port'] ?? 0);
@@ -81,25 +91,30 @@ class RetrofitServiceDns extends Command
         $subdomain    = $this->resolveSubdomain($service, $user);
         $isJava       = $cd['is_java'] ?? true;      // Asumir Java si no está definido
         $dnsRecordIds = $cd['dns_record_ids'] ?? [];
-        $hostname     = null;
+        $zoneName     = trim((string) config('services.cloudflare.zone_name', 'rokeindustries.com'), '.');
+        $hostname     = "{$subdomain}.{$zoneName}";
 
         $this->line("  [#{$service->id}] {$service->name} | {$ip}:{$port} | subdomain={$subdomain} | java=" . ($isJava ? 'yes' : 'no'));
 
         if ($dryRun) {
             $type = $isJava ? 'SRV' : 'A';
-            $this->line("     [dry-run] Crearía registro {$type} para {$subdomain}.rokeindustries.com");
+            $action = $force ? 'Recrearía' : 'Crearía';
+            $this->line("     [dry-run] {$action} registro {$type} para {$hostname}");
             return;
         }
 
         try {
+            if ($force) {
+                $this->deleteExistingDns($cloudflare, $dnsRecordIds, $hostname, $isJava);
+                $dnsRecordIds = [];
+            }
+
             if ($isJava) {
                 $dnsRecordIds['cname'] = $cloudflare->createCnameRecord($subdomain, 'mc.rokeindustries.com');
                 $dnsRecordIds['srv']   = $cloudflare->createMinecraftSrv($subdomain, $port);
-                $hostname              = "{$subdomain}.rokeindustries.com";
                 $display               = $hostname;
             } else {
                 $dnsRecordIds['a'] = $cloudflare->createARecord($subdomain, config('pterodactyl.relay_ip', $ip));
-                $hostname          = "{$subdomain}.rokeindustries.com";
                 $display           = "{$hostname}:{$port}";
             }
 
@@ -146,7 +161,10 @@ class RetrofitServiceDns extends Command
             ->whereIn('status', ['active', 'pending'])
             ->whereNotNull('connection_details')
             ->get()
-            ->map(function ($s) { $cd = $s->connection_details; return $cd['hostname'] ?? null; })
+            ->map(function ($s) {
+                $cd = $s->connection_details;
+                return $this->hostnameLabel($cd['hostname'] ?? null);
+            })
             ->filter()
             ->values()
             ->toArray();
@@ -156,12 +174,6 @@ class RetrofitServiceDns extends Command
 
         // Función auxiliar: ¿está tomado este candidato?
         $isTaken = function (string $candidate) use ($taken): bool {
-            foreach ($taken as $h) {
-                if ($h === $candidate || str_starts_with($h, $candidate . '.')) {
-                    return true;
-                }
-            }
-            // También comparar subdominio base sin dominio
             return in_array($candidate, $taken, true);
         };
 
@@ -181,5 +193,38 @@ class RetrofitServiceDns extends Command
         $fallback = substr($base, 0, 20) . '-' . $service->id;
         $this->assignedThisRun[] = $fallback;
         return $fallback;
+    }
+
+    private function deleteExistingDns(CloudflareService $cloudflare, array $dnsRecordIds, string $hostname, bool $isJava): void
+    {
+        foreach (array_filter($dnsRecordIds) as $recordId) {
+            $cloudflare->deleteRecord((string) $recordId);
+        }
+
+        foreach ($this->recordNamesFor($hostname, $isJava) as $recordName) {
+            foreach ($cloudflare->listRecords($recordName) as $record) {
+                if (! empty($record['id'])) {
+                    $cloudflare->deleteRecord((string) $record['id']);
+                }
+            }
+        }
+    }
+
+    private function recordNamesFor(string $hostname, bool $isJava): array
+    {
+        if ($isJava) {
+            return [$hostname, "_minecraft._tcp.{$hostname}"];
+        }
+
+        return [$hostname];
+    }
+
+    private function hostnameLabel(?string $hostname): ?string
+    {
+        if (! is_string($hostname) || trim($hostname) === '') {
+            return null;
+        }
+
+        return explode('.', strtolower(trim($hostname)))[0] ?: null;
     }
 }

@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Models\User;
 use App\Services\DashboardStatsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -116,9 +116,9 @@ class DashboardStatsServiceTest extends TestCase
     public function test_revenue_stats_only_counts_paid_invoices(): void
     {
         // Paid this month
-        Invoice::factory()->create(['status' => 'paid', 'total' => 100.00, 'created_at' => now()]);
+        Receipt::factory()->create(['status' => 'paid', 'total' => 100.00, 'created_at' => now()]);
         // Unpaid — should not count
-        Invoice::factory()->create(['status' => 'sent', 'total' => 200.00, 'created_at' => now()]);
+        Receipt::factory()->create(['status' => 'sent', 'total' => 200.00, 'created_at' => now()]);
 
         $stats = $this->service->revenueStats();
 
@@ -127,10 +127,10 @@ class DashboardStatsServiceTest extends TestCase
 
     public function test_revenue_stats_yearly_sums_all_paid_this_year(): void
     {
-        Invoice::factory()->create(['status' => 'paid', 'total' => 300.00, 'created_at' => now()]);
-        Invoice::factory()->create(['status' => 'paid', 'total' => 200.00, 'created_at' => now()->subMonths(3)]);
+        Receipt::factory()->create(['status' => 'paid', 'total' => 300.00, 'created_at' => now()]);
+        Receipt::factory()->create(['status' => 'paid', 'total' => 200.00, 'created_at' => now()->subMonths(3)]);
         // Last year — should not count in yearly total
-        Invoice::factory()->create(['status' => 'paid', 'total' => 999.00, 'created_at' => now()->subYear()]);
+        Receipt::factory()->create(['status' => 'paid', 'total' => 999.00, 'created_at' => now()->subYear()]);
 
         $stats = $this->service->revenueStats();
 

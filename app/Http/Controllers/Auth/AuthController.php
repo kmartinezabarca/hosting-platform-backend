@@ -19,7 +19,7 @@ class AuthController extends Controller
             'first_name' => ['required', 'string', 'max:100'],
             'last_name'  => ['required', 'string', 'max:100'],
             'username'   => [
-                'required',
+                'nullable',
                 'string',
                 'min:3',
                 'max:30',
@@ -37,7 +37,7 @@ class AuthController extends Controller
         $user = User::create([
             'first_name' => $request->first_name,
             'last_name'  => $request->last_name,
-            'username'   => strtolower($request->username),
+            'username'   => $request->filled('username') ? strtolower($request->username) : null,
             'email'      => $request->email,
             'password'   => Hash::make($request->password),
             'role'       => 'client',
@@ -220,8 +220,9 @@ class AuthController extends Controller
         $user = $request->user();
 
         // Revocar token actual
-        if ($user && $user->currentAccessToken()) {
-            $user->currentAccessToken()->delete();
+        $currentToken = $user?->currentAccessToken();
+        if ($currentToken && method_exists($currentToken, 'delete')) {
+            $currentToken->delete();
         }
 
         // Log actividad
@@ -247,5 +248,4 @@ class AuthController extends Controller
         );
     }
 }
-
 
