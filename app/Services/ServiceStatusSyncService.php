@@ -41,6 +41,7 @@ class ServiceStatusSyncService
     public function __construct(
         private readonly PterodactylService $ptero,
         private readonly CoolifyService $coolify,
+        private readonly HostingHealthService $health,
     ) {}
 
     /**
@@ -155,13 +156,23 @@ class ServiceStatusSyncService
         $app = $this->coolify->getApplication($appUuid);
         $state = $app['status'] ?? null;
 
+        // Métricas REALES de hosting: Coolify no da CPU/RAM, así que usamos el
+        // historial de health checks (uptime + latencia medidos con GET HTTP).
+        $summary = $this->health->summary($service);
+
         $metrics = [
-            'cpu'        => null,
-            'ram'        => null,
-            'visits'     => $app['visits'] ?? null,
-            'sites'      => $app['sites'] ?? null,
-            'uptime_pct' => null,
+            'cpu'             => null,
+            'ram'             => null,
+            'uptime_pct'      => $summary['uptime_pct'],
+            'latency_ms'      => $summary['latency_ms'],
+            'latency_history' => $summary['latency_history'],
         ];
+
+        // Detección real de caída: si Coolify reporta "running" pero el sitio no
+        // responde, el estado efectivo es degradado (el cliente ve la verdad).
+        if ($summary['last_ok'] === false && in_array(strtolower((string) $state), ['running', 'healthy', ''], true)) {
+            $state = 'degraded';
+        }
 
         return [$state, $metrics];
     }

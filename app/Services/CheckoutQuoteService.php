@@ -95,6 +95,10 @@ class CheckoutQuoteService
             throw new CheckoutQuoteException('QUOTE_EXPIRED', 'La cotización expiró. Genera una nueva.', 409);
         }
 
+        if ($quote->consumed_at !== null) {
+            throw new CheckoutQuoteException('QUOTE_ALREADY_USED', 'Esta cotización ya fue utilizada. Genera una nueva.', 409);
+        }
+
         try {
             $rebuilt = $this->buildQuote($quote->request_payload);
         } catch (CheckoutQuoteException) {
@@ -135,6 +139,40 @@ class CheckoutQuoteService
     public function markConsumed(CheckoutQuote $quote): void
     {
         $quote->forceFill(['consumed_at' => now()])->save();
+    }
+
+    /**
+     * Reclama la cotización de forma atómica ANTES de cobrar.
+     *
+     * Usa un UPDATE condicional (consumed_at IS NULL) para que dos peticiones
+     * concurrentes (doble click / refresh / retry) no puedan contratar dos veces
+     * la misma cotización: sólo la primera marca consumed_at; la segunda recibe
+     * 0 filas afectadas y se rechaza.
+     *
+     * @throws CheckoutQuoteException  Si la cotización ya fue reclamada.
+     */
+    public function claim(CheckoutQuote $quote): void
+    {
+        $claimed = CheckoutQuote::whereKey($quote->id)
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+
+        if ($claimed === 0) {
+            throw new CheckoutQuoteException('QUOTE_ALREADY_USED', 'Esta cotización ya fue utilizada. Genera una nueva.', 409);
+        }
+
+        $quote->consumed_at = now();
+    }
+
+    /**
+     * Libera una cotización reclamada cuando la contratación falla
+     * (tarjeta rechazada, 3DS pendiente, error de validación), para que el
+     * cliente pueda reintentar con la misma cotización.
+     */
+    public function release(CheckoutQuote $quote): void
+    {
+        CheckoutQuote::whereKey($quote->id)->update(['consumed_at' => null]);
+        $quote->consumed_at = null;
     }
 
     public function responseData(CheckoutQuote $quote): array

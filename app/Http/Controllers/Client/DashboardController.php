@@ -507,6 +507,9 @@ class DashboardController extends Controller
                         'max_players'       => $maxPlayers ? (int) $maxPlayers : null,
                         'metrics'           => $metrics,
                         'sparkline'         => $sparkline,
+                        // Métricas runtime del proveedor (hosting: uptime/latencia reales del health check).
+                        'live_status'       => $service->live_status,
+                        'live_metrics'      => $service->live_metrics,
                     ];
                 });
 

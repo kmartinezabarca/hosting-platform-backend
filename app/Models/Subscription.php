@@ -20,6 +20,7 @@ class Subscription extends Model
         'stripe_price_id',
         'name',
         'status',
+        'cancel_at_period_end',
         'amount',
         'currency',
         'billing_cycle',
@@ -29,17 +30,28 @@ class Subscription extends Model
         'trial_end',
         'canceled_at',
         'ends_at',
+        'payment_failed_at',
+        'grace_period_ends_at',
+        'next_payment_attempt',
+        'last_payment_error',
+        'suspended_at',
+        'suspension_reason',
         'metadata'
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'cancel_at_period_end' => 'boolean',
         'current_period_start' => 'datetime',
         'current_period_end' => 'datetime',
         'trial_start' => 'datetime',
         'trial_end' => 'datetime',
         'canceled_at' => 'datetime',
         'ends_at' => 'datetime',
+        'payment_failed_at' => 'datetime',
+        'grace_period_ends_at' => 'datetime',
+        'next_payment_attempt' => 'datetime',
+        'suspended_at' => 'datetime',
         'metadata' => 'array'
     ];
 
@@ -100,6 +112,26 @@ class Subscription extends Model
     public function isTrialing(): bool
     {
         return $this->status === 'trialing';
+    }
+
+    /**
+     * ¿La suscripción está programada para cancelarse al fin del periodo?
+     */
+    public function isScheduledToCancel(): bool
+    {
+        return (bool) $this->cancel_at_period_end
+            && in_array($this->status, ['active', 'trialing', 'past_due'], true);
+    }
+
+    /**
+     * ¿Puede reactivarse quitando la cancelación programada?
+     * (Aún no expira el periodo y no está cancelada de forma definitiva.)
+     */
+    public function canResumeBeforePeriodEnd(): bool
+    {
+        return $this->isScheduledToCancel()
+            && $this->current_period_end
+            && $this->current_period_end->isFuture();
     }
 
     /**

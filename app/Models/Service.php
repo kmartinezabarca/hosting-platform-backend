@@ -50,6 +50,11 @@ class Service extends Model
         'connection_secrets',
         'configuration',
         'next_due_date',
+        'grace_period_ends_at',
+        'suspended_at',
+        'suspension_reason',
+        'provisioning_status',
+        'provisioning_error',
         'billing_cycle',
         'price',
         'setup_fee',
@@ -74,6 +79,12 @@ class Service extends Model
         // para tolerar filas antiguas guardadas como JSON plano antes de encryption.
         'configuration'         => 'array',
         'next_due_date'         => 'date',
+        'grace_period_ends_at'  => 'datetime',
+        'suspended_at'          => 'datetime',
+        // Runtime status del proveedor (sync). live_metrics es JSON → requiere cast
+        // array para (de)serializar correctamente; sin él, el guardado del array falla.
+        'live_metrics'          => 'array',
+        'live_synced_at'        => 'datetime',
         'price'                 => 'decimal:2',
         'setup_fee'             => 'decimal:2',
         'terminated_at'         => 'datetime',
@@ -347,6 +358,14 @@ class Service extends Model
     public function selectedAddOns()
     {
         return $this->hasMany(ServiceAddOn::class);
+    }
+
+    /**
+     * Suscripción recurrente asociada al servicio (si existe).
+     */
+    public function subscription()
+    {
+        return $this->hasOne(Subscription::class)->latestOfMany();
     }
 
     /**

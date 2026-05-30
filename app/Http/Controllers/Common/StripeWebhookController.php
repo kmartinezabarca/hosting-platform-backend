@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Common;
 use App\Http\Controllers\Controller;
 use App\Models\Receipt;
 use App\Models\Service;
+use App\Models\StripeEvent;
 use App\Models\Subscription;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Notifications\PaymentNotification;
 use App\Notifications\ServiceNotification;
+use App\Support\StripeObjectReader;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,17 +47,68 @@ class StripeWebhookController extends Controller
             return response()->json(['error' => 'Invalid signature'], 400);
         }
 
+        // ── Idempotencia por event_id ────────────────────────────────────────
+        // Stripe reintenta cada evento hasta 3 días. Registramos el event_id
+        // (único en BD) y omitimos cualquier evento ya procesado con éxito.
+        // Si un evento previo falló, se permite el reproceso (Stripe reintenta).
+        $record = StripeEvent::firstOrNew(['event_id' => $event->id]);
+
+        if ($record->exists && $record->status === StripeEvent::STATUS_PROCESSED) {
+            Log::info("Stripe webhook duplicado ignorado: {$event->id} ({$event->type})");
+            return response()->json(['status' => 'duplicate']);
+        }
+
+        $record->fill([
+            'type'     => $event->type,
+            'status'   => StripeEvent::STATUS_PROCESSING,
+            'attempts' => ($record->attempts ?? 0) + 1,
+            'payload'  => json_decode(json_encode($event->data->object), true),
+            'error'    => null,
+        ]);
+
+        try {
+            $record->save();
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Violación de unique: otra petición concurrente ya tomó este evento.
+            Log::info("Stripe webhook en proceso por otra petición: {$event->id}");
+            return response()->json(['status' => 'in_progress']);
+        }
+
         $object = $event->data->object;
 
-        match ($event->type) {
-            'payment_intent.succeeded'         => $this->onPaymentIntentSucceeded($object),
-            'payment_intent.payment_failed'    => $this->onPaymentIntentFailed($object),
-            'invoice.payment_succeeded'        => $this->onInvoicePaymentSucceeded($object),
-            'invoice.payment_failed'           => $this->onInvoicePaymentFailed($object),
-            'customer.subscription.updated'    => $this->onSubscriptionUpdated($object),
-            'customer.subscription.deleted'    => $this->onSubscriptionDeleted($object),
-            default                            => Log::info("Stripe webhook ignored: {$event->type}"),
-        };
+        try {
+            match ($event->type) {
+                'payment_intent.succeeded'          => $this->onPaymentIntentSucceeded($object),
+                'payment_intent.payment_failed'     => $this->onPaymentIntentFailed($object),
+                'invoice.paid',
+                'invoice.payment_succeeded'         => $this->onInvoicePaymentSucceeded($object),
+                'invoice.payment_failed'            => $this->onInvoicePaymentFailed($object),
+                'invoice.payment_action_required'   => $this->onInvoicePaymentActionRequired($object),
+                'invoice.finalized'                 => $this->onInvoiceFinalized($object),
+                'customer.subscription.created'     => $this->onSubscriptionCreated($object),
+                'customer.subscription.updated'     => $this->onSubscriptionUpdated($object),
+                'customer.subscription.deleted'     => $this->onSubscriptionDeleted($object),
+                'checkout.session.completed'        => $this->onCheckoutSessionCompleted($object),
+                default                             => Log::info("Stripe webhook ignored: {$event->type}"),
+            };
+        } catch (\Throwable $e) {
+            Log::error("Stripe webhook handler error ({$event->type} / {$event->id}): " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $record->update([
+                'status' => StripeEvent::STATUS_FAILED,
+                'error'  => $e->getMessage(),
+            ]);
+
+            // 500 → Stripe reintentará; al ser idempotente, el reproceso es seguro.
+            return response()->json(['error' => 'handler_failed'], 500);
+        }
+
+        $record->update([
+            'status'       => StripeEvent::STATUS_PROCESSED,
+            'processed_at' => now(),
+        ]);
 
         return response()->json(['status' => 'ok']);
     }
@@ -152,12 +205,13 @@ class StripeWebhookController extends Controller
      */
     private function onInvoicePaymentSucceeded(object $stripeInvoice): void
     {
-        $subId = $stripeInvoice->subscription ?? null;
+        $subId = StripeObjectReader::subscriptionIdFromInvoice($stripeInvoice);
         if (!$subId) {
+            // Invoice no ligada a suscripción (p.ej. pago one-off) — nada que renovar.
             return;
         }
 
-        Log::info("Stripe: invoice.payment_succeeded subscription={$subId}");
+        Log::info("Stripe: invoice paid subscription={$subId}");
 
         DB::transaction(function () use ($stripeInvoice, $subId) {
             $subscription = Subscription::where('stripe_subscription_id', $subId)->first();
@@ -166,23 +220,40 @@ class StripeWebhookController extends Controller
                 return;
             }
 
-            $periodEnd = isset($stripeInvoice->lines->data[0]->period->end)
-                ? Carbon::createFromTimestamp($stripeInvoice->lines->data[0]->period->end)
-                : null;
+            $periodEnd = StripeObjectReader::periodEndFromInvoice($stripeInvoice);
 
+            // Si venía de un fallo, ¿estaba el servicio suspendido por morosidad?
+            $wasSuspendedForPayment = optional($subscription->service)->status === 'suspended'
+                && optional($subscription->service)->suspension_reason === 'payment_overdue';
+
+            // Pago exitoso → limpiar todo el estado de morosidad.
             $subscription->update([
                 'status'               => 'active',
                 'current_period_end'   => $periodEnd,
                 'ends_at'              => $periodEnd,
+                'payment_failed_at'    => null,
+                'grace_period_ends_at' => null,
+                'next_payment_attempt' => null,
+                'last_payment_error'   => null,
+                'suspended_at'         => null,
+                'suspension_reason'    => null,
             ]);
 
-            // Keep the service active and push next due date
+            // Reactivar/keep-active el servicio y limpiar la gracia.
             $service = $subscription->service;
             if ($service) {
                 $service->update([
-                    'status'        => 'active',
-                    'next_due_date' => $periodEnd,
+                    'status'               => 'active',
+                    'next_due_date'        => $periodEnd,
+                    'grace_period_ends_at' => null,
+                    'suspended_at'         => null,
+                    'suspension_reason'    => null,
                 ]);
+
+                // Si estaba suspendido por falta de pago, reactivar en el proveedor.
+                if ($wasSuspendedForPayment) {
+                    DB::afterCommit(fn () => app(\App\Services\ServiceSuspensionService::class)->reactivate($service->fresh('plan')));
+                }
             }
 
             // Notify user
@@ -206,7 +277,7 @@ class StripeWebhookController extends Controller
      */
     private function onInvoicePaymentFailed(object $stripeInvoice): void
     {
-        $subId = $stripeInvoice->subscription ?? null;
+        $subId = StripeObjectReader::subscriptionIdFromInvoice($stripeInvoice);
         if (!$subId) {
             return;
         }
@@ -220,22 +291,43 @@ class StripeWebhookController extends Controller
                 return;
             }
 
-            $subscription->update(['status' => 'past_due']);
+            $graceDays = (int) config('billing.grace_period_days', 5);
 
-            // Suspend the service
+            // Sólo abrimos una ventana de gracia nueva si no había una en curso,
+            // para que reintentos de Stripe no la "reinicien" cada vez.
+            $graceEnds = $subscription->grace_period_ends_at && $subscription->grace_period_ends_at->isFuture()
+                ? $subscription->grace_period_ends_at
+                : now()->addDays($graceDays);
+
+            $errorMessage = $stripeInvoice->last_finalization_error->message
+                ?? $stripeInvoice->last_payment_error->message
+                ?? 'El cobro de la renovación fue rechazado.';
+
+            $subscription->update([
+                'status'               => 'past_due',
+                'payment_failed_at'    => now(),
+                'grace_period_ends_at' => $graceEnds,
+                'next_payment_attempt' => StripeObjectReader::timestamp($stripeInvoice->next_payment_attempt ?? null),
+                'last_payment_error'   => $errorMessage,
+            ]);
+
+            // El servicio sigue ACTIVO durante la gracia; lo reflejamos también
+            // a nivel de servicio para el banner del frontend.
             $service = $subscription->service;
-            if ($service) {
-                $service->update(['status' => 'suspended']);
+            if ($service && $service->status === 'active') {
+                $service->update(['grace_period_ends_at' => $graceEnds]);
             }
 
-            // Notify user
             $user = $subscription->user;
             if ($user) {
                 $user->notify(new ServiceNotification([
-                    'title'   => 'Fallo en el pago de suscripción',
-                    'message' => "No pudimos cobrar tu suscripción '{$subscription->name}'. Tu servicio ha sido suspendido. Por favor actualiza tu método de pago.",
+                    'title'   => 'No pudimos procesar tu pago',
+                    'message' => "Tu pago no pudo procesarse. Tienes {$graceDays} días para actualizar tu método de pago antes de que el servicio sea suspendido.",
                     'type'    => 'subscription.payment_failed',
-                    'data'    => ['subscription_id' => $subscription->uuid],
+                    'data'    => [
+                        'subscription_id'      => $subscription->uuid,
+                        'grace_period_ends_at' => $graceEnds->toIso8601String(),
+                    ],
                 ]));
             }
         });
@@ -260,13 +352,30 @@ class StripeWebhookController extends Controller
             return;
         }
 
+        $periodEnd = StripeObjectReader::subscriptionPeriodEnd($stripeSub);
+        $cancelAtPeriodEnd = (bool) ($stripeSub->cancel_at_period_end ?? false);
+
         $subscription->update([
             'status'               => $stripeSub->status,
-            'current_period_start' => isset($stripeSub->current_period_start) ? Carbon::createFromTimestamp($stripeSub->current_period_start) : null,
-            'current_period_end'   => isset($stripeSub->current_period_end)   ? Carbon::createFromTimestamp($stripeSub->current_period_end)   : null,
-            'ends_at'              => isset($stripeSub->cancel_at)            ? Carbon::createFromTimestamp($stripeSub->cancel_at)            : null,
-            'canceled_at'          => isset($stripeSub->canceled_at)          ? Carbon::createFromTimestamp($stripeSub->canceled_at)          : null,
+            'cancel_at_period_end' => $cancelAtPeriodEnd,
+            'current_period_start' => StripeObjectReader::subscriptionPeriodStart($stripeSub),
+            'current_period_end'   => $periodEnd,
+            // ends_at refleja la fecha de fin efectiva: cancel_at si está programada
+            // la cancelación, en su defecto el fin del periodo vigente.
+            'ends_at'              => StripeObjectReader::timestamp($stripeSub->cancel_at ?? null) ?? $periodEnd,
+            'canceled_at'          => StripeObjectReader::timestamp($stripeSub->canceled_at ?? null),
         ]);
+
+        // Mantener el servicio alineado con el estado real de la suscripción.
+        $service = $subscription->service;
+        if ($service) {
+            if (in_array($stripeSub->status, ['active', 'trialing'], true) && $service->status === 'suspended') {
+                $service->update(['status' => 'active']);
+            } elseif ($stripeSub->status === 'past_due') {
+                // No suspendemos aquí; invoice.payment_failed ya gobierna ese caso.
+                Log::info("Subscription {$stripeSub->id} past_due (servicio sin cambios en updated).");
+            }
+        }
     }
 
     /**
@@ -309,5 +418,95 @@ class StripeWebhookController extends Controller
                 ]));
             }
         });
+    }
+
+    /**
+     * customer.subscription.created
+     *
+     * Sincroniza el estado/periodo cuando Stripe crea la suscripción. La fila
+     * local suele crearse en el flujo de contratación; aquí sólo actualizamos
+     * estado y periodo si ya existe (idempotente). Si no existe todavía, se
+     * registra para diagnóstico — la creación canónica vive en el backend.
+     */
+    private function onSubscriptionCreated(object $stripeSub): void
+    {
+        Log::info("Stripe: customer.subscription.created {$stripeSub->id}");
+
+        $subscription = Subscription::where('stripe_subscription_id', $stripeSub->id)->first();
+
+        if (!$subscription) {
+            Log::info("subscription.created sin fila local todavía: {$stripeSub->id}");
+            return;
+        }
+
+        $subscription->update([
+            'status'               => $stripeSub->status,
+            'current_period_start' => StripeObjectReader::subscriptionPeriodStart($stripeSub),
+            'current_period_end'   => StripeObjectReader::subscriptionPeriodEnd($stripeSub),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Otros eventos de invoice / checkout
+    // ──────────────────────────────────────────────
+
+    /**
+     * invoice.payment_action_required
+     *
+     * El cobro de la suscripción requiere autenticación (3DS). Marcamos la
+     * suscripción y avisamos al cliente para que complete la verificación.
+     */
+    private function onInvoicePaymentActionRequired(object $stripeInvoice): void
+    {
+        $subId = StripeObjectReader::subscriptionIdFromInvoice($stripeInvoice);
+        if (!$subId) {
+            return;
+        }
+
+        Log::warning("Stripe: invoice.payment_action_required subscription={$subId}");
+
+        $subscription = Subscription::where('stripe_subscription_id', $subId)->first();
+        if (!$subscription) {
+            return;
+        }
+
+        $user = $subscription->user;
+        if ($user) {
+            $user->notify(new ServiceNotification([
+                'title'   => 'Acción requerida en tu pago',
+                'message' => "Tu banco requiere verificación para cobrar la suscripción '{$subscription->name}'. Por favor completa la autenticación para no perder el servicio.",
+                'type'    => 'subscription.action_required',
+                'data'    => ['subscription_id' => $subscription->uuid],
+            ]));
+        }
+    }
+
+    /**
+     * invoice.finalized
+     *
+     * La factura quedó finalizada (lista para cobro). Sólo registramos para
+     * trazabilidad; el cobro lo confirman invoice.paid / invoice.payment_failed.
+     */
+    private function onInvoiceFinalized(object $stripeInvoice): void
+    {
+        $subId = StripeObjectReader::subscriptionIdFromInvoice($stripeInvoice);
+        Log::info('Stripe: invoice.finalized', [
+            'invoice_id'   => $stripeInvoice->id ?? null,
+            'subscription' => $subId,
+        ]);
+    }
+
+    /**
+     * checkout.session.completed
+     *
+     * El sistema NO usa Stripe Checkout Sessions (el flujo es PaymentIntent +
+     * /services/contract). Se registra por si en el futuro se habilita Checkout,
+     * para no perder el evento silenciosamente.
+     */
+    private function onCheckoutSessionCompleted(object $session): void
+    {
+        Log::info('Stripe: checkout.session.completed (no usado por esta plataforma)', [
+            'session_id' => $session->id ?? null,
+        ]);
     }
 }

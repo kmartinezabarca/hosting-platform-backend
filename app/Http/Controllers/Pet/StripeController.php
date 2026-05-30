@@ -9,9 +9,12 @@ use App\Models\Pet\OwnerSubscription;
 use App\Models\Pet\PetPlan;
 use App\Models\Pet\StripeWebhookEvent;
 use App\Services\Pet\PetStripeSyncService;
+use App\Support\StripeObjectReader;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\SignatureVerificationException;
 use Stripe\StripeClient;
@@ -176,10 +179,6 @@ class StripeController extends Controller
             return response('Invalid signature', 400);
         }
 
-        if (StripeWebhookEvent::where('event_id', $event->id)->exists()) {
-            return response('Already processed', 200);
-        }
-
         $object  = $event->data->object;
         $ownerId = $object->metadata->owner_id ?? null;
         $cusId   = $object->customer ?? null;
@@ -188,24 +187,45 @@ class StripeController extends Controller
             $ownerId = OwnerSubscription::where('stripe_customer_id', $cusId)->value('owner_id');
         }
 
-        match ($event->type) {
-            'checkout.session.completed'    => $this->onCheckoutCompleted($object, $ownerId),
-            'customer.subscription.updated' => $this->onSubscriptionUpdated($object, $ownerId),
-            'customer.subscription.deleted' => $this->onSubscriptionDeleted($object, $ownerId),
-            'invoice.payment_succeeded'     => $this->onInvoicePaid($object, $ownerId),
-            'invoice.payment_failed'        => $this->onInvoiceFailed($object, $ownerId),
-            default                         => null,
-        };
+        // ID de suscripción defensivo: en el API "Basil" (stripe-php v17)
+        // invoice.subscription se movió a invoice.parent.subscription_details.
+        $subId = $object->subscription
+            ?? StripeObjectReader::subscriptionIdFromInvoice($object)
+            ?? ($object->id ?? null);
 
-        StripeWebhookEvent::create([
-            'event_id'               => $event->id,
-            'event_type'             => $event->type,
-            'owner_id'               => $ownerId,
-            'stripe_customer_id'     => $cusId,
-            'stripe_subscription_id' => $object->subscription ?? $object->id ?? null,
-            'payload'                => json_decode($payload, true),
-            'processed_at'           => now(),
-        ]);
+        // ── Idempotencia insert-first (event_id es UNIQUE) ───────────────────
+        // Reclama el evento ANTES de procesar. Dos entregas concurrentes: la
+        // segunda choca con el unique y se descarta. Evita el doble procesamiento.
+        try {
+            StripeWebhookEvent::create([
+                'event_id'               => $event->id,
+                'event_type'             => $event->type,
+                'owner_id'               => $ownerId,
+                'stripe_customer_id'     => $cusId,
+                'stripe_subscription_id' => $subId,
+                'payload'                => json_decode($payload, true),
+                'processed_at'           => now(),
+            ]);
+        } catch (QueryException) {
+            return response('Already processed', 200);
+        }
+
+        try {
+            match ($event->type) {
+                'checkout.session.completed'    => $this->onCheckoutCompleted($object, $ownerId),
+                'customer.subscription.updated' => $this->onSubscriptionUpdated($object, $ownerId),
+                'customer.subscription.deleted' => $this->onSubscriptionDeleted($object, $ownerId),
+                'invoice.paid',
+                'invoice.payment_succeeded'     => $this->onInvoicePaid($object, $ownerId),
+                'invoice.payment_failed'        => $this->onInvoiceFailed($object, $ownerId),
+                default                         => null,
+            };
+        } catch (\Throwable $e) {
+            // Liberar el registro para permitir el reproceso en el reintento de Stripe.
+            StripeWebhookEvent::where('event_id', $event->id)->delete();
+            Log::error("Pet Stripe webhook handler error ({$event->type} / {$event->id}): " . $e->getMessage());
+            return response('handler error', 500);
+        }
 
         return response('OK', 200);
     }
@@ -239,9 +259,11 @@ class StripeController extends Controller
                 default    => 'incomplete',
             },
             'stripe_price_id'    => $subscription->items->data[0]->price->id ?? null,
-            'current_period_end' => date('Y-m-d H:i:s', $subscription->current_period_end),
-            'canceled_at'        => $subscription->canceled_at
-                ? date('Y-m-d H:i:s', $subscription->canceled_at) : null,
+            // Basil: current_period_end se movió a items[].current_period_end.
+            // StripeObjectReader lee ambos formatos → evita guardar 1970-01-01.
+            'current_period_end'   => StripeObjectReader::subscriptionPeriodEnd($subscription),
+            'cancel_at_period_end' => (bool) ($subscription->cancel_at_period_end ?? false),
+            'canceled_at'          => StripeObjectReader::timestamp($subscription->canceled_at ?? null),
         ]);
     }
 
@@ -257,7 +279,8 @@ class StripeController extends Controller
         OwnerSubscription::where('owner_id', $ownerId)->update([
             'status'             => 'active',
             'last_invoice_id'    => $invoice->id,
-            'current_period_end' => isset($invoice->period_end) ? date('Y-m-d H:i:s', $invoice->period_end) : null,
+            'current_period_end' => StripeObjectReader::periodEndFromInvoice($invoice)
+                ?? StripeObjectReader::timestamp($invoice->period_end ?? null),
         ]);
     }
 
@@ -265,5 +288,17 @@ class StripeController extends Controller
     {
         if (!$ownerId) return;
         OwnerSubscription::where('owner_id', $ownerId)->update(['status' => 'past_due']);
+
+        // #5 — avisar al dueño del cobro fallido (push). No fatal.
+        try {
+            (new \App\Services\Pet\PushNotificationService())->sendToOwner(
+                $ownerId,
+                'Problema con tu pago',
+                'No pudimos cobrar tu suscripción. Actualiza tu método de pago para no perder el acceso.',
+                ['url' => '/dashboard?billing=past_due'],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Pet: no se pudo notificar pago fallido a ' . $ownerId . ': ' . $e->getMessage());
+        }
     }
 }

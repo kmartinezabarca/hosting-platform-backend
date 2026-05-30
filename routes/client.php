@@ -71,6 +71,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
             Route::patch ('/configuration', [ServiceController::class, 'updateConfiguration']);
             Route::put   ('/config',        [ServiceController::class, 'updateServiceConfig']);
             Route::post  ('/cancel',        [ServiceController::class, 'cancelService']);
+            Route::post  ('/reactivate-cancellation', [ServiceController::class, 'reactivateCancellation']);
             Route::post  ('/suspend',       [ServiceController::class, 'suspendService']);
             Route::post  ('/reactivate',    [ServiceController::class, 'reactivateService']);
 
@@ -156,6 +157,9 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::get   ('/stats',         [PaymentController::class, 'getPaymentStats']);
         Route::get   ('/transactions',  [PaymentController::class, 'getTransactions']);
     });
+
+    // ── Billing (banners / estado de facturación) ─────────────────────────────
+    Route::get('billing/banners', [\App\Http\Controllers\Client\BillingController::class, 'banners']);
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
     Route::prefix('subscriptions')->group(function () {

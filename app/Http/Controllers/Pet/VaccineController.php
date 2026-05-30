@@ -26,7 +26,7 @@ class VaccineController extends Controller
             'status'      => 'required|in:applied,pending,overdue',
         ]);
 
-        $vaccine = $pet->vaccines()->create([
+        $vaccine = self::createWithSchedule($pet->id, [
             'name'         => $data['name'],
             'name_en'      => $data['nameEn'] ?? null,
             'date'         => $data['date'] ?? null,
@@ -38,6 +38,41 @@ class VaccineController extends Controller
         ]);
 
         return response()->json(self::formatVaccine($vaccine), 201);
+    }
+
+    /**
+     * Crea una vacuna respetando la invariante del modelo (Opción B):
+     *   - Una fila "aplicada" NUNCA conserva un next_due accionable.
+     *   - Si se registra una vacuna aplicada CON próxima dosis, se crea además
+     *     una fila independiente con status 'pending' para esa próxima dosis.
+     *
+     * Una fila = una dosis. Así "pendiente" se define siempre por `status` y
+     * nunca se produce el estado ambiguo (aplicada + next_due) que generaba la
+     * "vacuna pendiente que no se podía aplicar".
+     *
+     * Devuelve la fila principal (la dosis registrada).
+     */
+    public static function createWithSchedule(string $petId, array $attrs): Vaccine
+    {
+        $isApplied = ($attrs['status'] ?? 'pending') === 'applied';
+        $nextDue   = $attrs['next_due'] ?? null;
+
+        $primary = Vaccine::create(array_merge($attrs, [
+            'pet_id'   => $petId,
+            'next_due' => $isApplied ? null : $nextDue,
+        ]));
+
+        if ($isApplied && $nextDue) {
+            Vaccine::create([
+                'pet_id'   => $petId,
+                'name'     => $attrs['name'],
+                'name_en'  => $attrs['name_en'] ?? null,
+                'next_due' => $nextDue,
+                'status'   => 'pending',
+            ]);
+        }
+
+        return $primary;
     }
 
     public function update(Request $request, string $id): JsonResponse
@@ -56,15 +91,25 @@ class VaccineController extends Controller
             'status'      => 'sometimes|in:applied,pending,overdue',
         ]);
 
+        $newStatus  = $data['status'] ?? $vaccine->status;
+        $newNextDue = array_key_exists('nextDue', $data) ? $data['nextDue'] : $vaccine->next_due;
+
+        // Invariante (Opción B): una vacuna aplicada nunca conserva un next_due
+        // accionable. La próxima dosis vive en su propia fila 'pending' (creada
+        // por el flujo de "marcar como aplicada" en el cliente).
+        if ($newStatus === 'applied') {
+            $newNextDue = null;
+        }
+
         $vaccine->update([
             'name'         => $data['name'] ?? $vaccine->name,
             'name_en'      => $data['nameEn'] ?? $vaccine->name_en,
             'date'         => $data['date'] ?? $vaccine->date,
-            'next_due'     => array_key_exists('nextDue', $data) ? $data['nextDue'] : $vaccine->next_due,
+            'next_due'     => $newNextDue,
             'applied_by'   => $data['appliedBy'] ?? $vaccine->applied_by,
             'vet_license'  => $data['vetLicense'] ?? $vaccine->vet_license,
             'batch_number' => $data['batchNumber'] ?? $vaccine->batch_number,
-            'status'       => $data['status'] ?? $vaccine->status,
+            'status'       => $newStatus,
         ]);
 
         return response()->json(self::formatVaccine($vaccine->fresh()));

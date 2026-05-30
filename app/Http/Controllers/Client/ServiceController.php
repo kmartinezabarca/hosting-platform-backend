@@ -33,6 +33,7 @@ class ServiceController extends Controller
         private readonly PterodactylService $pterodactyl,
         private readonly BackupService $backupService,
         private readonly ServiceStatusSyncService $statusSync,
+        private readonly \App\Services\SubscriptionPlanChangeService $planChange,
     ) {}
 
     /**
@@ -85,11 +86,19 @@ class ServiceController extends Controller
      */
     public function contractService(ContractServiceRequest $request): JsonResponse
     {
-        $quote = null;
+        $quote   = null;
+        $claimed = false;
 
         try {
             $user = Auth::user();
             $validated = $request->validated();
+
+            // Persistir el celular del checkout en el perfil (si aún no tiene uno),
+            // para no volver a pedirlo. La fuente de verdad sigue siendo el perfil.
+            $checkoutPhone = $validated['phone'] ?? $validated['phone_number'] ?? null;
+            if ($checkoutPhone && empty($user->phone)) {
+                $user->forceFill(['phone' => trim($checkoutPhone)])->save();
+            }
 
             if (!empty($validated['quote_id'])) {
                 $quote = $this->checkoutQuotes->validateQuote($validated['quote_id'], $user);
@@ -103,6 +112,11 @@ class ServiceController extends Controller
 
                 $plan = $quote->servicePlan()->firstOrFail();
                 $validated = $this->checkoutQuotes->contractPayload($quote, $validated);
+
+                // Reclamo atómico ANTES de cobrar: bloquea doble click / refresh / retry.
+                // Si falla la contratación, se libera en los catch para permitir reintento.
+                $this->checkoutQuotes->claim($quote);
+                $claimed = true;
             } else {
                 $plan = ServicePlan::where('slug', $validated['plan_id'])->firstOrFail();
             }
@@ -113,10 +127,7 @@ class ServiceController extends Controller
                 $validated
             );
 
-            if ($quote) {
-                $this->checkoutQuotes->markConsumed($quote);
-            }
-
+            // Éxito: la cotización queda consumida (ya marcada por claim()).
             $service = $service->fresh(['plan.category', 'plan.features', 'selectedAddOns']);
 
             return response()->json([
@@ -127,22 +138,40 @@ class ServiceController extends Controller
                 'receipt' => $receipt->only(['uuid', 'invoice_number', 'total', 'currency']),
             ], 201);
         } catch (CheckoutQuoteException $e) {
+            // No liberar aquí: si la excepción es QUOTE_ALREADY_USED proviene de
+            // validateQuote (antes de nuestro claim) y liberar des-consumiría una
+            // cotización ajena. Sólo liberamos lo que nosotros reclamamos.
+            if ($claimed && $quote) {
+                $this->checkoutQuotes->release($quote);
+            }
             return response()->json([
                 'success' => false,
                 'error'   => $e->errorCode,
                 'message' => $e->getMessage(),
             ], $e->status);
         } catch (PaymentRequiresActionException $e) {
+            if ($claimed && $quote) {
+                $this->checkoutQuotes->release($quote);
+            }
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
                 'data'    => ['client_secret' => $e->clientSecret, 'requires_action' => true],
             ], 402);
         } catch (\RuntimeException $e) {
+            if ($claimed && $quote) {
+                $this->checkoutQuotes->release($quote);
+            }
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         } catch (\Stripe\Exception\CardException $e) {
+            if ($claimed && $quote) {
+                $this->checkoutQuotes->release($quote);
+            }
             return response()->json(['success' => false, 'message' => $e->getError()->message ?? 'Payment failed.'], 402);
         } catch (\Throwable $e) {
+            if ($claimed && $quote) {
+                $this->checkoutQuotes->release($quote);
+            }
             Log::error('Error contracting service: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
                 'success' => false,
@@ -405,7 +434,7 @@ class ServiceController extends Controller
         try {
             $service = Service::where('user_id', Auth::id())
                 ->where('uuid', $uuid)
-                ->with(['plan.category', 'plan.features', 'selectedAddOns'])
+                ->with(['plan.category', 'plan.features', 'selectedAddOns', 'subscription'])
                 ->firstOrFail();
 
             return response()->json(['success' => true, 'data' => new ServiceResource($service)]);
@@ -545,55 +574,75 @@ class ServiceController extends Controller
 
     /**
      * POST /services/{uuid}/upgrade
-     * Cambia el plan del servicio.
-     * Body: { plan_uuid: string }
-     * - Actualiza plan_id, price en el servicio.
-     * - Si es game server Pterodactyl: actualiza limits en el panel.
-     * - No procesa pago diferencial aquí (se factura en próximo ciclo o vía invoice separada).
+     * Cambia el plan del servicio (upgrade / downgrade / cambio de ciclo).
+     * Body: { plan_uuid: string, billing_cycle?: string }
+     *
+     * - Si el servicio tiene una suscripción recurrente activa → cambio REAL en
+     *   Stripe con prorrateo y rollback (SubscriptionPlanChangeService).
+     * - Si no hay suscripción (plan gratis / pago único) → cambio local + límites
+     *   del proveedor, sin facturación recurrente.
      */
     public function upgradePlan(Request $request, string $uuid): JsonResponse
     {
         $user    = Auth::user();
         $service = Service::where('user_id', $user->id)
             ->where('uuid', $uuid)
-            ->with(['plan.category'])
+            ->with(['plan.category', 'subscription'])
             ->firstOrFail();
 
         $validated = $request->validate([
-            'plan_uuid' => ['required', 'string', 'exists:service_plans,uuid'],
+            'plan_uuid'     => ['required', 'string', 'exists:service_plans,uuid'],
+            'billing_cycle' => ['sometimes', 'nullable', 'string'],
         ]);
 
         $newPlan = ServicePlan::where('uuid', $validated['plan_uuid'])
             ->where('is_active', true)
             ->firstOrFail();
 
-        // Validar misma categoría
-        if ($newPlan->category_id !== $service->plan?->category_id) {
+        // ── Servicio con suscripción recurrente → cambio real con prorrateo ───
+        if ($service->subscription && in_array($service->subscription->status, ['active', 'trialing', 'past_due'], true)) {
+            try {
+                $result = $this->planChange->change($user, $service, $newPlan, $validated['billing_cycle'] ?? null);
+            } catch (\RuntimeException $e) {
+                return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+            } catch (\Stripe\Exception\CardException $e) {
+                return response()->json(['success' => false, 'message' => $e->getError()->message ?? 'El pago del prorrateo fue rechazado.'], 402);
+            } catch (\Throwable $e) {
+                Log::error('upgradePlan (con suscripción): error', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+                return response()->json(['success' => false, 'message' => 'No se pudo cambiar el plan.'], 500);
+            }
+
             return response()->json([
-                'success' => false,
-                'message' => 'No puedes cambiar a un plan de otra categoría.',
-            ], 422);
+                'success' => true,
+                'message' => ucfirst($result['direction']) . " completado con prorrateo. Ahora tienes el plan «{$result['new_plan']}».",
+                'data'    => [
+                    'direction' => $result['direction'],
+                    'old_price' => $result['old_price'],
+                    'new_price' => $result['new_price'],
+                    'new_plan'  => $result['new_plan'],
+                    'cycle'     => $result['cycle'],
+                    'proration' => $result['proration'],
+                    'service'   => new ServiceResource($result['service']),
+                ],
+            ]);
+        }
+
+        // ── Servicio sin suscripción (gratis / pago único) → cambio local ─────
+        if ($newPlan->category_id !== $service->plan?->category_id) {
+            return response()->json(['success' => false, 'message' => 'No puedes cambiar a un plan de otra categoría.'], 422);
         }
 
         if ($newPlan->id === $service->plan_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Ya tienes este plan activo.',
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Ya tienes este plan activo.'], 422);
         }
 
-        $oldPlanName  = $service->plan?->name ?? '—';
-        $oldPrice     = (float) $service->price;
-        $newPrice     = (float) $newPlan->base_price;
-        $direction    = $newPrice >= $oldPrice ? 'upgrade' : 'downgrade';
+        $oldPlanName = $service->plan?->name ?? '—';
+        $oldPrice    = (float) $service->price;
+        $newPrice    = (float) $newPlan->base_price;
+        $direction   = $newPrice >= $oldPrice ? 'upgrade' : 'downgrade';
 
-        // Actualizar servicio
-        $service->update([
-            'plan_id' => $newPlan->id,
-            'price'   => $newPrice,
-        ]);
+        $service->update(['plan_id' => $newPlan->id, 'price' => $newPrice]);
 
-        // Si es Pterodactyl: actualizar límites de RAM/CPU/disco en el panel
         if ($service->isPterodactylManaged() && $service->pterodactyl_server_id) {
             $limits = $newPlan->pterodactyl_limits ?? [];
             if (! empty($limits)) {
@@ -616,7 +665,6 @@ class ServiceController extends Controller
                         'service_id' => $service->id,
                         'error'      => $e->getMessage(),
                     ]);
-                    // No es fatal — el cambio de plan ya quedó registrado
                 }
             }
         }
@@ -687,10 +735,145 @@ class ServiceController extends Controller
 
     /**
      * POST /services/{uuid}/cancel
+     *
+     * Cancelación del servicio desde el panel.
+     *  - Si el servicio tiene una suscripción recurrente activa → se programa la
+     *    cancelación al FIN DEL PERIODO pagado (cancel_at_period_end). El servicio
+     *    sigue activo hasta ends_at; lo desactiva el webhook subscription.deleted.
+     *  - Si no hay suscripción (pago único / gratis) → cancelación inmediata.
+     *  - Body { immediate: true } fuerza la cancelación inmediata (admin).
      */
-    public function cancelService(string $uuid): JsonResponse
+    public function cancelService(Request $request, string $uuid): JsonResponse
     {
-        return $this->changeServiceStatus($uuid, 'cancelled', ['cancelled_at' => now()], 'Servicio cancelado');
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)
+            ->with('subscription')
+            ->firstOrFail();
+
+        $immediate    = (bool) $request->boolean('immediate');
+        $subscription = $service->subscription;
+        $cancellable  = $subscription && in_array($subscription->status, ['active', 'trialing', 'past_due'], true);
+
+        // Sin suscripción recurrente o cancelación forzada → comportamiento inmediato.
+        if (! $cancellable || $immediate) {
+            if ($subscription && $immediate) {
+                try {
+                    \Stripe\Stripe::setApiKey(config('services.stripe.secret'));
+                    \Stripe\Subscription::retrieve($subscription->stripe_subscription_id)->cancel();
+                    $subscription->update([
+                        'status'               => 'canceled',
+                        'cancel_at_period_end' => false,
+                        'canceled_at'          => now(),
+                        'ends_at'              => now(),
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::error('cancelService: error cancelando suscripción en Stripe (no fatal)', [
+                        'service_id' => $service->id,
+                        'error'      => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            return $this->changeServiceStatus($uuid, 'cancelled', ['terminated_at' => now()], 'Servicio cancelado');
+        }
+
+        // Cancelación al fin del periodo pagado.
+        try {
+            \Stripe\Stripe::setApiKey(config('services.stripe.secret'));
+            $stripeSub = \Stripe\Subscription::update(
+                $subscription->stripe_subscription_id,
+                ['cancel_at_period_end' => true]
+            );
+            $endsAt = \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSub);
+
+            $subscription->update([
+                'cancel_at_period_end' => true,
+                'ends_at'              => $endsAt,
+            ]);
+
+            ActivityLog::record(
+                'Cancelación programada',
+                "El cliente programó la cancelación del servicio {$service->name} al fin del periodo" .
+                    ($endsAt ? " ({$endsAt->format('d/m/Y')})." : '.'),
+                'service',
+                ['service_id' => $service->id, 'subscription_id' => $subscription->uuid, 'ends_at' => $endsAt?->toIso8601String()],
+                $user->id
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $endsAt
+                    ? "Tu servicio seguirá activo hasta el {$endsAt->format('d/m/Y')} y no se renovará. Puedes reactivarlo antes de esa fecha."
+                    : 'Tu servicio no se renovará al final del periodo actual.',
+                'data'    => [
+                    'scheduled_cancellation' => true,
+                    'ends_at'                => $endsAt?->toIso8601String(),
+                    'service'                => $service->fresh(),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('cancelService: error programando cancelación', [
+                'service_id' => $service->id,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'No se pudo programar la cancelación.'], 500);
+        }
+    }
+
+    /**
+     * POST /services/{uuid}/reactivate-cancellation
+     *
+     * Quita la cancelación programada (cancel_at_period_end) antes de que termine
+     * el periodo: el servicio seguirá activo y se renovará normalmente.
+     */
+    public function reactivateCancellation(string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)
+            ->with('subscription')
+            ->firstOrFail();
+
+        $subscription = $service->subscription;
+
+        if (! $subscription || ! $subscription->canResumeBeforePeriodEnd()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este servicio no tiene una cancelación programada que se pueda revertir.',
+            ], 422);
+        }
+
+        try {
+            \Stripe\Stripe::setApiKey(config('services.stripe.secret'));
+            $stripeSub = \Stripe\Subscription::update(
+                $subscription->stripe_subscription_id,
+                ['cancel_at_period_end' => false]
+            );
+
+            $subscription->update([
+                'cancel_at_period_end' => false,
+                'ends_at'              => \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSub),
+            ]);
+
+            ActivityLog::record(
+                'Cancelación revertida',
+                "El cliente reactivó la renovación del servicio {$service->name}.",
+                'service',
+                ['service_id' => $service->id, 'subscription_id' => $subscription->uuid],
+                $user->id
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Tu servicio seguirá activo y se renovará normalmente.',
+                'data'    => ['service' => $service->fresh()],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('reactivateCancellation: error', [
+                'service_id' => $service->id,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'No se pudo reactivar la renovación.'], 500);
+        }
     }
 
     /**

@@ -120,9 +120,32 @@ class ServiceContractingService
         $customerId           = $user->stripe_customer_id;
         $localPaymentMethodId = $this->resolveLocalPaymentMethodId($user, $validated);
 
+        // Idempotencia temprana (Flow A): si ya existe un servicio para este
+        // PaymentIntent, devolvemos el existente sin volver a llamar a Stripe,
+        // sin recrear registros y SIN re-aprovisionar.
+        if (!empty($validated['payment_intent_id'])) {
+            if ($existing = $this->existingServiceFor($validated['payment_intent_id'])) {
+                return $existing;
+            }
+        }
+
+        // Idempotency-Key de Stripe para Flow B: blinda la ruta sin cotización
+        // (landing → /services/contract con payment_method_id) contra doble click /
+        // refresh. Stripe devuelve el MISMO PaymentIntent ante una key repetida,
+        // evitando un segundo cargo. Ventana ~10 min (bucket de tiempo).
+        $flowBKey = empty($validated['payment_intent_id'])
+            ? $this->buildFlowBIdempotencyKey($user, (string) ($validated['payment_method_id'] ?? ''), $amountCents, $currency)
+            : null;
+
         [$pi, $usedStripePmId, $pmObject] = !empty($validated['payment_intent_id'])
             ? $this->handleFlowA($validated['payment_intent_id'], $amountCents, $currency)
-            : $this->handleFlowB($validated['payment_method_id'], $amountCents, $currency, $customerId);
+            : $this->handleFlowB($validated['payment_method_id'], $amountCents, $currency, $customerId, $flowBKey);
+
+        // Idempotencia post-cobro: el PaymentIntent (Flow A o el resuelto en Flow B)
+        // ya puede tener un servicio asociado (carrera con webhook / reintento).
+        if ($existing = $this->existingServiceFor($pi->id ?? ($validated['payment_intent_id'] ?? ''))) {
+            return $existing;
+        }
 
         // Map stripe PM to local record if not yet resolved
         if (!$localPaymentMethodId && $usedStripePmId) {
@@ -331,31 +354,13 @@ class ServiceContractingService
             return ['service' => $service, 'receipt' => $receipt, 'invoice' => $cfdiInvoice];
         });
 
-        // ── 6) Provisioning — FUERA del transaction ──────────────────────────
-        // Igual que Stripe: nunca dentro del transaction, fallo no es fatal.
-        if ($result['service']->plan->isPterodactylManaged()) {
-            try {
-                app(GameServerProvisioningService::class)
-                    ->provision($result['service']->fresh(['plan', 'user']));
-            } catch (\Throwable $e) {
-                Log::error('Aprovisionamiento Pterodactyl fallido (no fatal)', [
-                    'service_id' => $result['service']->id,
-                    'error'      => $e->getMessage(),
-                ]);
-            }
-        }
-
-        if ($result['service']->plan->isCoolifyManaged()) {
-            try {
-                app(HostingProvisioningService::class)
-                    ->provision($result['service']->fresh(['plan', 'user']));
-            } catch (\Throwable $e) {
-                Log::error('Aprovisionamiento Coolify fallido (no fatal)', [
-                    'service_id' => $result['service']->id,
-                    'error'      => $e->getMessage(),
-                ]);
-            }
-        }
+        // ── 6) Provisioning — FUERA del transaction, con reintentos ──────────
+        // Encola un provisioning_job idempotente y lo ejecuta de inmediato. Si
+        // el proveedor falla, el job queda pendiente con backoff y lo reintenta
+        // el comando provisioning:process-pending — el servicio nunca queda a
+        // medias y nunca se aprovisiona dos veces.
+        app(\App\Services\ProvisioningService::class)
+            ->dispatch($result['service']->fresh(['plan', 'user']));
 
         // ── 7) Suscripción Stripe — FUERA del transaction ────────────────────
         // CRÍTICO: las llamadas a APIs externas nunca deben estar dentro de un
@@ -559,30 +564,9 @@ class ServiceContractingService
             return ['service' => $service, 'receipt' => $receipt, 'invoice' => null];
         });
 
-        // ── Provisioning ─────────────────────────────────────────────────────
-        if ($result['service']->plan->isPterodactylManaged()) {
-            try {
-                app(GameServerProvisioningService::class)
-                    ->provision($result['service']->fresh(['plan', 'user']));
-            } catch (\Throwable $e) {
-                Log::error('Aprovisionamiento Pterodactyl fallido en plan gratuito (no fatal)', [
-                    'service_id' => $result['service']->id,
-                    'error'      => $e->getMessage(),
-                ]);
-            }
-        }
-
-        if ($result['service']->plan->isCoolifyManaged()) {
-            try {
-                app(HostingProvisioningService::class)
-                    ->provision($result['service']->fresh(['plan', 'user']));
-            } catch (\Throwable $e) {
-                Log::error('Aprovisionamiento Coolify fallido en plan gratuito (no fatal)', [
-                    'service_id' => $result['service']->id,
-                    'error'      => $e->getMessage(),
-                ]);
-            }
-        }
+        // ── Provisioning (idempotente + reintentos) ──────────────────────────
+        app(\App\Services\ProvisioningService::class)
+            ->dispatch($result['service']->fresh(['plan', 'user']));
 
         return $result;
     }
@@ -727,7 +711,7 @@ class ServiceContractingService
      * @throws \RuntimeException
      * @throws \Stripe\Exception\CardException
      */
-    private function handleFlowB(string $pmId, int $amountCents, string $currency, ?string $customerId): array
+    private function handleFlowB(string $pmId, int $amountCents, string $currency, ?string $customerId, ?string $idempotencyKey = null): array
     {
         $pmObject     = StripePaymentMethod::retrieve($pmId);
         $pmCustomerId = $pmObject->customer;
@@ -751,7 +735,7 @@ class ServiceContractingService
             'confirm'        => true,
             'off_session'    => true,
             'description'    => 'Pago de contratación de servicio',
-        ]);
+        ], $idempotencyKey ? ['idempotency_key' => $idempotencyKey] : []);
 
         // If 3DS authentication is required, surface client_secret to the frontend
         if ($pi->status === 'requires_action') {
@@ -833,6 +817,56 @@ class ServiceContractingService
      *   2. specifications.players (ej: "150 Jugadores" → 150)
      *   3. 20 (default seguro)
      */
+    /**
+     * Devuelve el resultado idempotente (mismo shape que el transaction) si ya
+     * existe un servicio para el PaymentIntent dado; null en caso contrario.
+     *
+     * @return array{service: Service, receipt: ?Receipt, invoice: ?Invoice}|null
+     */
+    private function existingServiceFor(?string $paymentIntentId): ?array
+    {
+        if (empty($paymentIntentId)) {
+            return null;
+        }
+
+        $service = Service::where('payment_intent_id', $paymentIntentId)->first();
+
+        if (! $service) {
+            return null;
+        }
+
+        Log::info('contract(): servicio idempotente devuelto para PaymentIntent existente', [
+            'service_id'        => $service->id,
+            'payment_intent_id' => $paymentIntentId,
+        ]);
+
+        return [
+            'service' => $service,
+            'receipt' => Receipt::where('service_id', $service->id)->latest('id')->first(),
+            'invoice' => Invoice::where('service_id', $service->id)->latest('id')->first(),
+        ];
+    }
+
+    /**
+     * Clave de idempotencia determinista para el PaymentIntent de Flow B.
+     *
+     * Combina usuario + método de pago + monto + moneda + un bucket de ~10 min.
+     * Dos peticiones idénticas dentro de la ventana comparten la misma key, de
+     * modo que Stripe devuelve el mismo PaymentIntent y no genera un segundo cargo.
+     */
+    private function buildFlowBIdempotencyKey(User $user, string $pmId, int $amountCents, string $currency): string
+    {
+        $bucket = (int) floor(time() / 600); // ventana de 10 minutos
+
+        return 'contract_b_' . hash('sha256', implode('|', [
+            $user->id,
+            $pmId,
+            $amountCents,
+            strtolower($currency),
+            $bucket,
+        ]));
+    }
+
     private function resolveMaxPlayers(ServicePlan $plan): int
     {
         if (! empty($plan->max_players)) {
@@ -889,11 +923,11 @@ class ServiceContractingService
             'amount'                 => $total,
             'currency'               => $currency,
             'billing_cycle'          => $billingCycle === 'annually' ? 'yearly' : 'monthly',
-            'current_period_start'   => isset($stripeSub->current_period_start) ? Carbon::createFromTimestamp($stripeSub->current_period_start) : null,
-            'current_period_end'     => isset($stripeSub->current_period_end)   ? Carbon::createFromTimestamp($stripeSub->current_period_end)   : null,
+            'current_period_start'   => \App\Support\StripeObjectReader::subscriptionPeriodStart($stripeSub),
+            'current_period_end'     => \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSub),
             'trial_start'            => isset($stripeSub->trial_start)           ? Carbon::createFromTimestamp($stripeSub->trial_start)          : null,
             'trial_end'              => isset($stripeSub->trial_end)             ? Carbon::createFromTimestamp($stripeSub->trial_end)            : null,
-            'ends_at'                => isset($stripeSub->current_period_end)   ? Carbon::createFromTimestamp($stripeSub->current_period_end)   : null,
+            'ends_at'                => \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSub),
             'created_at'             => Carbon::createFromTimestamp($stripeSub->created),
         ]);
 

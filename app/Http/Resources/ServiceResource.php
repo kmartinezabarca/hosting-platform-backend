@@ -41,6 +41,23 @@ class ServiceResource extends JsonResource
             'price'         => (float) $this->price,
             'setup_fee'     => (float) $this->setup_fee,
             'next_due_date' => optional($this->next_due_date)->toDateString(),
+            'grace_period_ends_at' => optional($this->grace_period_ends_at)->toIso8601String(),
+            'suspended_at'      => optional($this->suspended_at)->toIso8601String(),
+            'suspension_reason' => $this->suspension_reason,
+            'provisioning_status' => $this->provisioning_status,
+            'provisioning_error'  => $this->provisioning_error,
+
+            // ── Estado de cancelación / renovación (suscripción) ──────────────
+            // Permite al frontend mostrar la fecha exacta de finalización y el
+            // botón "reactivar renovación" cuando hay cancelación programada.
+            'subscription' => $this->whenLoaded('subscription', fn() => $this->subscription ? [
+                'uuid'                 => $this->subscription->uuid,
+                'status'               => $this->subscription->status,
+                'cancel_at_period_end' => (bool) $this->subscription->cancel_at_period_end,
+                'ends_at'              => optional($this->subscription->ends_at)->toIso8601String(),
+                'current_period_end'   => optional($this->subscription->current_period_end)->toIso8601String(),
+            ] : null),
+
             'notes'         => $this->notes,
             'configuration' => $this->configuration,
             'restart_required' => $this->restart_required,

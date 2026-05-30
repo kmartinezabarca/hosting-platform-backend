@@ -151,8 +151,9 @@ class VetLinkController extends Controller
             'status'      => 'required|in:applied,pending,overdue',
         ]);
 
-        $vaccine = Vaccine::create([
-            'pet_id'       => $link->pet_id,
+        // Invariante Opción B: si el vet registra una vacuna aplicada con próxima
+        // dosis, se crea la fila aplicada (sin next_due) + una fila 'pending' aparte.
+        $vaccine = VaccineController::createWithSchedule($link->pet_id, [
             'name'         => $data['name'],
             'name_en'      => $data['nameEn'] ?? null,
             'date'         => $data['date'] ?? null,

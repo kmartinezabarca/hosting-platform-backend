@@ -32,6 +32,11 @@ class ContractServiceRequest extends FormRequest
             'domain'        => ['nullable', 'string', 'max:255'],
             'service_name'  => ['required', 'string', 'max:255'],
 
+            // Teléfono/celular capturado en el checkout de hosting. Se guarda en
+            // el perfil del cliente para no volver a pedirlo. Se aceptan ambas claves.
+            'phone'         => ['sometimes', 'nullable', 'string', 'max:20'],
+            'phone_number'  => ['sometimes', 'nullable', 'string', 'max:20'],
+
             // Egg selection — required only for Pterodactyl-managed (game server) plans.
             'egg_id' => $isPterodactylPlan
                 ? ['required', 'integer', 'min:1', Rule::exists('pterodactyl_eggs', 'id')]

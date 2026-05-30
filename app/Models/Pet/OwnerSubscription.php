@@ -16,16 +16,17 @@ class OwnerSubscription extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'owner_id', 'plan_code', 'status', 'provider', 'checkout_url', 'billing_email',
+        'owner_id', 'plan_code', 'status', 'cancel_at_period_end', 'provider', 'checkout_url', 'billing_email',
         'trial_ends_at', 'current_period_end', 'support_notes',
         'stripe_customer_id', 'stripe_subscription_id', 'stripe_checkout_session_id',
         'stripe_price_id', 'last_invoice_id', 'canceled_at',
     ];
 
     protected $casts = [
-        'trial_ends_at'      => 'datetime',
-        'current_period_end' => 'datetime',
-        'canceled_at'        => 'datetime',
+        'cancel_at_period_end' => 'boolean',
+        'trial_ends_at'        => 'datetime',
+        'current_period_end'   => 'datetime',
+        'canceled_at'          => 'datetime',
     ];
 
     protected $attributes = [

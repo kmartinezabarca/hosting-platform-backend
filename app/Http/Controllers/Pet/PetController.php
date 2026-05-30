@@ -208,6 +208,11 @@ class PetController extends Controller
 
     public function format(Pet $pet, ?Owner $owner, bool $public = false): array
     {
+        // Privacidad: en el perfil PÚBLICO, el teléfono y el contacto de emergencia
+        // del dueño solo se exponen si la mascota está marcada como PERDIDA (que es
+        // el caso de uso legítimo del tag QR). El dueño en su propia vista los ve siempre.
+        $contactVisible = !$public || (bool) $pet->is_lost;
+
         return [
             'id'                   => $pet->id,
             'ownerId'              => $pet->owner_id,
@@ -268,11 +273,11 @@ class PetController extends Controller
             'owner' => $owner ? [
                 'displayName'          => $owner->display_name ?? '',
                 'name'                 => $owner->display_name ?? '',
-                'phone'                => $owner->phone ?? '',
+                'phone'                => $contactVisible ? ($owner->phone ?? '') : '',
                 'email'                => (!$public || $owner->public_email_visible)   ? ($owner->email   ?? '') : '',
                 'address'              => (!$public || $owner->public_address_visible) ? ($owner->address ?? '') : '',
-                'emergencyContact'     => $owner->emergency_contact ?? '',
-                'emergencyPhone'       => $owner->emergency_phone ?? '',
+                'emergencyContact'     => $contactVisible ? ($owner->emergency_contact ?? '') : '',
+                'emergencyPhone'       => $contactVisible ? ($owner->emergency_phone ?? '') : '',
                 'publicEmailVisible'   => $owner->public_email_visible,
                 'publicAddressVisible' => $owner->public_address_visible,
             ] : [],

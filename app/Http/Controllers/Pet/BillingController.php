@@ -17,35 +17,20 @@ class BillingController extends Controller
 
     public function upsert(Request $request): JsonResponse
     {
+        // SEGURIDAD: el estado de la suscripción (status, plan_code, IDs de Stripe,
+        // fechas de periodo) SOLO puede mutarlo el webhook de Stripe, verificado por
+        // firma. Si se aceptaran del cliente, cualquier dueño autenticado podría
+        // auto-otorgarse un plan de pago activo sin pagar. Aquí únicamente se permite
+        // actualizar datos NO sensibles (email de facturación).
         $data = $request->validate([
-            'planCode'                => 'sometimes|string',
-            'status'                  => 'sometimes|in:trialing,active,past_due,canceled,incomplete',
-            'provider'                => 'sometimes|string',
-            'checkoutUrl'             => 'sometimes|nullable|string',
-            'stripeCustomerId'        => 'sometimes|nullable|string',
-            'stripeSubscriptionId'    => 'sometimes|nullable|string',
-            'stripeCheckoutSessionId' => 'sometimes|nullable|string',
-            'stripePriceId'           => 'sometimes|nullable|string',
-            'trialEndsAt'             => 'sometimes|nullable|date',
-            'currentPeriodEnd'        => 'sometimes|nullable|date',
-            'supportNotes'            => 'sometimes|nullable|string',
+            'billingEmail' => 'sometimes|nullable|email',
         ]);
 
         $sub = OwnerSubscription::updateOrCreate(
             ['owner_id' => $request->user()->uuid],
             array_filter([
-                'plan_code'                  => $data['planCode'] ?? null,
-                'status'                     => $data['status'] ?? null,
-                'provider'                   => $data['provider'] ?? null,
-                'checkout_url'               => $data['checkoutUrl'] ?? null,
-                'stripe_customer_id'         => $data['stripeCustomerId'] ?? null,
-                'stripe_subscription_id'     => $data['stripeSubscriptionId'] ?? null,
-                'stripe_checkout_session_id' => $data['stripeCheckoutSessionId'] ?? null,
-                'stripe_price_id'            => $data['stripePriceId'] ?? null,
-                'trial_ends_at'              => $data['trialEndsAt'] ?? null,
-                'current_period_end'         => $data['currentPeriodEnd'] ?? null,
-                'support_notes'              => $data['supportNotes'] ?? null,
-            ], fn($v) => $v !== null)
+                'billing_email' => $data['billingEmail'] ?? null,
+            ], fn ($v) => $v !== null)
         );
 
         return response()->json($this->format($sub->fresh()));
@@ -57,6 +42,7 @@ class BillingController extends Controller
             'ownerId'                => $sub->owner_id,
             'planCode'               => $sub->plan_code,
             'status'                 => $sub->status,
+            'cancelAtPeriodEnd'      => (bool) $sub->cancel_at_period_end,
             'provider'               => $sub->provider,
             'checkoutUrl'            => $sub->checkout_url,
             'stripeCustomerId'       => $sub->stripe_customer_id,

@@ -133,10 +133,8 @@ class SubscriptionController extends Controller
                     'amount'                 => $price->unit_amount / 100,
                     'currency'               => strtoupper($price->currency),
                     'billing_cycle'          => $this->getBillingCycleFromInterval($price->recurring->interval ?? 'month'),
-                    'current_period_start'   => $stripeSubscription->current_period_start
-                        ? \Carbon\Carbon::createFromTimestamp($stripeSubscription->current_period_start) : null,
-                    'current_period_end'     => $stripeSubscription->current_period_end
-                        ? \Carbon\Carbon::createFromTimestamp($stripeSubscription->current_period_end) : null,
+                    'current_period_start'   => \App\Support\StripeObjectReader::subscriptionPeriodStart($stripeSubscription),
+                    'current_period_end'     => \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSubscription),
                     'trial_start'            => $stripeSubscription->trial_start
                         ? \Carbon\Carbon::createFromTimestamp($stripeSubscription->trial_start) : null,
                     'trial_end'              => $stripeSubscription->trial_end
@@ -185,23 +183,49 @@ class SubscriptionController extends Controller
                 ->where('id', $subscriptionId)
                 ->firstOrFail();
 
-            try {
-                // Cancel in Stripe
-                $stripeSubscription = StripeSubscription::retrieve($subscription->stripe_subscription_id);
-                $stripeSubscription->cancel();
+            // Por defecto la cancelación es AL FINAL DEL PERIODO pagado. La
+            // cancelación inmediata (corta el servicio ya) queda reservada para
+            // casos forzados/admin vía ?immediate=true.
+            $immediate = (bool) $request->boolean('immediate');
 
-                // Update local record
-                $subscription->update([
-                    'status' => 'canceled',
-                    'canceled_at' => now(),
-                    'ends_at' => $stripeSubscription->current_period_end ? 
-                        \Carbon\Carbon::createFromTimestamp($stripeSubscription->current_period_end) : now()
-                ]);
+            try {
+                if ($immediate) {
+                    $stripeSubscription = StripeSubscription::retrieve($subscription->stripe_subscription_id);
+                    $stripeSubscription->cancel();
+
+                    $subscription->update([
+                        'status'               => 'canceled',
+                        'cancel_at_period_end' => false,
+                        'canceled_at'          => now(),
+                        'ends_at'              => now(),
+                    ]);
+
+                    $message = 'Suscripción cancelada de inmediato.';
+                } else {
+                    // Programar cancelación al fin del periodo: el servicio sigue
+                    // activo hasta ends_at y no se renueva.
+                    $stripeSubscription = StripeSubscription::update(
+                        $subscription->stripe_subscription_id,
+                        ['cancel_at_period_end' => true]
+                    );
+
+                    $endsAt = \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSubscription);
+
+                    $subscription->update([
+                        'cancel_at_period_end' => true,
+                        'ends_at'              => $endsAt,
+                    ]);
+
+                    $message = $endsAt
+                        ? "Tu suscripción permanecerá activa hasta el {$endsAt->format('d/m/Y')} y no se renovará."
+                        : 'Tu suscripción no se renovará al final del periodo actual.';
+                }
 
                 return response()->json([
                     'success' => true,
-                    'data' => $subscription->fresh(),
-                    'message' => 'Subscription canceled successfully'
+                    'data'    => $subscription->fresh(),
+                    'ends_at' => $subscription->fresh()->ends_at?->toIso8601String(),
+                    'message' => $message,
                 ]);
 
             } catch (ApiErrorException $e) {
@@ -234,9 +258,36 @@ class SubscriptionController extends Controller
                 ->firstOrFail();
 
             try {
-                // Resume in Stripe (create new subscription with same details)
+                $stripeSubscription = StripeSubscription::retrieve($subscription->stripe_subscription_id);
+
+                // Caso normal: la suscripción sigue viva pero estaba marcada para
+                // cancelarse al fin del periodo → basta con quitar la marca.
+                if ($stripeSubscription->status !== 'canceled') {
+                    $updated = StripeSubscription::update(
+                        $subscription->stripe_subscription_id,
+                        ['cancel_at_period_end' => false]
+                    );
+
+                    $subscription->update([
+                        'cancel_at_period_end' => false,
+                        'status'               => $updated->status,
+                        'canceled_at'          => null,
+                        'ends_at'              => \App\Support\StripeObjectReader::subscriptionPeriodEnd($updated),
+                        'current_period_start' => \App\Support\StripeObjectReader::subscriptionPeriodStart($updated),
+                        'current_period_end'   => \App\Support\StripeObjectReader::subscriptionPeriodEnd($updated),
+                    ]);
+
+                    return response()->json([
+                        'success' => true,
+                        'data'    => $subscription->fresh(),
+                        'message' => 'Tu suscripción seguirá activa y se renovará normalmente.',
+                    ]);
+                }
+
+                // Caso límite: la suscripción YA fue cancelada definitivamente en
+                // Stripe → no se puede revivir; se crea una nueva con el mismo precio.
                 $customer = Customer::retrieve($subscription->stripe_customer_id);
-                
+
                 $stripeSubscription = StripeSubscription::create([
                     'customer' => $customer->id,
                     'items' => [
@@ -252,10 +303,11 @@ class SubscriptionController extends Controller
                 $subscription->update([
                     'stripe_subscription_id' => $stripeSubscription->id,
                     'status' => $stripeSubscription->status,
+                    'cancel_at_period_end' => false,
                     'canceled_at' => null,
                     'ends_at' => null,
-                    'current_period_start' => \Carbon\Carbon::createFromTimestamp($stripeSubscription->current_period_start),
-                    'current_period_end' => \Carbon\Carbon::createFromTimestamp($stripeSubscription->current_period_end)
+                    'current_period_start' => \App\Support\StripeObjectReader::subscriptionPeriodStart($stripeSubscription),
+                    'current_period_end' => \App\Support\StripeObjectReader::subscriptionPeriodEnd($stripeSubscription),
                 ]);
 
                 return response()->json([

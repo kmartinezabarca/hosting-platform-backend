@@ -42,6 +42,30 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/trial-expiration.log'));
 
+        // Morosidad (dunning): suspende servicios cuyo periodo de gracia por pago
+        // fallido ya venció y reconcilia reactivaciones perdidas. Cada hora.
+        $schedule->command('subscriptions:process-overdue')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/subscriptions-overdue.log'));
+
+        // Reintenta aprovisionamientos pendientes/fallidos (Pterodactyl/Coolify)
+        // con backoff. Cada 5 minutos para una recuperación rápida tras un fallo.
+        $schedule->command('provisioning:process-pending')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/provisioning-pending.log'));
+
+        // Health check de sitios de hosting (Coolify): uptime + latencia REAL.
+        // Coolify no expone CPU/RAM, así que medimos disponibilidad con un GET HTTP.
+        $schedule->command('hosting:check-health')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/hosting-health.log'));
+
         // roke.pet — recordatorios: vacunas, desparasitaciones y consultas (email + push)
         $schedule->command('rokepet:send-pet-reminders')
             ->dailyAt('08:00')

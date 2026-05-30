@@ -32,6 +32,11 @@ Route::get('/pets/{slug}',              [PublicController::class, 'petBySlug']);
 Route::middleware('throttle:30,1')->group(function () {
     Route::post('/pets/{slug}/scan',    [PublicController::class, 'recordScan']);
 });
+// "Encontré a esta mascota" — relay anónimo al dueño. Rate-limit estricto
+// (5/min por IP) para evitar spam/acoso al dueño.
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/pets/{slug}/found',   [PublicController::class, 'reportFound']);
+});
 Route::get('/pets/{slug}/lost-poster',  [LostController::class, 'publicLostPoster']);
 
 // Planes (público — para la página de pricing)
