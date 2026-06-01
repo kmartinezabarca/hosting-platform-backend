@@ -127,18 +127,46 @@ pipeline {
         }
 
         stage('Tests') {
-            when { expression { params.RUN_TESTS } }
-            steps {
-                sh '''
+    when { expression { params.RUN_TESTS } }
+    steps {
+        script {
+            docker.image('mysql:8.0').withRun(
+                '-e MYSQL_ROOT_PASSWORD=secret ' +
+                '-e MYSQL_DATABASE=hosting_platform_test ' +
+                '-e MYSQL_USER=laravel ' +
+                '-e MYSQL_PASSWORD=secret'
+            ) { mysqlContainer ->
+                sh """
                     mkdir -p build/logs build/coverage
-                    XDEBUG_MODE=coverage ./vendor/bin/phpunit \
-                        --log-junit build/logs/junit.xml \
-                        --coverage-clover build/coverage/clover.xml \
+
+                    # Esperar que MySQL esté listo
+                    until docker exec ${mysqlContainer.id} mysqladmin ping -h 127.0.0.1 -u root -psecret --silent 2>/dev/null; do
+                        echo "Esperando MySQL..."
+                        sleep 3
+                    done
+
+                    # Obtener IP del contenedor MySQL
+                    MYSQL_IP=\$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${mysqlContainer.id})
+
+                    # Correr tests apuntando a ese MySQL
+                    DB_HOST=\$MYSQL_IP \\
+                    DB_PORT=3306 \\
+                    DB_DATABASE=hosting_platform_test \\
+                    DB_USERNAME=laravel \\
+                    DB_PASSWORD=secret \\
+                    DB_CONNECTION=mysql \\
+                    APP_ENV=testing \\
+                    XDEBUG_MODE=coverage ./vendor/bin/phpunit \\
+                        --log-junit build/logs/junit.xml \\
+                        --coverage-clover build/coverage/clover.xml \\
                         --coverage-cobertura build/coverage/cobertura.xml
-                    php scripts/ci/check-coverage.php build/coverage/clover.xml "${COVERAGE_MIN}"
-                '''
+
+                    php scripts/ci/check-coverage.php build/coverage/clover.xml "${params.COVERAGE_MIN}"
+                """
             }
         }
+    }
+}
 
         // ──────────────────────────────────────────────────────────
         // 🖥️  DEPLOY STAGING → Mac Mini (remoto vía SSH/Tailscale)
