@@ -15,6 +15,70 @@ class BillingController extends Controller
         return response()->json($sub ? $this->format($sub) : null);
     }
 
+    /**
+     * Banners de estado de facturación para el dashboard del dueño.
+     *
+     * El frontend consume GET /api/rp/billing/banners y muestra avisos claros:
+     * cobro fallido + días de gracia, trial por vencer, plan que no se renueva.
+     */
+    public function banners(Request $request): JsonResponse
+    {
+        $sub      = OwnerSubscription::where('owner_id', $request->user()->uuid)->first();
+        $banners  = [];
+
+        if (!$sub) {
+            return response()->json(['banners' => []]);
+        }
+
+        // ── Cobro fallido en periodo de gracia ────────────────────────────────
+        if ($sub->status === 'past_due' && $sub->grace_period_ends_at) {
+            $daysLeft = max(0, (int) ceil(now()->diffInHours($sub->grace_period_ends_at, false) / 24));
+            $banners[] = [
+                'type'              => 'payment_failed',
+                'severity'          => 'warning',
+                'title'             => 'Tu pago no pudo procesarse',
+                'message'           => "Tienes {$daysLeft} día(s) para actualizar tu método de pago antes de que tu cuenta pase al plan gratuito.",
+                'daysLeft'          => $daysLeft,
+                'gracePeriodEndsAt' => $sub->grace_period_ends_at->toIso8601String(),
+                'action'            => ['label' => 'Actualizar pago', 'route' => '/billing'],
+            ];
+        }
+
+        // ── Trial por vencer (≤ 3 días) ───────────────────────────────────────
+        if ($sub->status === 'trialing' && $sub->trial_ends_at) {
+            $daysLeft = (int) ceil(now()->diffInHours($sub->trial_ends_at, false) / 24);
+            if ($daysLeft >= 0 && $daysLeft <= 3) {
+                $banners[] = [
+                    'type'        => 'trial_expiring',
+                    'severity'    => 'info',
+                    'title'       => 'Tu prueba está por terminar',
+                    'message'     => "Tu período de prueba vence en {$daysLeft} día(s). Activa tu plan para no perder el acceso premium.",
+                    'daysLeft'    => $daysLeft,
+                    'expiresAt'   => $sub->trial_ends_at->toIso8601String(),
+                    'action'      => ['label' => 'Activar plan', 'route' => '/billing'],
+                ];
+            }
+        }
+
+        // ── Suscripción que no se renovará (≤ 7 días) ─────────────────────────
+        if ($sub->status === 'active' && $sub->cancel_at_period_end && $sub->current_period_end) {
+            $daysLeft = (int) ceil(now()->diffInHours($sub->current_period_end, false) / 24);
+            if ($daysLeft >= 0 && $daysLeft <= 7) {
+                $banners[] = [
+                    'type'        => 'subscription_expiring',
+                    'severity'    => 'warning',
+                    'title'       => 'Tu suscripción vence pronto',
+                    'message'     => "Tu plan termina en {$daysLeft} día(s) y no se renovará. Reactívalo para mantener tus funciones premium.",
+                    'daysLeft'    => $daysLeft,
+                    'expiresAt'   => $sub->current_period_end->toIso8601String(),
+                    'action'      => ['label' => 'Reactivar plan', 'route' => '/billing'],
+                ];
+            }
+        }
+
+        return response()->json(['banners' => $banners]);
+    }
+
     public function upsert(Request $request): JsonResponse
     {
         // SEGURIDAD: el estado de la suscripción (status, plan_code, IDs de Stripe,
@@ -51,6 +115,8 @@ class BillingController extends Controller
             'stripePriceId'          => $sub->stripe_price_id,
             'trialEndsAt'            => $sub->trial_ends_at,
             'currentPeriodEnd'       => $sub->current_period_end,
+            'gracePeriodEndsAt'      => $sub->grace_period_ends_at,
+            'paymentFailedAt'        => $sub->payment_failed_at,
             'supportNotes'           => $sub->support_notes ?? '',
             'updatedAt'              => $sub->updated_at,
         ];

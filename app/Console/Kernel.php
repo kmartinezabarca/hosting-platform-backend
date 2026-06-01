@@ -73,6 +73,22 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/rokepet-reminders.log'));
 
+        // roke.pet — morosidad: degrada al plan gratuito las suscripciones cuyo
+        // periodo de gracia por pago fallido ya venció. Cada hora.
+        $schedule->command('rokepet:process-overdue-subscriptions')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/rokepet-overdue.log'));
+
+        // roke.pet — avisa a los dueños cuyo trial o suscripción está por vencer
+        // (3 días antes). Una vez al día.
+        $schedule->command('rokepet:notify-expiring-subscriptions')
+            ->dailyAt('09:00')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/rokepet-expiring.log'));
+
         // Historial de ping (latencia) de servidores de juego.
         // Muestrea el SLP de cada game server activo y persiste en game_server_pings.
         $schedule->command('game-servers:collect-pings')

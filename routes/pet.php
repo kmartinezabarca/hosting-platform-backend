@@ -135,6 +135,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Billing
     Route::get('/billing/subscription',  [BillingController::class, 'show']);
     Route::put('/billing/subscription',  [BillingController::class, 'upsert']);
+    Route::get('/billing/banners',       [BillingController::class, 'banners']);
     Route::get('/billing/invoices',      [StripeController::class, 'getInvoices']);
     Route::post('/billing/checkout',     [StripeController::class, 'createCheckoutSession']);
     Route::post('/billing/portal',       [StripeController::class, 'billingPortal']);
