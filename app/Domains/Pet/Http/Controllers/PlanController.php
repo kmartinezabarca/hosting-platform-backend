@@ -182,6 +182,7 @@ class PlanController extends Controller
                 $result[] = ['label' => trim($feature), 'included' => true];
             } elseif (is_array($feature) && !empty($feature['label'])) {
                 $result[] = [
+                    'key'         => $feature['key'] ?? null,
                     'label'       => $feature['label'],
                     'description' => $feature['description'] ?? null,
                     'included'    => $feature['included'] ?? true,

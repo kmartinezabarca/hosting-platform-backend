@@ -147,7 +147,9 @@ pipeline {
                     MYSQL_IP=\$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${mysqlContainer.id})
 
                     cp .env.testing .env
-                    sed -i "s/DB_HOST=127.0.0.1/DB_HOST=\$MYSQL_IP/" .env
+
+                    # Inyectar IP dinámica de MySQL en phpunit.xml
+                    sed -i "s/__MYSQL_IP__/\$MYSQL_IP/g" phpunit.xml
 
                     XDEBUG_MODE=coverage ./vendor/bin/phpunit \\
                         --log-junit build/logs/junit.xml \\
