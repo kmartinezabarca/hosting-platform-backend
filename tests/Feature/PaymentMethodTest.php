@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\PaymentMethod;
+use App\Domains\Platform\Models\PaymentMethod;
 use App\Models\User;
-use App\Services\PaymentService;
+use App\Domains\Platform\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;

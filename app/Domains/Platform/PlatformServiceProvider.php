@@ -1,0 +1,56 @@
+<?php
+
+namespace App\Domains\Platform;
+
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
+
+/**
+ * Frontera del dominio Platform (hosting, game servers, VPS, bases de datos,
+ * billing, dominios). Es el núcleo de negocio de ROKE Industries; vive bajo
+ * app/Domains/Platform/ y comparte con el resto solo el núcleo (User, Controller
+ * base, kernels, middleware, Support, Traits, Policies) que permanece en App\.
+ *
+ * Las rutas de platform siguen cargándose desde RouteServiceProvider
+ * (routes/api.php, auth.php, client.php, admin.php) — los controladores ya
+ * apuntan a App\Domains\Platform\Http\Controllers\*.
+ */
+class PlatformServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        // Los modelos viven en App\Domains\Platform\Models\* (no en App\Models\), así
+        // que hay que enseñarle a las factories la resolución en ambos sentidos:
+        //  - modelo → factory (Model::factory()): por basename → Database\Factories\XFactory.
+        //  - factory → modelo (cuando la factory no fija $model): buscar el modelo en los
+        //    namespaces de dominio (Platform, App\Models para User, Pet).
+        Factory::guessFactoryNamesUsing(
+            fn (string $model) => 'Database\\Factories\\' . class_basename($model) . 'Factory'
+        );
+
+        Factory::guessModelNamesUsing(function (Factory $factory) {
+            $name = Str::replaceLast('Factory', '', class_basename($factory));
+            foreach ([
+                'App\\Domains\\Platform\\Models\\',
+                'App\\Models\\',            // núcleo compartido (User)
+                'App\\Domains\\Pet\\Models\\',
+            ] as $ns) {
+                if (class_exists($ns . $name)) {
+                    return $ns . $name;
+                }
+            }
+            return 'App\\Domains\\Platform\\Models\\' . $name;
+        });
+
+        // Comandos del dominio (antes auto-cargados desde app/Console/Commands).
+        if ($this->app->runningInConsole()) {
+            $dir = __DIR__ . '/Console/Commands';
+            $commands = [];
+            foreach (glob($dir . '/*.php') as $file) {
+                $commands[] = __NAMESPACE__ . '\\Console\\Commands\\' . basename($file, '.php');
+            }
+            $this->commands($commands);
+        }
+    }
+}

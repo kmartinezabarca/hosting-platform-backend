@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Models\AddOn;
-use App\Models\BillingCycle;
-use App\Models\Category;
-use App\Models\PlanPricing;
-use App\Models\ServicePlan;
+use App\Domains\Platform\Models\AddOn;
+use App\Domains\Platform\Models\BillingCycle;
+use App\Domains\Platform\Models\Category;
+use App\Domains\Platform\Models\PlanPricing;
+use App\Domains\Platform\Models\ServicePlan;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -164,7 +164,7 @@ class CheckoutQuoteTest extends TestCase
             ])
             ->json('data.quote_id');
 
-        \App\Models\CheckoutQuote::where('uuid', $quoteId)->update(['expires_at' => now()->subMinute()]);
+        \App\Domains\Platform\Models\CheckoutQuote::where('uuid', $quoteId)->update(['expires_at' => now()->subMinute()]);
 
         $response = $this->actingAs($this->user, 'sanctum')
             ->postJson('/api/services/contract', [

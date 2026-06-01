@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\StripeEvent;
+use App\Domains\Platform\Models\StripeEvent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;

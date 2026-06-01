@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Services\Hestia\HestiaService;
+use App\Domains\Platform\Services\Hestia\HestiaService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 

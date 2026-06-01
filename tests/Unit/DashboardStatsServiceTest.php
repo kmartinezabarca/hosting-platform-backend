@@ -2,9 +2,9 @@
 
 namespace Tests\Unit;
 
-use App\Models\Receipt;
+use App\Domains\Platform\Models\Receipt;
 use App\Models\User;
-use App\Services\DashboardStatsService;
+use App\Domains\Platform\Services\DashboardStatsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;

@@ -2,33 +2,33 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Admin\AdminController;
-use App\Http\Controllers\Admin\AgentController;
-use App\Http\Controllers\Admin\ProductController;
-use App\Http\Controllers\Admin\CategoryController;
-use App\Http\Controllers\Admin\BillingCycleController;
-use App\Http\Controllers\Admin\ServicePlanController;
-use App\Http\Controllers\Admin\AddOnController;
-use App\Http\Controllers\Admin\NotificationController;
-use App\Http\Controllers\Admin\ChatController;
-use App\Http\Controllers\Admin\BlogCategoryController;
-use App\Http\Controllers\Admin\BlogPostController;
-use App\Http\Controllers\Admin\BlogSubscriptionController;
-use App\Http\Controllers\Admin\DocumentationController;
-use App\Http\Controllers\Admin\ApiDocumentationController;
-use App\Http\Controllers\Admin\SystemStatusController;
-use App\Http\Controllers\Admin\BackupController;
-use App\Http\Controllers\Admin\DocumentationRequestController;
-use App\Http\Controllers\Admin\FiscalController;
-use App\Http\Controllers\Admin\CfdiController;
-use App\Http\Controllers\Admin\GameServerController;
-use App\Http\Controllers\Admin\QuotationController;
-use App\Http\Controllers\Admin\PterodactylEggController;
-use App\Http\Controllers\Admin\GlobalSearchController;
-use App\Http\Controllers\Admin\GameSoftwareVersionController;
-use App\Http\Controllers\Admin\PetNotificationController;
-use App\Http\Controllers\Admin\PetSearchController;
-use App\Http\Controllers\Admin\AdminDomainController;
+use App\Domains\Platform\Http\Controllers\Admin\AdminController;
+use App\Domains\Platform\Http\Controllers\Admin\AgentController;
+use App\Domains\Platform\Http\Controllers\Admin\ProductController;
+use App\Domains\Platform\Http\Controllers\Admin\CategoryController;
+use App\Domains\Platform\Http\Controllers\Admin\BillingCycleController;
+use App\Domains\Platform\Http\Controllers\Admin\ServicePlanController;
+use App\Domains\Platform\Http\Controllers\Admin\AddOnController;
+use App\Domains\Platform\Http\Controllers\Admin\NotificationController;
+use App\Domains\Platform\Http\Controllers\Admin\ChatController;
+use App\Domains\Platform\Http\Controllers\Admin\BlogCategoryController;
+use App\Domains\Platform\Http\Controllers\Admin\BlogPostController;
+use App\Domains\Platform\Http\Controllers\Admin\BlogSubscriptionController;
+use App\Domains\Platform\Http\Controllers\Admin\DocumentationController;
+use App\Domains\Platform\Http\Controllers\Admin\ApiDocumentationController;
+use App\Domains\Platform\Http\Controllers\Admin\SystemStatusController;
+use App\Domains\Platform\Http\Controllers\Admin\BackupController;
+use App\Domains\Platform\Http\Controllers\Admin\DocumentationRequestController;
+use App\Domains\Platform\Http\Controllers\Admin\FiscalController;
+use App\Domains\Platform\Http\Controllers\Admin\CfdiController;
+use App\Domains\Platform\Http\Controllers\Admin\GameServerController;
+use App\Domains\Platform\Http\Controllers\Admin\QuotationController;
+use App\Domains\Platform\Http\Controllers\Admin\PterodactylEggController;
+use App\Domains\Platform\Http\Controllers\Admin\GlobalSearchController;
+use App\Domains\Platform\Http\Controllers\Admin\GameSoftwareVersionController;
+use App\Domains\Platform\Http\Controllers\Admin\PetNotificationController;
+use App\Domains\Platform\Http\Controllers\Admin\PetSearchController;
+use App\Domains\Platform\Http\Controllers\Admin\AdminDomainController;
 
 /*
 |--------------------------------------------------------------------------

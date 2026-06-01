@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\Pet\Vaccine;
+use App\Domains\Pet\Models\Vaccine;
 use Illuminate\Database\Migrations\Migration;
 
 /**

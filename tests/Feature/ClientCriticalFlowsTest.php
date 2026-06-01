@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Models\Category;
-use App\Models\Domain;
-use App\Models\Service;
-use App\Models\ServicePlan;
-use App\Models\Ticket;
+use App\Domains\Platform\Models\Category;
+use App\Domains\Platform\Models\Domain;
+use App\Domains\Platform\Models\Service;
+use App\Domains\Platform\Models\ServicePlan;
+use App\Domains\Platform\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;

@@ -175,6 +175,10 @@ return [
         App\Providers\PrometheusServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
+
+        // Dominios (frontera explícita: rutas, comandos, contratos, factories)
+        App\Domains\Platform\PlatformServiceProvider::class,
+        App\Domains\Pet\PetServiceProvider::class,
     ])->toArray(),
 
     /*

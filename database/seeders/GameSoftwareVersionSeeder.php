@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\GameSoftwareVersion;
+use App\Domains\Platform\Models\GameSoftwareVersion;
 use Illuminate\Database\Seeder;
 
 /**

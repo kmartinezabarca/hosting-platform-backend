@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\Client;
 
-use App\Models\CheckoutQuote;
-use App\Models\ServicePlan;
+use App\Domains\Platform\Models\CheckoutQuote;
+use App\Domains\Platform\Models\ServicePlan;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

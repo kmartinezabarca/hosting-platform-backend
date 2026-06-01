@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use App\Models\BillingCycle;
+use App\Domains\Platform\Models\BillingCycle;
 
 class BillingCycleSeeder extends Seeder
 {

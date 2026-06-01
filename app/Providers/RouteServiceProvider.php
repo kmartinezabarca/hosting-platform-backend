@@ -59,10 +59,7 @@ class RouteServiceProvider extends ServiceProvider
                     require base_path('routes/admin.php');
                 });
 
-            // roke.pet — completamente aislado del resto de la plataforma
-            Route::middleware('api')
-                ->prefix('api/rp')
-                ->group(base_path('routes/pet.php'));
+            // roke.pet (prefijo /api/rp) ahora lo carga App\Domains\Pet\PetServiceProvider.
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));

@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use App\Models\MarketingService;
+use App\Domains\Platform\Models\MarketingService;
 use Illuminate\Support\Str;
 
 class MarketingServiceSeeder extends Seeder

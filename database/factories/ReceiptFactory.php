@@ -2,13 +2,13 @@
 
 namespace Database\Factories;
 
-use App\Models\Receipt;
+use App\Domains\Platform\Models\Receipt;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Receipt>
+ * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Domains\Platform\Models\Receipt>
  */
 class ReceiptFactory extends Factory
 {

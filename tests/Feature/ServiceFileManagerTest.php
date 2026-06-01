@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Exceptions\PterodactylApiException;
-use App\Models\Service;
+use App\Domains\Platform\Models\Service;
 use App\Models\User;
-use App\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

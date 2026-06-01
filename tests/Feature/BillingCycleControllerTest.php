@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\BillingCycle;
+use App\Domains\Platform\Models\BillingCycle;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -106,8 +106,8 @@ class BillingCycleControllerTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $cycle = BillingCycle::factory()->create();
 
-        $category = \App\Models\Category::factory()->create();
-        $plan = \App\Models\ServicePlan::factory()->create(['category_id' => $category->id]);
+        $category = \App\Domains\Platform\Models\Category::factory()->create();
+        $plan = \App\Domains\Platform\Models\ServicePlan::factory()->create(['category_id' => $category->id]);
         $plan->pricing()->create([
             'billing_cycle_id' => $cycle->id,
             'price' => 10,

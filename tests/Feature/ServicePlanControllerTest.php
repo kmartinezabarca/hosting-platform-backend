@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\BillingCycle;
-use App\Models\Category;
-use App\Models\ServicePlan;
+use App\Domains\Platform\Models\BillingCycle;
+use App\Domains\Platform\Models\Category;
+use App\Domains\Platform\Models\ServicePlan;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -144,7 +144,7 @@ class ServicePlanControllerTest extends TestCase
         $plan = ServicePlan::factory()->create();
 
         $user = User::factory()->create();
-        \App\Models\Service::factory()->create([
+        \App\Domains\Platform\Models\Service::factory()->create([
             'plan_id' => $plan->id,
             'user_id' => $user->id,
         ]);

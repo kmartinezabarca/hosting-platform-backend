@@ -2,12 +2,12 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\Auth\GoogleLoginController;
-use App\Http\Controllers\Auth\AdminGoogleLoginController;
-use App\Http\Controllers\Auth\TwoFactorController;
-use App\Http\Controllers\Auth\UsernameController;
-use App\Http\Controllers\Auth\PasswordResetController;
+use App\Domains\Platform\Http\Controllers\Auth\AuthController;
+use App\Domains\Platform\Http\Controllers\Auth\GoogleLoginController;
+use App\Domains\Platform\Http\Controllers\Auth\AdminGoogleLoginController;
+use App\Domains\Platform\Http\Controllers\Auth\TwoFactorController;
+use App\Domains\Platform\Http\Controllers\Auth\UsernameController;
+use App\Domains\Platform\Http\Controllers\Auth\PasswordResetController;
 
 /*
 |--------------------------------------------------------------------------

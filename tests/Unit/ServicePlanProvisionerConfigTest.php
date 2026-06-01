@@ -2,8 +2,8 @@
 
 namespace Tests\Unit;
 
-use App\Http\Controllers\Admin\ServicePlanController;
-use App\Models\ServicePlan;
+use App\Domains\Platform\Http\Controllers\Admin\ServicePlanController;
+use App\Domains\Platform\Models\ServicePlan;
 use ReflectionMethod;
 use Tests\TestCase;
 

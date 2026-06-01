@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Http\Resources\InvoiceResource;
-use App\Models\Receipt;
+use App\Domains\Platform\Models\Receipt;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;

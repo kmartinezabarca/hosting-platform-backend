@@ -23,6 +23,27 @@
 - [ ] (Opcional) Stripe CLI para reenviar eventos: `stripe listen --forward-to https://…/api/stripe/webhook`.
 - [ ] Scheduler corriendo: `php artisan schedule:work` (o cron) para los comandos `process-overdue` y `process-pending`.
 
+### Webhook de roke.pet (endpoint SEPARADO del hosting)
+
+roke.pet tiene su PROPIO endpoint, distinto al del hosting. Aunque hoy comparta la
+cuenta Stripe de ROKE Industries, **Stripe genera un `whsec_` distinto por endpoint**,
+así que requiere su propio signing secret o la verificación de firma fallará (400).
+
+- [ ] Registrar el endpoint de roke.pet en Stripe:
+  - **Dev:** `https://api.rokeindustries.dev/api/rp/stripe/webhook`
+  - **Prod:** `https://api.rokeindustries.com/api/rp/stripe/webhook`
+  - (Confirmar el dominio contra `VITE_API_URL` del `.env` de roke-pet en cada servidor.)
+- [ ] Habilitar eventos: `checkout.session.completed`, `customer.subscription.updated`,
+  `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_succeeded`,
+  `invoice.payment_failed`.
+- [ ] Copiar el `whsec_…` de ESE endpoint a `ROKEPET_STRIPE_WEBHOOK_SECRET` en el `.env`.
+  (Si se deja vacío, hace fallback a `STRIPE_WEBHOOK_SECRET` — solo válido si pet y
+  hosting fueran el MISMO endpoint, que NO es el caso.)
+- [ ] Cuando roke.pet pase a ser otra entidad con su propia cuenta Stripe: llenar
+  además `ROKEPET_STRIPE_SECRET` con la API key de esa cuenta. Sin cambios de código.
+- [ ] Scheduler de roke.pet: `rokepet:process-overdue-subscriptions` (gracia 5 días →
+  plan gratis) y `rokepet:notify-expiring-subscriptions` (avisos 3 días antes).
+
 **Tarjetas de prueba útiles**
 - Éxito: `4242 4242 4242 4242`
 - Requiere 3DS: `4000 0027 6000 3184`

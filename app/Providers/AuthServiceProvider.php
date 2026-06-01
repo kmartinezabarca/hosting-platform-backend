@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\Models\Quotation;
+use App\Domains\Platform\Models\Quotation;
 use App\Models\User;
 use App\Policies\QuotationPolicy;
 use App\Policies\UserPolicy;

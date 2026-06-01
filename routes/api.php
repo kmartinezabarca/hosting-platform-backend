@@ -1,23 +1,23 @@
 <?php
 
-use App\Http\Controllers\Api\DocumentationRequestController;
-use App\Http\Controllers\Api\CheckoutController;
-use App\Http\Controllers\Api\QuotationPublicController;
-use App\Http\Controllers\Api\SoftwareController;
-use App\Http\Controllers\Client\ApiDocsController;
-use App\Http\Controllers\Client\ApiDocumentationController;
-use App\Http\Controllers\Client\BillingCycleController;
-use App\Http\Controllers\Client\BlogController;
-use App\Http\Controllers\Client\BlogSubscriptionController;
-use App\Http\Controllers\Client\CategoryController;
-use App\Http\Controllers\Client\DocumentationController;
-use App\Http\Controllers\Client\MarketingServiceController;
-use App\Http\Controllers\Client\ProductController;
-use App\Http\Controllers\Client\ServicePlanController;
-use App\Http\Controllers\Client\SystemStatusController;
-use App\Http\Controllers\Client\GameEggController;
-use App\Http\Controllers\Client\HostingController;
-use App\Http\Controllers\Common\StripeWebhookController;
+use App\Domains\Platform\Http\Controllers\Api\DocumentationRequestController;
+use App\Domains\Platform\Http\Controllers\Api\CheckoutController;
+use App\Domains\Platform\Http\Controllers\Api\QuotationPublicController;
+use App\Domains\Platform\Http\Controllers\Api\SoftwareController;
+use App\Domains\Platform\Http\Controllers\Client\ApiDocsController;
+use App\Domains\Platform\Http\Controllers\Client\ApiDocumentationController;
+use App\Domains\Platform\Http\Controllers\Client\BillingCycleController;
+use App\Domains\Platform\Http\Controllers\Client\BlogController;
+use App\Domains\Platform\Http\Controllers\Client\BlogSubscriptionController;
+use App\Domains\Platform\Http\Controllers\Client\CategoryController;
+use App\Domains\Platform\Http\Controllers\Client\DocumentationController;
+use App\Domains\Platform\Http\Controllers\Client\MarketingServiceController;
+use App\Domains\Platform\Http\Controllers\Client\ProductController;
+use App\Domains\Platform\Http\Controllers\Client\ServicePlanController;
+use App\Domains\Platform\Http\Controllers\Client\SystemStatusController;
+use App\Domains\Platform\Http\Controllers\Client\GameEggController;
+use App\Domains\Platform\Http\Controllers\Client\HostingController;
+use App\Domains\Platform\Http\Controllers\Common\StripeWebhookController;
 use App\Http\Controllers\AppVersionController;
 use Illuminate\Support\Facades\Route;
 
@@ -120,7 +120,7 @@ Route::prefix('quotations/public')->group(function () {
 });
 
 // Postal Codes API
-Route::get('/postal-codes/{code}', [App\Http\Controllers\Api\PostalCodeController::class, 'search']);
+Route::get('/postal-codes/{code}', [App\Domains\Platform\Http\Controllers\Api\PostalCodeController::class, 'search']);
 
 // Hosting — cliente autenticado
 Route::middleware(['auth:sanctum', 'session.timeout'])->prefix('hosting')->group(function () {

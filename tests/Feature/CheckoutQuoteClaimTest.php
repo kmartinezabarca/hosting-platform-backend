@@ -3,10 +3,10 @@
 namespace Tests\Feature;
 
 use App\Exceptions\CheckoutQuoteException;
-use App\Models\BillingCycle;
-use App\Models\CheckoutQuote;
-use App\Models\ServicePlan;
-use App\Services\CheckoutQuoteService;
+use App\Domains\Platform\Models\BillingCycle;
+use App\Domains\Platform\Models\CheckoutQuote;
+use App\Domains\Platform\Models\ServicePlan;
+use App\Domains\Platform\Services\CheckoutQuoteService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

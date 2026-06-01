@@ -2,8 +2,8 @@
 
 namespace Tests\Unit;
 
-use App\Models\Receipt;
-use App\Services\InvoiceService;
+use App\Domains\Platform\Models\Receipt;
+use App\Domains\Platform\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

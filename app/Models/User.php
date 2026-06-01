@@ -1,6 +1,12 @@
 <?php
 
 namespace App\Models;
+use App\Domains\Platform\Models\TicketReply;
+use App\Domains\Platform\Models\Ticket;
+use App\Domains\Platform\Models\Service;
+use App\Domains\Platform\Models\Receipt;
+use App\Domains\Platform\Models\Domain;
+use App\Domains\Platform\Models\DatabaseNotification;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -211,12 +217,12 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function fiscalProfiles()
     {
-        return $this->hasMany(\App\Models\CustomerFiscalProfile::class);
+        return $this->hasMany(\App\Domains\Platform\Models\CustomerFiscalProfile::class);
     }
 
     public function defaultFiscalProfile()
     {
-        return $this->hasOne(\App\Models\CustomerFiscalProfile::class)->where('is_default', true);
+        return $this->hasOne(\App\Domains\Platform\Models\CustomerFiscalProfile::class)->where('is_default', true);
     }
 
     public function receivesBroadcastNotificationsOn(): string

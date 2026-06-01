@@ -1,23 +1,23 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Client\DashboardController;
-use App\Http\Controllers\Client\ProfileController;
-use App\Http\Controllers\Client\ServiceController;
-use App\Http\Controllers\Client\GameServerController;
-use App\Http\Controllers\Client\FileManagerController;
-use App\Http\Controllers\Client\PaymentController;
-use App\Http\Controllers\Client\SubscriptionController;
-use App\Http\Controllers\Client\TicketController;
-use App\Http\Controllers\Client\InvoiceController;
-use App\Http\Controllers\Client\TransactionController;
-use App\Http\Controllers\Client\DomainController;
-use App\Http\Controllers\Client\NotificationController;
-use App\Http\Controllers\Client\SupportChatController;
-use App\Http\Controllers\Client\FiscalController;
-use App\Http\Controllers\Client\ClientSearchController;
-use App\Http\Controllers\Client\InfrastructureController;
-use App\Http\Controllers\Auth\EmailVerificationController;
+use App\Domains\Platform\Http\Controllers\Client\DashboardController;
+use App\Domains\Platform\Http\Controllers\Client\ProfileController;
+use App\Domains\Platform\Http\Controllers\Client\ServiceController;
+use App\Domains\Platform\Http\Controllers\Client\GameServerController;
+use App\Domains\Platform\Http\Controllers\Client\FileManagerController;
+use App\Domains\Platform\Http\Controllers\Client\PaymentController;
+use App\Domains\Platform\Http\Controllers\Client\SubscriptionController;
+use App\Domains\Platform\Http\Controllers\Client\TicketController;
+use App\Domains\Platform\Http\Controllers\Client\InvoiceController;
+use App\Domains\Platform\Http\Controllers\Client\TransactionController;
+use App\Domains\Platform\Http\Controllers\Client\DomainController;
+use App\Domains\Platform\Http\Controllers\Client\NotificationController;
+use App\Domains\Platform\Http\Controllers\Client\SupportChatController;
+use App\Domains\Platform\Http\Controllers\Client\FiscalController;
+use App\Domains\Platform\Http\Controllers\Client\ClientSearchController;
+use App\Domains\Platform\Http\Controllers\Client\InfrastructureController;
+use App\Domains\Platform\Http\Controllers\Auth\EmailVerificationController;
 
 Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
 
@@ -159,7 +159,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
     });
 
     // ── Billing (banners / estado de facturación) ─────────────────────────────
-    Route::get('billing/banners', [\App\Http\Controllers\Client\BillingController::class, 'banners']);
+    Route::get('billing/banners', [\App\Domains\Platform\Http\Controllers\Client\BillingController::class, 'banners']);
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
     Route::prefix('subscriptions')->group(function () {

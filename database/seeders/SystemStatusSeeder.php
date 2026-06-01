@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\SystemStatus;
+use App\Domains\Platform\Models\SystemStatus;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 

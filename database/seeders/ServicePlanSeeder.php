@@ -3,11 +3,11 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use App\Models\BillingCycle;
-use App\Models\Category;
-use App\Models\PlanFeature;
-use App\Models\PlanPricing;
-use App\Models\ServicePlan;
+use App\Domains\Platform\Models\BillingCycle;
+use App\Domains\Platform\Models\Category;
+use App\Domains\Platform\Models\PlanFeature;
+use App\Domains\Platform\Models\PlanPricing;
+use App\Domains\Platform\Models\ServicePlan;
 
 class ServicePlanSeeder extends Seeder
 {

@@ -46,6 +46,13 @@ return [
     // roke.pet — planes de suscripción, Google OAuth y notificaciones push
     'rokepet' => [
         'frontend_url'          => env('ROKEPET_FRONTEND_URL', 'https://roke.pet'),
+        // Stripe de roke.pet. Hoy comparte la cuenta de ROKE Industries (fallback al
+        // STRIPE_SECRET/STRIPE_WEBHOOK_SECRET compartidos). Cuando roke.pet sea otra
+        // entidad con su propia cuenta Stripe, basta con llenar estas dos variables
+        // en el .env — sin tocar código. El webhook_secret SÍ debe ser propio del
+        // endpoint /api/rp/stripe/webhook (cada endpoint de Stripe tiene su whsec).
+        'stripe_secret'         => env('ROKEPET_STRIPE_SECRET', env('STRIPE_SECRET')),
+        'stripe_webhook_secret' => env('ROKEPET_STRIPE_WEBHOOK_SECRET', env('STRIPE_WEBHOOK_SECRET')),
         'stripe_price_starter'  => env('ROKEPET_STRIPE_PRICE_STARTER'),
         'stripe_price_pro'      => env('ROKEPET_STRIPE_PRICE_PRO'),
         'trial_days'            => (int) env('ROKEPET_TRIAL_DAYS', 14),

@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\Receipt;
-use App\Models\Transaction;
+use App\Domains\Platform\Models\Receipt;
+use App\Domains\Platform\Models\Transaction;
 use App\Models\User;
-use App\Notifications\PaymentNotification;
+use App\Domains\Platform\Notifications\PaymentNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;

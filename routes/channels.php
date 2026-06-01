@@ -31,7 +31,7 @@ Broadcast::channel('ticket.{uuid}', function (User $user, $uuid) {
         return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
     }
 
-    $ticket = \App\Models\Ticket::where('uuid', $uuid)->first();
+    $ticket = \App\Domains\Platform\Models\Ticket::where('uuid', $uuid)->first();
     if ($ticket && (int) $ticket->user_id === (int) $user->id) {
         return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
     }
@@ -116,7 +116,7 @@ Broadcast::channel('system.maintenance', function (User $user) {
 // Canal privado por game server — recibe ping en tiempo real vía Reverb
 // El scheduler CollectGameServerPings hace broadcast en este canal cada 5 min.
 Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $serviceUuid) {
-    $service = \App\Models\Service::where('uuid', $serviceUuid)->first();
+    $service = \App\Domains\Platform\Models\Service::where('uuid', $serviceUuid)->first();
     return $service && (int) $service->user_id === (int) $user->id;
 });
 
