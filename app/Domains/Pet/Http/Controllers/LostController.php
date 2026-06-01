@@ -5,11 +5,14 @@ namespace App\Domains\Pet\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Domains\Pet\Models\Pet;
 use App\Domains\Pet\Models\PetScanEvent;
+use App\Domains\Pet\Support\GatesPlanFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class LostController extends Controller
 {
+    use GatesPlanFeatures;
+
     /** POST /my-pets/{id}/lost — marcar mascota como perdida */
     public function markLost(Request $request, string $id): JsonResponse
     {
@@ -82,6 +85,8 @@ class LostController extends Controller
     /** GET /my-pets/{id}/scan-analytics — analytics de escaneos (solo owner) */
     public function scanAnalytics(Request $request, string $id): JsonResponse
     {
+        if ($r = $this->requirePlanFeature($request->user()->uuid, 'scan_analytics')) return $r;
+
         $pet = Pet::where('id', $id)->where('owner_id', $request->user()->uuid)->firstOrFail();
 
         $scans = PetScanEvent::where('pet_id', $pet->id);

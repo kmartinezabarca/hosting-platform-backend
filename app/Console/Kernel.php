@@ -89,6 +89,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/rokepet-expiring.log'));
 
+        // roke.pet — cierra pruebas (trial local) vencidas sin conversión → plan
+        // gratuito. Una vez al día.
+        $schedule->command('rokepet:expire-trials')
+            ->dailyAt('06:00')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/rokepet-expire-trials.log'));
+
         // Historial de ping (latencia) de servidores de juego.
         // Muestrea el SLP de cada game server activo y persiste en game_server_pings.
         $schedule->command('game-servers:collect-pings')

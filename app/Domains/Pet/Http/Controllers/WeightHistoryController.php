@@ -5,12 +5,15 @@ namespace App\Domains\Pet\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Domains\Pet\Models\Pet;
 use App\Domains\Pet\Models\WeightHistory;
+use App\Domains\Pet\Support\GatesPlanFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class WeightHistoryController extends Controller
 {
+    use GatesPlanFeatures;
+
     public function index(Request $request, string $petId): JsonResponse
     {
         $this->ownerPet($request, $petId);
@@ -24,6 +27,8 @@ class WeightHistoryController extends Controller
 
     public function store(Request $request, string $petId): JsonResponse
     {
+        if ($r = $this->requirePlanFeature($request->user()->uuid, 'weight_tracking')) return $r;
+
         $this->ownerPet($request, $petId);
 
         $data = $request->validate([

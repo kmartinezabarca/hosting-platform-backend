@@ -6,6 +6,7 @@ use App\Domains\Pet\Mail\PetReminderMail;
 use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\MedicalRecord;
 use App\Domains\Pet\Models\Owner;
+use App\Domains\Pet\Models\OwnerSubscription;
 use App\Domains\Pet\Models\ReminderSetting;
 use App\Domains\Pet\Models\Vaccine;
 use App\Domains\Pet\Contracts\UserDirectory;
@@ -196,7 +197,9 @@ class SendPetReminders extends Command
             }
         }
 
-        // Push notification
+        // Push notification — solo en planes con la feature 'push_reminders'
+        // (el email se envía siempre). El plan free recibe recordatorios por email.
+        if ($this->ownerCanPush($owner->id)) {
         try {
             $pushTitle = match ($type) {
                 'vaccine'   => "💉 Vacuna de {$petName}",
@@ -225,10 +228,20 @@ class SendPetReminders extends Command
         } catch (\Throwable $e) {
             Log::warning('[rokepet] Push reminder failed', ['owner' => $owner->id, 'error' => $e->getMessage()]);
         }
+        }
 
         if (! empty($channels)) {
             $this->recordSent($owner->id, $referenceId, $type, implode('+', $channels));
         }
+    }
+
+    /** Cache por dueño: ¿su plan incluye recordatorios push? */
+    private array $pushAllowedCache = [];
+
+    private function ownerCanPush(string $ownerId): bool
+    {
+        return $this->pushAllowedCache[$ownerId] ??=
+            (bool) OwnerSubscription::where('owner_id', $ownerId)->first()?->hasFeature('push_reminders');
     }
 
     private function alreadySent(string $referenceId, string $referenceType, Carbon $today): bool

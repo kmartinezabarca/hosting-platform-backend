@@ -10,12 +10,15 @@ use App\Domains\Pet\Models\Vaccine;
 use App\Domains\Pet\Models\VetLink;
 use App\Domains\Pet\Models\WeightHistory;
 use App\Domains\Pet\Services\PushNotificationService;
+use App\Domains\Pet\Support\GatesPlanFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class VetLinkController extends Controller
 {
+    use GatesPlanFeatures;
+
     public function index(Request $request, string $petId): JsonResponse
     {
         $pet   = Pet::where('id', $petId)->where('owner_id', $request->user()->uuid)->firstOrFail();
@@ -34,6 +37,8 @@ class VetLinkController extends Controller
 
     public function generate(Request $request, string $petId): JsonResponse
     {
+        if ($r = $this->requirePlanFeature($request->user()->uuid, 'vet_links')) return $r;
+
         $pet  = Pet::where('id', $petId)->where('owner_id', $request->user()->uuid)->firstOrFail();
         $data = $request->validate([
             'expiresInHours'  => 'sometimes|integer|min:1|max:720',

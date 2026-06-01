@@ -5,6 +5,7 @@ namespace App\Domains\Pet\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Domains\Pet\Models\ActivationEvent;
 use App\Domains\Pet\Models\Owner;
+use App\Domains\Pet\Models\OwnerSubscription;
 use App\Domains\Pet\Models\Pet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,20 @@ class PetController extends Controller
     public function store(Request $request): JsonResponse
     {
         $ownerId = $request->user()->uuid;
+
+        // Enforcement de límite de mascotas según el plan (free=1, starter=2, pro=∞).
+        // El límite vive en pet_plans.max_pets (null = ilimitado). Sin plan reconocido
+        // se aplica el más restrictivo. El trial usa el límite del plan que prueba.
+        $sub   = OwnerSubscription::where('owner_id', $ownerId)->first();
+        $limit = $sub ? $sub->petLimit() : 1;
+        if ($limit !== null && Pet::where('owner_id', $ownerId)->count() >= $limit) {
+            return response()->json([
+                'error'   => "Alcanzaste el límite de tu plan ({$limit} mascota" . ($limit === 1 ? '' : 's')
+                    . '). Mejora tu plan para agregar más.',
+                'code'    => 'plan_limit_reached',
+                'maxPets' => $limit,
+            ], 403);
+        }
 
         $data = $request->validate([
             'name'         => 'required|string|max:255',

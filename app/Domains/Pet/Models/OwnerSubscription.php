@@ -60,6 +60,38 @@ class OwnerSubscription extends Model
         return in_array($this->status, ['active', 'trialing']);
     }
 
+    /**
+     * Límite de mascotas del plan actual. null = ilimitado (p. ej. Pro).
+     * Si no hay plan reconocido, aplica el límite más restrictivo (1, como free).
+     */
+    public function petLimit(): ?int
+    {
+        $plan = $this->plan;
+        if (!$plan) {
+            return 1;
+        }
+        return $plan->max_pets; // null = ilimitado
+    }
+
+    /**
+     * ¿El plan actual incluye la feature indicada? Lee pet_plans.features (cada
+     * feature tiene un `key` estable e `included`). Si el plan o la feature no
+     * existen, se considera NO incluida.
+     */
+    public function hasFeature(string $key): bool
+    {
+        $plan = $this->plan;
+        if (!$plan) {
+            return false;
+        }
+        foreach ((array) $plan->features as $feature) {
+            if (is_array($feature) && ($feature['key'] ?? null) === $key) {
+                return (bool) ($feature['included'] ?? true);
+            }
+        }
+        return false;
+    }
+
     /** ¿Está en periodo de gracia por un cobro fallido todavía no vencido? */
     public function inGracePeriod(): bool
     {

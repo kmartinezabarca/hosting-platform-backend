@@ -56,9 +56,17 @@ class StripeController extends Controller
                 ['owner_id' => $user->uuid],
                 ['billing_email' => $user->email]
             );
+            // Al pasar al plan gratuito se cierra cualquier prueba/periodo de pago en
+            // curso: el plan free es permanente, no tiene trial ni renovación. Así se
+            // evita el estado inconsistente "free + active + trial_ends_at".
             $sub->update([
-                'plan_code' => $planCode,
-                'status'    => 'active',
+                'plan_code'              => $planCode,
+                'status'                 => 'active',
+                'trial_ends_at'          => null,
+                'current_period_end'     => null,
+                'cancel_at_period_end'   => false,
+                'stripe_subscription_id' => null,
+                'stripe_price_id'        => null,
             ]);
             ActivationEvent::create([
                 'owner_id'    => $user->uuid,
@@ -77,14 +85,20 @@ class StripeController extends Controller
             return response()->json(['error' => 'Error al conectar con Stripe: ' . $e->getMessage()], 500);
         }
 
-        $trialDays = $plan->trialDays();
-
         $user  = $request->user();
         $owner = Owner::findOrFail($user->uuid);
         $sub   = OwnerSubscription::firstOrCreate(
             ['owner_id' => $user->uuid],
             ['billing_email' => $user->email]
         );
+
+        // Modelo de trial LOCAL: la prueba ya corre en la app (trial_ends_at). Al
+        // convertir, pasamos a Stripe solo los días RESTANTES para no regalar otro
+        // trial completo (evita el doble trial de hasta 28 días). Sin trial vigente
+        // → 0 días → Stripe cobra de inmediato.
+        $trialDays = ($sub->trial_ends_at && $sub->trial_ends_at->isFuture())
+            ? max(1, (int) ceil(now()->diffInHours($sub->trial_ends_at, false) / 24))
+            : 0;
 
         $stripe = $this->stripe();
         if (!$sub->stripe_customer_id) {
