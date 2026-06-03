@@ -199,7 +199,7 @@ Route::middleware(["auth:sanctum", "session.timeout", "admin"])->prefix("admin")
         Route::get('/unread-count', [ChatController::class, 'getUnreadCount'])->name('unread-count');
         Route::get('/{ticket}/messages', [ChatController::class, 'getMessages'])->name('messages');
         Route::post('/{ticket}/messages', [ChatController::class, 'sendMessage'])->name('send-message');
-        Route::post('/{ticket}/typing', [ChatController::class, 'typing'])->name('typing');
+        Route::post('/{ticket}/typing', [ChatController::class, 'typing'])->name('typing')->middleware('throttle:chat-typing');
         Route::put('/{ticket}/read', [ChatController::class, 'markAsRead'])->name('mark-as-read');
         Route::put('/{ticket}/assign', [ChatController::class, 'assignToAgent'])->name('assign');
         Route::put('/{ticket}/close', [ChatController::class, 'closeRoom'])->name('close');
