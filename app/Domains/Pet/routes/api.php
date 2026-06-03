@@ -7,6 +7,7 @@ use App\Domains\Pet\Http\Controllers\InboxController;
 use App\Domains\Pet\Http\Controllers\LostController;
 use App\Domains\Pet\Http\Controllers\MedicalRecordController;
 use App\Domains\Pet\Http\Controllers\OwnerController;
+use App\Domains\Pet\Http\Controllers\PasswordResetController;
 use App\Domains\Pet\Http\Controllers\PetController;
 use App\Domains\Pet\Http\Controllers\PlanController;
 use App\Domains\Pet\Http\Controllers\PublicController;
@@ -57,6 +58,12 @@ Route::middleware('throttle:10,1')->group(function () {
 Route::post('/auth/register',          [AuthController::class, 'register']);
 Route::post('/auth/login',             [AuthController::class, 'login']);
 Route::post('/auth/google/callback',   [AuthController::class, 'handleGoogleCallback']);
+
+// Recuperación de contraseña (público, throttle estricto)
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/auth/forgot-password', [PasswordResetController::class, 'sendResetLink']);
+    Route::post('/auth/reset-password',  [PasswordResetController::class, 'reset']);
+});
 
 // Stripe webhook — sin auth, verificado por firma
 Route::post('/stripe/webhook', [StripeController::class, 'webhook'])

@@ -57,10 +57,20 @@ class TrackUserSession
                 $session->uuid = (string) Str::uuid();
                 $session->user_id = $user->id;
                 $session->login_at = now();
-                
-                if (!$deviceToken) {
-                    $session->device_token = Str::random(60);
-                    $response->cookie('device_token', $session->device_token, 60 * 24 * 365 * 5);
+
+                // El device_token es ÚNICO a nivel global. La cookie persiste entre
+                // logins, así que al entrar con otro usuario en el mismo navegador
+                // el token de la cookie ya puede pertenecer a otra fila. Si está
+                // tomado (o no hay cookie), generamos uno nuevo para no chocar con
+                // la constraint única; conservamos las sesiones de ambos usuarios.
+                $tokenTaken = $deviceToken
+                    ? UserSession::where('device_token', $deviceToken)->exists()
+                    : true;
+
+                if ($tokenTaken) {
+                    $newToken = Str::random(60);
+                    $session->device_token = $newToken;
+                    $response->cookie('device_token', $newToken, 60 * 24 * 365 * 5);
                 } else {
                     $session->device_token = $deviceToken;
                 }
@@ -88,7 +98,25 @@ class TrackUserSession
             $session->last_activity = now();
             $session->laravel_session_id = $request->hasSession() ? $request->session()->getId() : null;
 
-            $session->save();
+            // El registro de sesión es secundario: nunca debe tumbar la petición.
+            // Si por una carrera el device_token colisiona, regeneramos y reintentamos.
+            try {
+                $session->save();
+            } catch (\Illuminate\Database\QueryException $e) {
+                if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+                    try {
+                        $session->device_token = Str::random(60);
+                        $response->cookie('device_token', $session->device_token, 60 * 24 * 365 * 5);
+                        $session->save();
+                    } catch (\Throwable $inner) {
+                        \Illuminate\Support\Facades\Log::warning('TrackUserSession save failed: ' . $inner->getMessage());
+                    }
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('TrackUserSession save failed: ' . $e->getMessage());
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('TrackUserSession save failed: ' . $e->getMessage());
+            }
         }
 
         return $response;
