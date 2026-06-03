@@ -72,7 +72,7 @@ class HostingProvisioningService
             try {
                 $dnsRecordIds['a'] = $this->cloudflare->createARecord(
                     $this->cloudflareName($dnsTarget),
-                    '100.94.93.51'
+                    '100.124.151.68'
                 );
             } catch (\Throwable $e) {
                 Log::warning('DNS Cloudflare para hosting Coolify no creado (no fatal)', [
