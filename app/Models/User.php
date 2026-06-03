@@ -165,6 +165,30 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Check if user belongs to the support staff.
+     */
+    public function isSupport()
+    {
+        return $this->role === 'support';
+    }
+
+    /**
+     * Check if user is any kind of staff member (admin, super_admin or support).
+     */
+    public function isStaff()
+    {
+        return in_array($this->role, ['super_admin', 'admin', 'support'], true);
+    }
+
+    /**
+     * Check if the user's role is one of the given roles.
+     */
+    public function hasAnyRole(array $roles): bool
+    {
+        return in_array($this->role, $roles, true);
+    }
+
+    /**
      * Get the services for the user.
      */
     public function services()
