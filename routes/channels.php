@@ -26,8 +26,8 @@ Broadcast::channel('user.{uuid}', function (User $user, $uuid) {
 
 // Canal privado por ticket (chat de soporte en tiempo real)
 Broadcast::channel('ticket.{uuid}', function (User $user, $uuid) {
-    // El cliente dueño del ticket o un admin pueden suscribirse
-    if ($user->isAdmin()) {
+    // El cliente dueño del ticket o cualquier staff (admin/super_admin/support)
+    if ($user->isStaff()) {
         return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
     }
 
@@ -61,7 +61,8 @@ Broadcast::channel('admin.users', function (User $user) {
 });
 
 Broadcast::channel('admin.tickets', function (User $user) {
-    return $user->isAdmin();
+    // Support también atiende tickets, por lo que recibe el feed de tickets.
+    return $user->isStaff();
 });
 
 Broadcast::channel('admin.notifications', function (User $user) {

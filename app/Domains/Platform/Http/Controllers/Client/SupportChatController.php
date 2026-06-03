@@ -321,6 +321,8 @@ class SupportChatController extends Controller
             'is_internal' => false,
         ]);
 
+        event(new \App\Domains\Platform\Events\TicketClosed($ticket->fresh(), $user));
+
         return response()->json([
             'success' => true,
             'message' => 'Ticket cerrado.',
