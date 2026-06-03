@@ -4,6 +4,7 @@ namespace App\Domains\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 
+use App\Domains\Platform\Models\AuditLog;
 use App\Domains\Platform\Models\Category;
 use App\Domains\Platform\Models\ServicePlan;
 use App\Domains\Platform\Models\PlanFeature;
@@ -233,6 +234,8 @@ class ServicePlanController extends Controller
 
             $servicePlan->load(['category', 'features', 'pricing.billingCycle']);
 
+            AuditLog::record('plan.created', $servicePlan, "Plan creado: {$servicePlan->name}");
+
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan created successfully',
@@ -369,6 +372,8 @@ class ServicePlanController extends Controller
 
             $servicePlan->load(['category', 'features', 'pricing.billingCycle']);
 
+            AuditLog::record('plan.updated', $servicePlan, "Plan actualizado: {$servicePlan->name}");
+
             return response()->json([
                 'success' => true,
                 'message' => 'Service plan updated successfully',
@@ -465,6 +470,8 @@ class ServicePlanController extends Controller
             }
 
             $servicePlan->delete();
+
+            AuditLog::record('plan.deleted', $servicePlan, "Plan eliminado: {$servicePlan->name}");
 
             $this->clearCatalogCaches();
 

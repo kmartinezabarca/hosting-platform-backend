@@ -556,10 +556,19 @@ class AdminController extends Controller
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $previousStatus = $service->status;
         $service->update([
             'status'      => $validated['status'],
             'admin_notes' => $validated['reason'] ?? null,
         ]);
+
+        AuditLog::record(
+            action: 'service.status_changed',
+            target: $service,
+            description: "Estado del servicio {$service->name}: {$previousStatus} → {$validated['status']}"
+                . (isset($validated['reason']) ? " — motivo: {$validated['reason']}" : ''),
+            changes: ['status' => [$previousStatus, $validated['status']]],
+        );
 
         return response()->json([
             'success' => true,

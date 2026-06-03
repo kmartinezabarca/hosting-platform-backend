@@ -17,6 +17,7 @@ use App\Domains\Platform\Http\Controllers\Client\SupportChatController;
 use App\Domains\Platform\Http\Controllers\Client\FiscalController;
 use App\Domains\Platform\Http\Controllers\Client\ClientSearchController;
 use App\Domains\Platform\Http\Controllers\Client\InfrastructureController;
+use App\Domains\Platform\Http\Controllers\Client\UserRequestController;
 use App\Domains\Platform\Http\Controllers\Auth\EmailVerificationController;
 
 Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
@@ -243,6 +244,13 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
 
     // ── Infrastructure / Network Topology ────────────────────────────────────
     Route::get('/infrastructure', [InfrastructureController::class, 'index']);
+
+    // ── Solicitudes del usuario (documentación / acceso API) ──────────────────
+    Route::prefix('user-requests')->name('client.user-requests.')->group(function () {
+        Route::get('/',     [UserRequestController::class, 'index'])->name('index');
+        Route::post('/',    [UserRequestController::class, 'store'])->name('store');
+        Route::get('/{id}', [UserRequestController::class, 'show'])->name('show');
+    });
 
     // ── Support Chat ──────────────────────────────────────────────────────────
     Route::prefix('chat')->name('client.chat.')->group(function () {

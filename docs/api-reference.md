@@ -366,8 +366,15 @@
 
 ## Panel Admin
 
-> Middleware: `auth:sanctum` + `session.timeout` + `admin`.  
-> Todas las rutas usan el prefijo `/admin`.
+> Middleware: `auth:sanctum` + `session.timeout` + control de rol por grupo
+> (`role:…`). Todas las rutas usan el prefijo `/admin`.
+>
+> **Acceso por rol** (ver [Roles y acceso](#roles-y-acceso-del-panel-admin)):
+> - `support` → usuarios (solo lectura), servicios, dominios, tickets/chat,
+>   documentación, api-documentation y estado del sistema.
+> - `admin` + `super_admin` → todo el negocio (finanzas, catálogo, analytics,
+>   blog, cotizaciones, etc.) **excepto** backups y auditoría.
+> - `super_admin` → además backups y log de auditoría.
 
 ### Dashboard admin
 
@@ -632,3 +639,99 @@
   }
 }
 ```
+
+---
+
+## Roles y acceso del panel admin
+
+El módulo admin se divide en grupos por rol mediante el middleware `role:`. Si el
+usuario autenticado no tiene un rol permitido en el grupo, responde `403` con
+`{"success": false, "error_code": "INSUFFICIENT_PRIVILEGES"}`. Sin sesión → `401`.
+
+| Recurso | support | admin | super_admin |
+|---|:---:|:---:|:---:|
+| Usuarios (lectura `GET /admin/users`) | ✅ | ✅ | ✅ |
+| Usuarios (crear/editar/eliminar/estado + herramientas) | — | ✅ | ✅ |
+| Servicios, Dominios, Tickets/Chat | ✅ | ✅ | ✅ |
+| Documentación, API-docs, System status | ✅ | ✅ | ✅ |
+| Dashboard stats, Analytics, Facturas, Catálogo, Blog, Cotizaciones, CFDI/Fiscal, Pet, Solicitudes | — | ✅ | ✅ |
+| Backups, Log de auditoría | — | — | ✅ |
+
+> Nota: el analytics de ingresos es información financiera, por lo que `support`
+> no tiene acceso (regla "support no ve finanzas").
+
+## Herramientas de soporte sobre el usuario (admin / super_admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| POST | `/admin/users/{id}/impersonate` | Inicia suplantación de un cliente. Responde `{ "data": { "redirect_url": "…/client/dashboard?impersonation_token=…" } }`. El token es de **un solo uso** (TTL 60 s). |
+| POST | `/admin/users/{id}/reset-2fa` | Desactiva el 2FA del usuario (deberá reconfigurarlo). |
+| POST | `/admin/users/{id}/send-password-reset` | Envía correo de restablecimiento de contraseña (broker de Laravel). |
+
+### Suplantación — intercambio de sesión (auth)
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| POST | `/auth/impersonate/exchange` | Público (throttle 5/min) | Body `{ "token": "…" }`. Canjea el token de un solo uso por una **sesión (cookie) del cliente**. Responde `{ "data": { "user", "impersonated": true, "redirect_to": "/client/dashboard" } }`. |
+| POST | `/auth/impersonate/leave` | `auth:sanctum` | Termina la suplantación y **restaura la sesión del admin** original. |
+
+## Solicitudes de usuario
+
+Solicitudes (`documentation_request` / `api_documentation_request`) que el cliente
+envía y el staff aprueba o rechaza. Al resolverse se notifica al solicitante
+(in-app + broadcast).
+
+**Cliente** (`auth:sanctum`):
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| GET | `/user-requests` | Lista las solicitudes propias (filtro `status`) |
+| POST | `/user-requests` | Crea una solicitud `{ kind, subject, description? }` |
+| GET | `/user-requests/{id}` | Detalle de una solicitud propia |
+
+**Admin** (`admin` / `super_admin`):
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| GET | `/admin/user-requests` | Lista (filtros: `status`, `kind`, `search`, `page`, `per_page`) |
+| GET | `/admin/user-requests/{id}` | Detalle |
+| POST | `/admin/user-requests/{id}/approve` | Aprobar `{ note? }` |
+| POST | `/admin/user-requests/{id}/reject` | Rechazar `{ reason (requerido) }` |
+
+## Reembolsos de facturas (admin / super_admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| POST | `/admin/invoices/{id}/refund` | Reembolsa una factura **pagada** vía Stripe. Body `{ amount? (parcial; omitir = total), reason (requerido) }`. Marca la factura como `refunded` y registra una transacción `refund`. |
+
+## Analytics (admin / super_admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| GET | `/admin/analytics/overview` | Métricas de ingresos. Query `range` ∈ `7d\|30d\|90d\|12m` (default `30d`). |
+
+Respuesta `data`: `range`, `currency`, `revenue_total`, `revenue_change_pct`,
+`mrr`, `mrr_change_pct`, `arr`, `churn_rate`, `new_customers`,
+`active_subscriptions`, `arpu`, `ltv`, `revenue_series[]`, `customers_series[]`,
+`plan_distribution[]`, `revenue_by_category[]`.
+
+> Montos sumados **sin conversión FX** (datos en USD/MXN mezclados); `currency`
+> es solo etiqueta de reporte. Revenue = transacciones `payment` completadas
+> (bruto). MRR normaliza ciclos (anual/semanal/diario) a mensual.
+
+## Log de auditoría (solo super_admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| GET | `/admin/audit-logs` | Listado paginado. Filtros: `actor_id`, `action`, `target_type`, `from`, `to`, `search`, `page`, `per_page`. |
+| GET | `/admin/audit-logs/actions` | Lista de `action` distintos (para filtros). |
+
+Cada entrada: `id`, `actor_id`, `actor_name`, `actor_email`, `actor_role`,
+`action`, `target_type`, `target_id`, `description`, `ip_address`, `user_agent`,
+`changes` (`{ campo: [antes, después] }`), `created_at`.
+
+Acciones registradas actualmente: `user.impersonated`, `user.impersonation_ended`,
+`user.two_factor_reset`, `user.password_reset_sent`, `user.deleted`,
+`user.status_changed`, `service.status_changed`, `invoice.cancelled`,
+`invoice.refunded`, `user_request.approved`, `user_request.rejected`,
+`plan.created`, `plan.updated`, `plan.deleted`.
