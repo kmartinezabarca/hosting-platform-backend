@@ -654,11 +654,13 @@ usuario autenticado no tiene un rol permitido en el grupo, responde `403` con
 | Usuarios (crear/editar/eliminar/estado + herramientas) | — | ✅ | ✅ |
 | Servicios, Dominios, Tickets/Chat | ✅ | ✅ | ✅ |
 | Documentación, API-docs, System status | ✅ | ✅ | ✅ |
-| Dashboard stats, Analytics, Facturas, Catálogo, Blog, Cotizaciones, CFDI/Fiscal, Pet, Solicitudes | — | ✅ | ✅ |
+| Analytics (dashboard de ingresos) | ✅ | ✅ | ✅ |
+| Dashboard stats, Facturas, Catálogo, Blog, Cotizaciones, CFDI/Fiscal, Pet, Solicitudes | — | ✅ | ✅ |
 | Backups, Log de auditoría | — | — | ✅ |
 
-> Nota: el analytics de ingresos es información financiera, por lo que `support`
-> no tiene acceso (regla "support no ve finanzas").
+> Nota: `support` ve el **dashboard de analytics** (§0), pero la **gestión
+> financiera** (facturas, reembolsos, CFDI) permanece restringida a
+> admin/super_admin.
 
 ## Herramientas de soporte sobre el usuario (admin / super_admin)
 
@@ -704,7 +706,7 @@ envía y el staff aprueba o rechaza. Al resolverse se notifica al solicitante
 |---|---|---|
 | POST | `/admin/invoices/{id}/refund` | Reembolsa una factura **pagada** vía Stripe. Body `{ amount? (parcial; omitir = total), reason (requerido) }`. Marca la factura como `refunded` y registra una transacción `refund`. |
 
-## Analytics (admin / super_admin)
+## Analytics (support / admin / super_admin)
 
 | Método | Endpoint | Descripción |
 |---|---|---|

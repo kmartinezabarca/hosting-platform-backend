@@ -43,13 +43,14 @@ use App\Domains\Platform\Http\Controllers\Admin\UserRequestController;
 | en grupos internos con el middleware `role:` (super_admin / admin / support):
 |
 |   • support             → usuarios (solo lectura), servicios, dominios,
-|                            tickets, documentación y estado del sistema.
-|   • admin + super_admin  → todo el negocio (finanzas, catálogo, analytics,
-|                            blog, etc.) excepto backups y auditoría.
+|                            tickets, documentación, estado del sistema y
+|                            analytics (dashboard de ingresos).
+|   • admin + super_admin  → todo el negocio (finanzas, catálogo, blog, etc.)
+|                            excepto backups y auditoría.
 |   • super_admin          → backups y log de auditoría.
 |
-| Nota: el analytics de ingresos es información financiera, por lo que queda
-| restringido a admin/super_admin (support NO ve finanzas).
+| Nota: support ve el dashboard de analytics (§0) pero NO la gestión financiera
+| (facturas, reembolsos, CFDI), que permanece en admin/super_admin.
 |
 */
 
@@ -157,6 +158,9 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
             Route::put("/{uuid}", [SystemStatusController::class, "update"]);
             Route::delete("/{uuid}", [SystemStatusController::class, "destroy"]);
         });
+
+        // Analytics (ingresos / MRR / churn) — incluido en el scope de support (§0)
+        Route::get("/analytics/overview", [AnalyticsController::class, "overview"]);
     });
 
     /*
@@ -202,9 +206,6 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
             Route::post("/{id}/approve", [UserRequestController::class, "approve"]);
             Route::post("/{id}/reject",  [UserRequestController::class, "reject"]);
         });
-
-        // Analytics (ingresos / MRR / churn)
-        Route::get("/analytics/overview", [AnalyticsController::class, "overview"]);
 
         // Invoices management
         Route::get("/invoices/stats", [AdminController::class, "getInvoiceStats"]);

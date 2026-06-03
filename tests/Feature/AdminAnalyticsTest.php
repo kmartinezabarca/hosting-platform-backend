@@ -58,11 +58,12 @@ class AdminAnalyticsTest extends TestCase
         $this->assertCount(12, $res->json('data.revenue_series'));
     }
 
-    public function test_support_cannot_view_analytics(): void
+    public function test_support_can_view_analytics(): void
     {
         $support = User::factory()->create(['role' => 'support']);
 
         $this->actingAs($support)->getJson('/api/admin/analytics/overview')
-            ->assertForbidden();
+            ->assertOk()
+            ->assertJsonPath('success', true);
     }
 }

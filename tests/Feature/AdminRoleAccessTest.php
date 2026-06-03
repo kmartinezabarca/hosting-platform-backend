@@ -44,13 +44,14 @@ class AdminRoleAccessTest extends TestCase
     {
         $support = $this->user('support');
 
-        // Allowed (operational)
+        // Allowed (operational + analytics dashboard per spec §0)
         $this->actingAs($support)->getJson('/api/admin/users')->assertOk();
         $this->actingAs($support)->getJson('/api/admin/services')->assertOk();
+        $this->actingAs($support)->getJson('/api/admin/analytics/overview')->assertOk();
 
-        // Denied (finance / catalog / super-admin areas)
-        $this->actingAs($support)->getJson('/api/admin/analytics/overview')->assertForbidden();
+        // Denied (finance management / catalog / super-admin areas)
         $this->actingAs($support)->postJson('/api/admin/users', [])->assertForbidden();
+        $this->actingAs($support)->getJson('/api/admin/invoices')->assertForbidden();
         $this->actingAs($support)->getJson('/api/admin/audit-logs')->assertForbidden();
         $this->actingAs($support)->getJson('/api/admin/backups')->assertForbidden();
     }

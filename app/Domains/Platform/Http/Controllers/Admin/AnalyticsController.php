@@ -8,8 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Revenue / subscription analytics. Restricted to super_admin / admin
- * (revenue data is financial; support does not see finances).
+ * Revenue / subscription analytics. Available to support / admin / super_admin
+ * (the analytics dashboard is part of support's scope per spec §0); financial
+ * management itself — invoices, refunds, CFDI — remains admin/super_admin only.
  */
 class AnalyticsController extends Controller
 {
