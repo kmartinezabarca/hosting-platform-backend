@@ -4,6 +4,7 @@ namespace App\Domains\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Domains\Platform\Events\TicketReplyReceiptUpdated;
+use App\Domains\Platform\Events\TicketTyping;
 use App\Domains\Platform\Models\Ticket;
 use App\Domains\Platform\Models\TicketReply;
 use App\Models\User;
@@ -184,6 +185,23 @@ class ChatController extends Controller
         $this->markCustomerRepliesAsRead($ticket);
 
         return response()->json(['success' => true, 'message' => 'OK']);
+    }
+
+    /**
+     * POST /admin/chat/{ticket}/typing
+     * Señal de "escribiendo…" del staff hacia el cliente.
+     * Body: { is_typing: bool } — por defecto true.
+     */
+    public function typing(Request $request, Ticket $ticket): JsonResponse
+    {
+        $admin = Auth::user();
+
+        $isTyping = $request->boolean('is_typing', true);
+
+        // ->toOthers() evita que el propio autor reciba el eco de su typing.
+        broadcast(new TicketTyping($ticket, $admin, $isTyping))->toOthers();
+
+        return response()->json(['success' => true]);
     }
 
     /**

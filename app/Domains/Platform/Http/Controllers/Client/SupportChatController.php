@@ -4,6 +4,7 @@ namespace App\Domains\Platform\Http\Controllers\Client;
 
 use App\Domains\Platform\Events\TicketRead;
 use App\Domains\Platform\Events\TicketReplyReceiptUpdated;
+use App\Domains\Platform\Events\TicketTyping;
 use App\Http\Controllers\Controller;
 use App\Domains\Platform\Models\Ticket;
 use App\Domains\Platform\Models\TicketReply;
@@ -175,6 +176,27 @@ class SupportChatController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $reply]);
+    }
+
+    /**
+     * Señal de "escribiendo…" del cliente hacia el staff.
+     * El frontend la dispara (con debounce) al teclear y al dejar de teclear.
+     * Body: { is_typing: bool } — por defecto true.
+     */
+    public function typing(Request $request, Ticket $ticket): JsonResponse
+    {
+        $user = Auth::user();
+
+        if ((int) $ticket->user_id !== (int) $user->id) {
+            return response()->json(['success' => false, 'message' => 'Sin acceso.'], 403);
+        }
+
+        $isTyping = $request->boolean('is_typing', true);
+
+        // ->toOthers() evita que el propio autor reciba el eco de su typing.
+        broadcast(new TicketTyping($ticket, $user, $isTyping))->toOthers();
+
+        return response()->json(['success' => true]);
     }
 
     /**

@@ -251,6 +251,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::get ('history',                  [SupportChatController::class, 'getHistory'])->name('history');
         Route::get ('/{ticket}/messages',       [SupportChatController::class, 'getMessages'])->name('messages');
         Route::post('/{ticket}/messages',       [SupportChatController::class, 'sendMessage'])->name('send-message');
+        Route::post('/{ticket}/typing',         [SupportChatController::class, 'typing'])->name('typing');
         Route::put ('/{ticket}/read',           [SupportChatController::class, 'markAsRead'])->name('mark-as-read');
         Route::put ('/{ticket}/close',          [SupportChatController::class, 'closeRoom'])->name('close');
 
