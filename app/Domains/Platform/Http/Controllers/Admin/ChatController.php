@@ -3,6 +3,7 @@
 namespace App\Domains\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Domains\Platform\Events\TicketReplyReceiptUpdated;
 use App\Domains\Platform\Models\Ticket;
 use App\Domains\Platform\Models\TicketReply;
 use App\Models\User;
@@ -148,11 +149,31 @@ class ChatController extends Controller
      */
     private function markCustomerRepliesAsRead(Ticket $ticket): void
     {
-        TicketReply::where('ticket_id', $ticket->id)
+        $admin = Auth::user();
+        $now   = now();
+
+        $unreadReplies = TicketReply::where('ticket_id', $ticket->id)
             ->where('is_internal', false)
             ->whereNull('read_at')
             ->where('user_id', $ticket->user_id) // del cliente dueño
-            ->update(['read_at' => now()]);
+            ->get();
+
+        if ($unreadReplies->isEmpty()) {
+            return;
+        }
+
+        foreach ($unreadReplies as $reply) {
+            $patch = ['read_at' => $now];
+            // Si todavía no fue marcado como entregado, lo cubrimos en el mismo update.
+            if (!$reply->delivered_at) {
+                $patch['delivered_at'] = $now;
+            }
+            $reply->forceFill($patch)->save();
+
+            // Receipt en vivo (✓✓) en el canal presence del ticket — el cliente
+            // ve sus propios mensajes marcados como leídos por el staff sin polling.
+            broadcast(new TicketReplyReceiptUpdated($reply, 'read', $admin?->id));
+        }
     }
 
     /**
