@@ -8,6 +8,7 @@ use App\Domains\Platform\Http\Controllers\Auth\AdminGoogleLoginController;
 use App\Domains\Platform\Http\Controllers\Auth\TwoFactorController;
 use App\Domains\Platform\Http\Controllers\Auth\UsernameController;
 use App\Domains\Platform\Http\Controllers\Auth\PasswordResetController;
+use App\Domains\Platform\Http\Controllers\Auth\ImpersonationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -38,12 +39,20 @@ Route::middleware('throttle:5,1')->group(function () {
 Route::middleware('throttle:5,1')->group(function () {
     Route::post("auth/login", [AuthController::class, "login"])->name('login');
     Route::post("auth/2fa/verify", [TwoFactorController::class, "verifyLogin"]);
+
+    // Impersonation hand-off: the client portal exchanges the single-use token
+    // (minted by an admin) for a target-user session. Public — the one-time
+    // token is the credential; throttled to deter brute force.
+    Route::post("auth/impersonate/exchange", [ImpersonationController::class, "exchange"]);
 });
 
 // Protected authentication routes (require Sanctum token / cookie)
 Route::middleware(["auth:sanctum"])->group(function () {
     // Authentication management
     Route::post("auth/logout", [AuthController::class, "logout"]);
+
+    // End an impersonation session and restore the original admin session.
+    Route::post("auth/impersonate/leave", [ImpersonationController::class, "leave"]);
     Route::get("/auth/me", [AuthController::class, "me"]);
     Route::get("/user", function (Illuminate\Http\Request $request) {
         return $request->user();
