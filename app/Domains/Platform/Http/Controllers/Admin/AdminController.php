@@ -12,6 +12,7 @@ use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\TicketResource;
 use App\Http\Resources\UserResource;
+use App\Domains\Platform\Models\AuditLog;
 use App\Domains\Platform\Models\Receipt;
 use App\Domains\Platform\Models\InvoiceItem;
 use App\Domains\Platform\Models\Service;
@@ -24,12 +25,15 @@ use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
 use App\Domains\Platform\Services\DashboardStatsService;
 use App\Domains\Platform\Services\InvoiceService;
 use App\Domains\Platform\Services\PaymentReceiptService;
+use App\Domains\Platform\Services\PaymentService;
 use App\Domains\Platform\Services\Pterodactyl\GameServerProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -144,6 +148,8 @@ class AdminController extends Controller
 
         $user->delete();
 
+        AuditLog::record('user.deleted', $user, "Usuario eliminado: {$user->email}");
+
         return response()->json(['success' => true, 'message' => 'Usuario eliminado.']);
     }
 
@@ -157,12 +163,101 @@ class AdminController extends Controller
             'status' => ['required', Rule::in(['active', 'suspended', 'pending_verification', 'banned'])],
         ]);
 
+        $previousStatus = $user->status;
         $user->update(['status' => $validated['status']]);
+
+        AuditLog::record(
+            action: 'user.status_changed',
+            target: $user,
+            description: "Estado de {$user->email}: {$previousStatus} → {$validated['status']}",
+            changes: ['status' => [$previousStatus, $validated['status']]],
+        );
 
         return response()->json([
             'success' => true,
             'message' => 'Estado del usuario actualizado.',
             'data'    => new UserResource($user->fresh()),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // User support tools (super_admin / admin only)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Start impersonating a client. Returns a client-portal URL carrying a
+     * short-lived, single-use token that the portal exchanges for a session
+     * (see Auth\ImpersonationController). The admin's own session is untouched.
+     */
+    public function impersonateUser(Request $request, int $id): JsonResponse
+    {
+        $target = User::findOrFail($id);
+        $actor  = $request->user();
+
+        if ($target->role !== 'client') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo se pueden suplantar cuentas de cliente.',
+            ], 422);
+        }
+
+        $token = Str::random(64);
+        Cache::put('impersonation:' . hash('sha256', $token), [
+            'target_id'       => $target->id,
+            'impersonator_id' => $actor->id,
+        ], now()->addSeconds(60));
+
+        AuditLog::record(
+            action: 'user.impersonated',
+            target: $target,
+            description: "Suplantación iniciada de {$target->email}",
+        );
+
+        $redirectUrl = rtrim(config('app.frontend_url'), '/')
+            . '/client/dashboard?impersonation_token=' . $token;
+
+        return response()->json([
+            'success' => true,
+            'data'    => ['redirect_url' => $redirectUrl],
+        ]);
+    }
+
+    /**
+     * Disable the target user's 2FA (they must reconfigure it).
+     */
+    public function resetTwoFactor(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+        $this->authorize('update', $user);
+
+        $user->forceFill([
+            'two_factor_enabled' => false,
+            'two_factor_secret'  => null,
+        ])->save();
+
+        AuditLog::record('user.two_factor_reset', $user, "2FA restablecido para {$user->email}");
+
+        return response()->json([
+            'success' => true,
+            'message' => 'La verificación en dos pasos del usuario fue desactivada.',
+        ]);
+    }
+
+    /**
+     * Send a password-reset email to the target user (Laravel password broker).
+     */
+    public function sendPasswordReset(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+        $this->authorize('update', $user);
+
+        Password::sendResetLink(['email' => $user->email]);
+
+        AuditLog::record('user.password_reset_sent', $user, "Enlace de restablecimiento enviado a {$user->email}");
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Correo de restablecimiento de contraseña enviado.',
         ]);
     }
 
@@ -836,15 +931,83 @@ class AdminController extends Controller
             'reason' => ['sometimes', 'string', 'max:500'],
         ]);
 
+        $previousStatus = $invoice->status;
+
         $invoice->update([
             'status' => 'cancelled',
             'notes'  => $validated['reason'] ?? 'Cancelada por administrador.',
         ]);
 
+        AuditLog::record(
+            action: 'invoice.cancelled',
+            target: $invoice,
+            description: 'Factura cancelada' . (isset($validated['reason']) ? " — motivo: {$validated['reason']}" : ''),
+            changes: ['status' => [$previousStatus, 'cancelled']],
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Factura cancelada.',
             'data'    => $invoice->fresh(),
+        ]);
+    }
+
+    /**
+     * Refund a paid invoice (Receipt) through Stripe.
+     * Body: { amount?: number (partial; omit for full), reason: string }
+     */
+    public function refundInvoice(Request $request, int $id): JsonResponse
+    {
+        $invoice = Receipt::with('user')->findOrFail($id);
+
+        $validated = $request->validate([
+            'amount' => ['nullable', 'numeric', 'gt:0', 'max:' . (float) $invoice->total],
+            'reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        if ($invoice->status === Receipt::STATUS_REFUNDED) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Esta factura ya fue reembolsada.',
+            ], 422);
+        }
+
+        if ($invoice->status !== Receipt::STATUS_PAID) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo se pueden reembolsar facturas pagadas.',
+            ], 422);
+        }
+
+        try {
+            $result = app(PaymentService::class)->refundReceipt(
+                $invoice,
+                $validated['amount'] ?? null,
+                $validated['reason'],
+            );
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Stripe rechazó el reembolso: ' . $e->getMessage(),
+            ], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        AuditLog::record(
+            action: 'invoice.refunded',
+            target: $invoice,
+            description: "Reembolso de {$result['amount']} {$result['currency']} — motivo: {$validated['reason']}",
+            changes: ['status' => [Receipt::STATUS_PAID, Receipt::STATUS_REFUNDED]],
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Reembolso procesado.',
+            'data'    => $invoice->fresh(['user', 'items']),
         ]);
     }
 

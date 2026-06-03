@@ -218,6 +218,86 @@ class PaymentService
     }
 
     // ──────────────────────────────────────────────
+    // Refunds
+    // ──────────────────────────────────────────────
+
+    /**
+     * Refund a paid Receipt (invoice) through Stripe and record it locally.
+     *
+     * @param  float|null  $amount  Partial amount in major units; null = full refund.
+     * @return array{refund:\Stripe\Refund, transaction:Transaction, amount:float, currency:string}
+     *
+     * @throws \RuntimeException        when no Stripe charge is linked to the receipt
+     * @throws ApiErrorException        on Stripe API failure
+     */
+    public function refundReceipt(Receipt $receipt, ?float $amount = null, ?string $reason = null): array
+    {
+        // The Stripe PaymentIntent is stored on the receipt (payment_reference);
+        // fall back to the latest completed payment transaction if absent.
+        $paymentIntentId = $receipt->payment_reference;
+        if (!$paymentIntentId) {
+            $paymentIntentId = $receipt->transactions()
+                ->where('type', 'payment')
+                ->where('status', 'completed')
+                ->latest()
+                ->value('provider_transaction_id');
+        }
+
+        if (!$paymentIntentId) {
+            throw new \RuntimeException('No hay un cargo de Stripe asociado a esta factura para reembolsar.');
+        }
+
+        $currency = strtoupper($receipt->currency ?: 'USD');
+
+        $params = [
+            'payment_intent' => $paymentIntentId,
+            'reason'         => 'requested_by_customer',
+            'metadata'       => array_filter([
+                'receipt_id' => (string) $receipt->id,
+                'user_id'    => (string) $receipt->user_id,
+                'reason'     => $reason,
+            ]),
+        ];
+        if ($amount !== null) {
+            $params['amount'] = (int) round($amount * 100);
+        }
+
+        $refund = \Stripe\Refund::create($params);
+
+        $refundedAmount = isset($refund->amount)
+            ? $refund->amount / 100
+            : ($amount ?? (float) $receipt->total);
+
+        $transaction = Transaction::create([
+            'uuid'                    => (string) Str::uuid(),
+            'user_id'                 => $receipt->user_id,
+            'invoice_id'              => $receipt->id,
+            'payment_method_id'       => null,
+            'transaction_id'          => 'REF-' . Str::upper(Str::random(10)),
+            'provider_transaction_id' => $refund->id,
+            'type'                    => 'refund',
+            'status'                  => 'completed',
+            'amount'                  => $refundedAmount,
+            'currency'                => $currency,
+            'fee_amount'              => 0,
+            'provider'                => 'stripe',
+            'provider_data'           => json_decode(json_encode($refund), true),
+            'description'             => $reason ? "Reembolso: {$reason}" : 'Reembolso',
+            'failure_reason'          => null,
+            'processed_at'            => now(),
+        ]);
+
+        $receipt->update(['status' => Receipt::STATUS_REFUNDED]);
+
+        return [
+            'refund'      => $refund,
+            'transaction' => $transaction,
+            'amount'      => $refundedAmount,
+            'currency'    => $currency,
+        ];
+    }
+
+    // ──────────────────────────────────────────────
     // Statistics
     // ──────────────────────────────────────────────
 
