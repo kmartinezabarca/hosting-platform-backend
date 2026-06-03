@@ -1,7 +1,9 @@
 <?php
 
-use App\Domains\Platform\Http\Controllers\Api\DocumentationRequestController;
 use App\Domains\Platform\Http\Controllers\Api\CheckoutController;
+use App\Domains\Platform\Http\Controllers\Api\ContactController;
+use App\Domains\Platform\Http\Controllers\Api\DocumentationRequestController;
+use App\Domains\Platform\Http\Controllers\Api\NewsletterSubscriptionController;
 use App\Domains\Platform\Http\Controllers\Api\QuotationPublicController;
 use App\Domains\Platform\Http\Controllers\Api\SoftwareController;
 use App\Domains\Platform\Http\Controllers\Client\ApiDocsController;
@@ -80,6 +82,11 @@ Route::prefix('service-plans')->group(function () {
 
 // Marketing Services
 Route::get('/marketing-services', [MarketingServiceController::class, 'index']);
+
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('/contact', [ContactController::class, 'store']);
+    Route::post('/newsletter/subscribe', [NewsletterSubscriptionController::class, 'subscribe']);
+});
 
 // Blog
 Route::prefix('blog')->group(function () {

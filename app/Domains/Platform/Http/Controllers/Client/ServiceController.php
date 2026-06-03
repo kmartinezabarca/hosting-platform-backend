@@ -22,6 +22,7 @@ use App\Domains\Platform\Services\Backup\BackupService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
@@ -234,32 +235,28 @@ class ServiceController extends Controller
                 ->orderByDesc('created_at')
                 ->get();
 
-            // Sync on-demand para servicios sin live_status o con datos viejos (>90s)
-            // Sólo se ejecuta si el cliente solicita explícitamente refresh=1 o si nunca se ha sincronizado.
-            $forceRefresh = (bool) $request->boolean('refresh');
-            $stalenessSec = 90;
-
-            foreach ($services as $service) {
-                $stale = ! $service->live_synced_at
-                    || ($service->live_synced_at instanceof Carbon
-                        && $service->live_synced_at->diffInSeconds(now()) > $stalenessSec);
-
-                if (($forceRefresh || $stale) && in_array($service->status, ['active', 'pending'], true)) {
-                    try {
-                        $this->statusSync->syncOne($service);
-                    } catch (\Throwable $e) {
-                        // syncOne ya loguea — seguimos
-                    }
-                }
-            }
+            // Snapshot barato: este endpoint no llama a proveedores externos.
+            // El scheduler mantiene live_status/live_metrics; el usuario puede forzar
+            // un refresh explícito con POST /services/sync-status.
 
             // Pre-fetch sparklines (últimos 12 puntos CPU) en una sola query
             $serviceIds = $services->pluck('id');
             $sparklines = $serviceIds->isNotEmpty()
                 ? ServiceMetric::whereIn('service_id', $serviceIds)
-                    ->where('sampled_at', '>=', now()->subHours(2))
+                    ->where('sampled_at', '>=', now()->subHours(24))
                     ->orderBy('sampled_at')
-                    ->get(['service_id', 'cpu_percent', 'memory_bytes', 'memory_limit_bytes', 'state', 'sampled_at'])
+                    ->get([
+                        'service_id',
+                        'cpu_percent',
+                        'memory_bytes',
+                        'memory_limit_bytes',
+                        'disk_bytes',
+                        'disk_limit_bytes',
+                        'network_rx_bytes',
+                        'network_tx_bytes',
+                        'state',
+                        'sampled_at',
+                    ])
                     ->groupBy('service_id')
                 : collect();
 
@@ -281,7 +278,7 @@ class ServiceController extends Controller
                 $sparkData = $sparklines->get($service->id, collect());
                 $sparkline = $sparkData->slice(-12)
                     ->pluck('cpu_percent')
-                    ->map(fn($v) => (int) round((float) $v))
+                    ->map(fn($v) => (float) $v)
                     ->values()
                     ->toArray();
 
@@ -290,11 +287,43 @@ class ServiceController extends Controller
                 if ($latest) {
                     $memBytes = (int) ($latest->memory_bytes ?? 0);
                     $memLimit = (int) ($latest->memory_limit_bytes ?? 0);
+                    $diskBytes = (int) ($latest->disk_bytes ?? 0);
+                    $diskLimit = (int) ($latest->disk_limit_bytes ?? 0);
+                    $rows = $sparkData->values();
+                    $prev = $rows->count() >= 2 ? $rows->get($rows->count() - 2) : null;
+                    $seconds = $prev?->sampled_at && $latest->sampled_at
+                        ? max(1, $prev->sampled_at->diffInSeconds($latest->sampled_at))
+                        : null;
+                    $netRxMbps = ($prev && $seconds)
+                        ? max(0, (((int) ($latest->network_rx_bytes ?? 0) - (int) ($prev->network_rx_bytes ?? 0)) / $seconds) / 125000)
+                        : null;
+                    $netTxMbps = ($prev && $seconds)
+                        ? max(0, (((int) ($latest->network_tx_bytes ?? 0) - (int) ($prev->network_tx_bytes ?? 0)) / $seconds) / 125000)
+                        : null;
+                    $netSparkline = [];
+                    for ($i = 1; $i < $rows->count(); $i++) {
+                        $a = $rows->get($i - 1);
+                        $b = $rows->get($i);
+                        $dt = $a?->sampled_at && $b?->sampled_at
+                            ? max(1, $a->sampled_at->diffInSeconds($b->sampled_at))
+                            : null;
+                        if ($dt) {
+                            $netSparkline[] = max(0, (((int) ($b->network_tx_bytes ?? 0) - (int) ($a->network_tx_bytes ?? 0)) / $dt) / 125000);
+                        }
+                    }
                     $metrics = [
-                        'cpu'        => $latest->cpu_percent !== null ? (int) round((float) $latest->cpu_percent) : null,
-                        'memory'     => $memLimit > 0 ? (int) round(($memBytes / $memLimit) * 100) : null,
+                        'cpu'        => $latest->cpu_percent !== null ? (float) $latest->cpu_percent : null,
+                        'memory'     => $memLimit > 0 ? ($memBytes / $memLimit) * 100 : null,
                         'memory_bytes' => $memBytes,
                         'memory_limit_bytes' => $memLimit,
+                        'disk'       => $diskLimit > 0 ? ($diskBytes / $diskLimit) * 100 : null,
+                        'disk_bytes' => $diskBytes,
+                        'disk_limit_bytes' => $diskLimit,
+                        'network_rx_bytes' => (int) ($latest->network_rx_bytes ?? 0),
+                        'network_tx_bytes' => (int) ($latest->network_tx_bytes ?? 0),
+                        'net_rx_mbps' => $netRxMbps,
+                        'net_tx_mbps' => $netTxMbps,
+                        'net_sparkline' => array_slice($netSparkline, -12),
                         'state'      => $latest->state,
                         'sampled_at' => optional($latest->sampled_at)->toIso8601String(),
                     ];
@@ -333,6 +362,8 @@ class ServiceController extends Controller
                     ];
                 }
 
+                $liveMetrics = is_array($service->live_metrics) ? $service->live_metrics : [];
+                $diagnostic = $this->serviceDiagnostic($service, $runtimeStatus, $liveMetrics);
                 $base = $service->toArray();
 
                 return array_merge($base, [
@@ -341,6 +372,7 @@ class ServiceController extends Controller
                     'live_status'      => $service->live_status,
                     'live_metrics'     => $service->live_metrics,
                     'live_synced_at'   => optional($service->live_synced_at)->toIso8601String(),
+                    'diagnostic'       => $diagnostic,
                     'metrics'          => $metrics,
                     'uptime_pct'       => $uptimePct,
                     'sparkline'        => $sparkline,
@@ -366,26 +398,40 @@ class ServiceController extends Controller
     public function syncStatus(): JsonResponse
     {
         try {
-            $services = Service::where('user_id', Auth::id())
-                ->whereIn('status', ['active', 'pending', 'maintenance'])
-                ->with('plan.category')
-                ->get();
+            $userId = Auth::id();
+            $lock = Cache::lock("services:sync-status:user:{$userId}", 55);
 
-            $synced = 0;
-            foreach ($services as $service) {
-                try {
-                    $this->statusSync->syncOne($service);
-                    $synced++;
-                } catch (\Throwable $e) {
-                    // continuar con el resto
-                }
+            if (! $lock->get()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ya hay una sincronización en curso. Intenta de nuevo en unos segundos.',
+                ], 429);
             }
 
-            return response()->json([
-                'success' => true,
-                'message' => "Sincronizados {$synced} servicio(s).",
-                'data'    => ['synced' => $synced, 'total' => $services->count()],
-            ]);
+            try {
+                $services = Service::where('user_id', $userId)
+                    ->whereIn('status', ['active', 'pending', 'maintenance'])
+                    ->with('plan.category')
+                    ->get();
+
+                $synced = 0;
+                foreach ($services as $service) {
+                    try {
+                        $this->statusSync->syncOne($service);
+                        $synced++;
+                    } catch (\Throwable $e) {
+                        // continuar con el resto
+                    }
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => "Sincronizados {$synced} servicio(s).",
+                    'data'    => ['synced' => $synced, 'total' => $services->count()],
+                ]);
+            } finally {
+                optional($lock)->release();
+            }
         } catch (\Exception $e) {
             Log::error('Error en syncStatus: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Error sincronizando estados'], 500);
@@ -423,6 +469,29 @@ class ServiceController extends Controller
         if ($billing === 'active') return 'unknown';
 
         return $billing ?? 'unknown';
+    }
+
+    private function serviceDiagnostic(Service $service, string $runtimeStatus, array $liveMetrics): ?array
+    {
+        if ($service->provisioning_status === 'failed' || $service->status === 'failed') {
+            return [
+                'code'    => 'PROVISIONING_FAILED',
+                'ref'     => 'SVC-' . $service->id . '-PROV',
+                'message' => $service->provisioning_error ?: 'El proveedor no completó el aprovisionamiento.',
+                'at'      => optional($service->updated_at)->toIso8601String(),
+            ];
+        }
+
+        if ($runtimeStatus === 'error' || ! empty($liveMetrics['error_code'])) {
+            return [
+                'code'    => $liveMetrics['error_code'] ?? 'RUNTIME_SYNC_ERROR',
+                'ref'     => $liveMetrics['error_ref'] ?? ('SVC-' . $service->id . '-SYNC'),
+                'message' => $liveMetrics['error_message'] ?? 'No fue posible leer el estado en vivo del proveedor.',
+                'at'      => $liveMetrics['error_at'] ?? optional($service->live_synced_at)->toIso8601String(),
+            ];
+        }
+
+        return null;
     }
 
     /**

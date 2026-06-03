@@ -84,4 +84,8 @@ return [
         'minecraft_srv_target' => env('CLOUDFLARE_MINECRAFT_SRV_TARGET', 'mc.rokeindustries.com'),
     ],
 
+    'turnstile' => [
+        'secret' => env('TURNSTILE_SECRET_KEY'),
+    ],
+
 ];

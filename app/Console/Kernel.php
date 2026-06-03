@@ -131,9 +131,9 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/service-metrics.log'));
 
         // Sincronización de runtime status (Pterodactyl / Coolify) → live_status / live_metrics.
-        // Corre cada minuto para que la UI muestre el estado real con baja latencia.
+        // Snapshot cacheado: la UI en vivo usa Wings/Reverb; aquí evitamos costo lineal por minuto.
         $schedule->command('services:sync-status')
-            ->everyMinute()
+            ->everyFiveMinutes()
             ->withoutOverlapping(5)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/service-status-sync.log'));

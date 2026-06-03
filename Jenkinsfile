@@ -92,8 +92,11 @@ pipeline {
                 checkout scm
                 script {
                     env.GIT_SHORT    = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+                    // SemVer desde el tag mas cercano (ver scripts/release/release.ps1).
+                    // Cae a "v0.0.0-<sha>" si aun no hay tags.
+                    env.APP_VERSION  = sh(returnStdout: true, script: "git describe --tags --always 2>/dev/null || echo v0.0.0").trim()
                     env.RELEASE_TS   = sh(returnStdout: true, script: "date +%Y%m%d_%H%M%S").trim()
-                    env.RELEASE_NAME = "${env.RELEASE_TS}_${env.GIT_SHORT}"
+                    env.RELEASE_NAME = "${env.APP_VERSION}_${env.RELEASE_TS}_${env.GIT_SHORT}"
                 }
             }
         }
@@ -237,6 +240,12 @@ pipeline {
                                         php artisan migrate --force --no-interaction
                                     fi
 
+                                    # Version: se hornea en la config cacheada (ver config/version.php)
+                                    export APP_VERSION='${env.APP_VERSION}'
+                                    export APP_GIT_COMMIT='${env.GIT_SHORT}'
+                                    export APP_BUILD_ID='${env.BUILD_NUMBER}'
+                                    export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+
                                     php artisan config:cache
                                     php artisan route:cache
                                     php artisan view:cache
@@ -283,6 +292,13 @@ REMOTE
                         composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
                         php artisan config:clear
                         php artisan migrate --force --no-interaction
+
+                        # Version: se hornea en la config cacheada (ver config/version.php)
+                        export APP_VERSION='${env.APP_VERSION}'
+                        export APP_GIT_COMMIT='${env.GIT_SHORT}'
+                        export APP_BUILD_ID='${env.BUILD_NUMBER}'
+                        export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+
                         php artisan config:cache
                         php artisan route:cache
                         php artisan view:cache

@@ -70,6 +70,7 @@ class ServiceStatusSyncService
             Log::warning('ServiceStatusSync: '.$service->uuid.' → '.$e->getMessage());
             $service->forceFill([
                 'live_status'    => 'error',
+                'live_metrics'   => $this->syncErrorMetrics($service, $slug, $e),
                 'live_synced_at' => Carbon::now(),
             ])->save();
         }
@@ -127,18 +128,35 @@ class ServiceStatusSyncService
 
         $state    = $attrs['current_state'] ?? null;
         $rs       = $attrs['resources'] ?? [];
-        $memBytes = (int) ($rs['memory_bytes'] ?? 0);
-        $memLimit = (int) ($attrs['memory_limit_bytes'] ?? ($service->plan?->specifications['ram_bytes'] ?? 0));
+        $memBytes       = (int) ($rs['memory_bytes'] ?? 0);
+        $planLimits     = (array) ($service->plan?->pterodactyl_limits ?? []);
+        $planSpecs      = (array) ($service->plan?->specifications ?? []);
+        $planMemoryMb   = $planLimits['memory'] ?? null;
+        $specMemoryByte = $planSpecs['ram_bytes'] ?? null;
+        $memLimit       = (int) (
+            $attrs['memory_limit_bytes']
+            ?? ($planMemoryMb ? $planMemoryMb * 1024 * 1024 : null)
+            ?? $specMemoryByte
+            ?? 0
+        );
         $cpuAbs   = (float) ($rs['cpu_absolute'] ?? 0);
 
         $metrics = [
-            'cpu'        => (int) round($cpuAbs),
-            'ram'        => $memLimit > 0 ? (int) round(($memBytes / $memLimit) * 100) : 0,
+            'cpu'        => $cpuAbs,
+            'ram'        => $memLimit > 0 ? ($memBytes / $memLimit) * 100 : null,
             'ram_human'  => $memLimit > 0
                 ? sprintf('%s / %s', $this->formatBytes($memBytes), $this->formatBytes($memLimit))
                 : null,
             'players'    => $attrs['players_online'] ?? null,
             'uptime_pct' => null,
+            'state'      => $state,
+            'memory_bytes'       => $memBytes,
+            'memory_limit_bytes' => $memLimit,
+            'disk_bytes'         => (int) ($rs['disk_bytes'] ?? 0),
+            'network_rx_bytes'   => (int) ($rs['network_rx_bytes'] ?? 0),
+            'network_tx_bytes'   => (int) ($rs['network_tx_bytes'] ?? 0),
+            'uptime_ms'          => (int) ($rs['uptime'] ?? 0),
+            'sampled_at'         => Carbon::now()->toISOString(),
         ];
 
         return [$state, $metrics];
@@ -166,6 +184,8 @@ class ServiceStatusSyncService
             'uptime_pct'      => $summary['uptime_pct'],
             'latency_ms'      => $summary['latency_ms'],
             'latency_history' => $summary['latency_history'],
+            'last_ok'         => $summary['last_ok'],
+            'sampled_at'      => Carbon::now()->toISOString(),
         ];
 
         // Detección real de caída: si Coolify reporta "running" pero el sitio no
@@ -175,6 +195,22 @@ class ServiceStatusSyncService
         }
 
         return [$state, $metrics];
+    }
+
+    private function syncErrorMetrics(Service $service, ?string $slug, Throwable $e): array
+    {
+        $existing = is_array($service->live_metrics) ? $service->live_metrics : [];
+        $provider = $this->isGameServer($slug)
+            ? 'pterodactyl'
+            : ($this->isHosting($slug) ? 'coolify' : 'provider');
+
+        return array_merge($existing, [
+            'state'         => 'error',
+            'error_code'    => strtoupper($provider) . '_SYNC_ERROR',
+            'error_ref'     => 'SVC-' . $service->id . '-SYNC-' . Carbon::now()->format('YmdHis'),
+            'error_message' => $e->getMessage(),
+            'error_at'      => Carbon::now()->toISOString(),
+        ]);
     }
 
     private function formatBytes(int $bytes): string

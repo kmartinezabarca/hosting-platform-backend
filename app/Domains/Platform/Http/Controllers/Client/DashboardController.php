@@ -165,8 +165,8 @@ class DashboardController extends Controller
                         $netTxTotal += ($metric->network_tx_bytes ?? 0) / 300 / 125000;
                     }
                 }
-                $cpuAvg    = count($cpuValues) > 0 ? round(array_sum($cpuValues) / count($cpuValues)) : 0;
-                $netTxMbps = round($netTxTotal, 1);
+                $cpuAvg    = count($cpuValues) > 0 ? array_sum($cpuValues) / count($cpuValues) : 0;
+                $netTxMbps = $netTxTotal;
             }
 
             // --- 9. Alertas por servicio (servicios que no están activos o próximos a vencer) ---
@@ -378,14 +378,14 @@ class DashboardController extends Controller
                 $total   = $rows->count();
                 if ($total === 0) return null;
                 $running = $rows->where('state', 'running')->count();
-                return round(($running / $total) * 100, 2);
+                return ($running / $total) * 100;
             });
 
             // Sparkline: last 15 cpu_percent values (already ordered asc → just take last 15)
             $allSparklines = $recentMetrics->map(
                 fn($rows) => $rows->slice(-15)
                     ->pluck('cpu_percent')
-                    ->map(fn($v) => round((float) $v))
+                    ->map(fn($v) => (float) $v)
                     ->values()
                     ->toArray()
             );
@@ -418,12 +418,13 @@ class DashboardController extends Controller
                     if (is_array($metricsRaw) || is_object($metricsRaw)) {
                         $m = (array) $metricsRaw;
                         $metrics = [
-                            'cpu'        => isset($m['cpu_absolute']) ? round((float)$m['cpu_absolute']) : (isset($m['cpu']) ? round((float)$m['cpu']) : null),
-                            'ram'        => isset($m['ram']) ? round((float)$m['ram']) : (isset($m['memory_pct']) ? round((float)$m['memory_pct']) : null),
+                            'cpu'        => $this->nullableFloat($m['cpu_absolute'] ?? $m['cpu'] ?? null),
+                            'ram'        => $this->nullableFloat($m['ram'] ?? $m['memory_pct'] ?? null),
                             'ram_human'  => $m['ram_human']    ?? null,
                             'players'    => $m['players']      ?? null,
                             'visits'     => $m['visits']       ?? ($m['visits_today'] ?? null),
-                            'uptime_pct' => $m['uptime_pct']   ?? null,
+                            'uptime_pct' => $this->nullableFloat($m['uptime_pct'] ?? null),
+                            'state'      => $m['state']        ?? $service->live_status ?? null,
                         ];
                     }
 
@@ -442,14 +443,14 @@ class DashboardController extends Controller
                             $memLimit  = (int) ($lastMetric->memory_limit_bytes ?? 0);
                             // Prefer limit bytes for accurate %; fall back to plan spec
                             if ($memLimit > 0) {
-                                $ramPct = round(($memBytes / $memLimit) * 100);
+                                $ramPct = ($memBytes / $memLimit) * 100;
                             } elseif ($ramMb > 0 && $memBytes > 0) {
-                                $ramPct = round(($memBytes / 1024 / 1024 / $ramMb) * 100);
+                                $ramPct = ($memBytes / 1024 / 1024 / $ramMb) * 100;
                             } else {
                                 $ramPct = null;
                             }
                             $metrics = array_merge($metrics ?? [], [
-                                'cpu'        => $lastMetric->cpu_percent !== null ? round($lastMetric->cpu_percent) : null,
+                                'cpu'        => $lastMetric->cpu_percent !== null ? (float) $lastMetric->cpu_percent : null,
                                 'ram'        => $ramPct,
                                 'ram_human'  => $memBytes > 0
                                     ? round($memBytes / 1024 / 1024) . ' MB'
@@ -457,6 +458,7 @@ class DashboardController extends Controller
                                 'players'    => $metrics['players'] ?? null,
                                 'visits'     => $metrics['visits']  ?? null,
                                 'uptime_pct' => $computedUptime,   // ← real value, never null when data exists
+                                'state'      => $lastMetric->state,
                             ]);
                         }
                     } else {
@@ -464,6 +466,19 @@ class DashboardController extends Controller
                         if ($computedUptime !== null) {
                             $metrics['uptime_pct'] = $computedUptime;
                         }
+                    }
+
+                    if ($lastMetric = $latestMetrics->get($service->id)) {
+                        $metrics = array_merge($metrics ?? [], [
+                            'memory_bytes'       => (int) ($lastMetric->memory_bytes ?? 0),
+                            'memory_limit_bytes' => (int) ($lastMetric->memory_limit_bytes ?? 0),
+                            'disk_bytes'         => (int) ($lastMetric->disk_bytes ?? 0),
+                            'disk_limit_bytes'   => (int) ($lastMetric->disk_limit_bytes ?? 0),
+                            'network_rx_bytes'   => (int) ($lastMetric->network_rx_bytes ?? 0),
+                            'network_tx_bytes'   => (int) ($lastMetric->network_tx_bytes ?? 0),
+                            'sampled_at'         => $lastMetric->sampled_at?->toISOString(),
+                            'state'              => $metrics['state'] ?? $lastMetric->state,
+                        ]);
                     }
 
                     // Sparkline: 15 CPU samples (oldest → newest) — pre-fetched
@@ -541,6 +556,15 @@ class DashboardController extends Controller
         if (str_contains($s, 'tb')) return (int) ($num * 1024 * 1024);
         if (str_contains($s, 'gb')) return (int) ($num * 1024);
         return (int) $num; // assume MB
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return is_numeric($value) ? (float) $value : null;
     }
 
     /**

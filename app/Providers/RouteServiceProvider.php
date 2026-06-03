@@ -39,6 +39,16 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by($request->user()?->id ?: $request->ip());
         });
 
+        // Sync manual contra proveedores externos — caro; permitirlo, pero sin spam.
+        RateLimiter::for('sync-status', function (Request $request) {
+            return Limit::perMinute(3)
+                ->by($request->user()?->id ?: $request->ip())
+                ->response(fn () => response()->json([
+                    'success' => false,
+                    'message' => 'Demasiadas sincronizaciones. Espera un minuto antes de volver a intentar.',
+                ], 429));
+        });
+
         // Reenvío de verificación de correo — evitar spam al buzón del usuario.
         RateLimiter::for('verification-notification', function (Request $request) {
             return Limit::perMinute(6)

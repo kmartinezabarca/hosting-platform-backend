@@ -20,10 +20,10 @@ class AppVersionController extends Controller
         return response()->json([
             'app'       => config('app.name'),
             'env'       => app()->environment(),
-            'version'   => config('app.version', env('APP_VERSION', '0.0.0')),
-            'buildId'   => env('APP_BUILD_ID', 'unknown'),
-            'commit'    => env('APP_GIT_COMMIT', 'unknown'),
-            'builtAt'   => env('APP_BUILD_TIMESTAMP', null),
+            'version'   => config('version.number'),
+            'buildId'   => config('version.build_id'),
+            'commit'    => config('version.commit'),
+            'builtAt'   => config('version.built_at'),
         ]);
     }
 }

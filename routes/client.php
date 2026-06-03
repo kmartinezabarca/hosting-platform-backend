@@ -57,7 +57,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::get ('/plans',             [ServiceController::class, 'getServicePlans']);
         Route::post('/contract',          [ServiceController::class, 'contractService']);
         Route::get ('/user',              [ServiceController::class, 'getUserServices']);
-        Route::post('/sync-status',       [ServiceController::class, 'syncStatus']);
+        Route::post('/sync-status',       [ServiceController::class, 'syncStatus'])->middleware('throttle:sync-status');
         Route::get ('/upcoming-charges',  [ServiceController::class, 'upcomingCharges']);
         Route::get ('/metrics',           [GameServerController::class, 'getAllServicesMetrics']);
         Route::get ('/game-servers/{nest_id}/eggs', [GameServerController::class, 'listEggs']);

@@ -18,6 +18,9 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    // Version SemVer del release desplegado (tag git via Jenkins). Ver config/version.php.
+    'version' => env('APP_VERSION', '0.0.0'),
+
     // Prefijo de los RECIBOS de pago (no fiscales). La factura CFDI usa
     // su propia serie+folio (config/facturama.php).
     'receipt_prefix' => env('RECEIPT_PREFIX', 'REC-'),
