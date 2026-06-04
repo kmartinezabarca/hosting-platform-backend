@@ -232,26 +232,28 @@ pipeline {
                                     # Instalar vendor en el Mac Mini
                                     composer install --no-scripts --optimize-autoloader --prefer-dist
 
-                                    php artisan config:clear
-
-                                    # Migraciones — DB es local en Mac Mini
-                                    if [ "${runMigrations}" = "true" ]; then
-                                        export DB_HOST=127.0.0.1
-                                        php artisan migrate --force --no-interaction
-                                    fi
-
                                     # Version: se hornea en la config cacheada (ver config/version.php)
                                     export APP_VERSION='${env.APP_VERSION}'
                                     export APP_GIT_COMMIT='${env.GIT_SHORT}'
                                     export APP_BUILD_ID='${env.BUILD_NUMBER}'
                                     export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
 
-                                    php artisan config:cache
-                                    php artisan route:cache
-                                    php artisan view:cache
+                                    # Cache/config/migrations en una sola receta de deploy.
+                                    # Evita que CORS/Sanctum/Reverb queden con config vieja
+                                    # y bloquee login o WebSocket después de cada release.
+                                    if [ "${runMigrations}" = "true" ]; then
+                                        export DB_HOST=127.0.0.1
+                                        php artisan deploy:refresh --migrate --skip-restarts --no-interaction
+                                    else
+                                        php artisan deploy:refresh --skip-restarts --no-interaction
+                                    fi
 
                                     # Switch atómico
                                     ln -snf \$RELEASE_DIR ${stagingPath}/current
+
+                                    cd ${stagingPath}/current
+                                    php artisan queue:restart --no-interaction || true
+                                    php artisan reverb:restart --no-interaction || true
 
                                     # Limpiar releases viejos (mantener 5)
                                     ls -dt ${stagingPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
@@ -290,8 +292,6 @@ REMOTE
 
                         cd "\$RELEASE_DIR"
                         composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
-                        php artisan config:clear
-                        php artisan migrate --force --no-interaction
 
                         # Version: se hornea en la config cacheada (ver config/version.php)
                         export APP_VERSION='${env.APP_VERSION}'
@@ -299,11 +299,16 @@ REMOTE
                         export APP_BUILD_ID='${env.BUILD_NUMBER}'
                         export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
 
-                        php artisan config:cache
-                        php artisan route:cache
-                        php artisan view:cache
+                        # Cache/config/migrations en una sola receta de deploy.
+                        # Evita que CORS/Sanctum/Reverb queden con config vieja
+                        # y bloquee login o WebSocket después de cada release.
+                        php artisan deploy:refresh --migrate --skip-restarts --no-interaction
 
                         ln -snf "\$RELEASE_DIR" ${prodPath}/current
+
+                        cd ${prodPath}/current
+                        php artisan queue:restart --no-interaction || true
+                        php artisan reverb:restart --no-interaction || true
 
                         # Limpiar releases viejos (mantener 5)
                         ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
