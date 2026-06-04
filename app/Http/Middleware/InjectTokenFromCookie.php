@@ -18,12 +18,16 @@ use Symfony\Component\HttpFoundation\Response;
  *   3. Este middleware extrae el valor del cookie y lo convierte en un header
  *      `Authorization: Bearer` para que el guard `auth:sanctum` pueda validarlo.
  *
+ * Importante:
+ *   - En peticiones stateful de Sanctum, este middleware debe correr DESPUÉS de
+ *     `EnsureFrontendRequestsAreStateful`, porque ese middleware aplica el stack
+ *     web que descifra cookies. Si corre antes, inyecta el valor cifrado y
+ *     Sanctum responde 401 aunque el navegador sí haya enviado `auth_token`.
+ *
  * Seguridad:
  *   - El cookie es HttpOnly, por lo que JavaScript nunca puede leerlo.
  *   - El middleware solo inyecta el header si NO hay ya un Bearer token presente,
  *     respetando el flujo normal de autenticación por header.
- *   - Como los endpoints de API no usan `EncryptCookies`, el valor llega en texto
- *     plano (el mismo token que se almacenó al hacer login).
  */
 class InjectTokenFromCookie
 {
