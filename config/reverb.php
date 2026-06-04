@@ -54,18 +54,16 @@ $reverbAllowedOrigins = static function () use ($normalizeReverbOriginHost): arr
         }
     }
 
-    if (env('APP_ENV') !== 'local') {
-        $origins = array_merge($origins, [
-            'admin.rokeindustries.dev',
-            'app.rokeindustries.dev',
-            'rokeindustries.com',
-            '*.rokeindustries.com',
-            'rokeindustries.dev',
-            '*.rokeindustries.dev',
-            'roke.pet',
-            '*.roke.pet',
-        ]);
-    }
+    $origins = array_merge($origins, [
+        'admin.rokeindustries.dev',
+        'app.rokeindustries.dev',
+        'rokeindustries.com',
+        '*.rokeindustries.com',
+        'rokeindustries.dev',
+        '*.rokeindustries.dev',
+        'roke.pet',
+        '*.roke.pet',
+    ]);
 
     if (env('APP_ENV', 'production') === 'local') {
         $origins = array_merge($origins, [

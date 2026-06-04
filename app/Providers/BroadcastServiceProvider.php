@@ -13,7 +13,6 @@ class BroadcastServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Broadcast::routes(['middleware' => [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             \App\Http\Middleware\InjectTokenFromCookie::class,
             'auth:sanctum',
         ]]);
