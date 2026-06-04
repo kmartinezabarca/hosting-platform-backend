@@ -72,7 +72,7 @@ class SupportChatController extends Controller
         // Al abrir la conversación, el cliente "lee" los mensajes del staff.
         $this->markStaffRepliesAsRead($ticket);
 
-        $messages = TicketReply::with('user:id,first_name,last_name,avatar_url')
+        $messages = TicketReply::with('user:id,uuid,first_name,last_name,email,avatar_url,role')
             ->where('ticket_id', $ticket->id)
             ->orderBy('created_at', 'asc')
             ->paginate(50);
@@ -237,7 +237,7 @@ class SupportChatController extends Controller
             'status'        => in_array($ticket->status, ['open', 'waiting_customer']) ? 'in_progress' : $ticket->status,
         ]);
 
-        $reply->load('user:id,first_name,last_name,avatar_url');
+        $reply->load('user:id,uuid,first_name,last_name,email,avatar_url,role');
 
         // Broadcast del evento (con el reply completo + adjuntos)
         event(new \App\Domains\Platform\Events\TicketReplied($ticket, $reply));
@@ -336,10 +336,10 @@ class SupportChatController extends Controller
     {
         $user = Auth::user();
 
-        $tickets = Ticket::where('user_id', $user->id)
+            $tickets = Ticket::where('user_id', $user->id)
             ->with(['latestReply' => function ($q) {
-                $q->select('id', 'ticket_id', 'user_id', 'message', 'created_at')
-                  ->with('user:id,first_name,last_name,avatar_url');
+                $q->select('id', 'uuid', 'ticket_id', 'user_id', 'message', 'delivered_at', 'read_at', 'created_at')
+                  ->with('user:id,uuid,first_name,last_name,email,avatar_url,role');
             }])
             ->orderByDesc('last_reply_at')
             ->orderByDesc('created_at')

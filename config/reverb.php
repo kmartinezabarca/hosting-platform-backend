@@ -1,5 +1,84 @@
 <?php
 
+$normalizeReverbOriginHost = static function (string $origin): ?string {
+    $origin = trim($origin);
+    if ($origin === '') {
+        return null;
+    }
+
+    if ($origin === '*') {
+        return '*';
+    }
+
+    if (str_contains($origin, '://')) {
+        $host = parse_url($origin, PHP_URL_HOST);
+        return $host ? trim($host) : null;
+    }
+
+    $origin = preg_replace('/^wss?:\/\//', '', $origin);
+    $origin = strtok($origin, '/');
+
+    if ($origin === false || $origin === '') {
+        return null;
+    }
+
+    // Reverb valida solo el host del Origin, no scheme ni puerto.
+    if (! str_starts_with($origin, '[') && str_contains($origin, ':')) {
+        $origin = explode(':', $origin, 2)[0];
+    }
+
+    return trim($origin, " \t\n\r\0\x0B[]");
+};
+
+$reverbAllowedOrigins = static function () use ($normalizeReverbOriginHost): array {
+    $rawOrigins = array_filter([
+        env('REVERB_ALLOWED_ORIGINS'),
+        env('CORS_ALLOWED_ORIGINS'),
+        env('FRONTEND_URL'),
+        env('ADMIN_FRONTEND_URL'),
+        env('PORTAL_FRONTEND_URL'),
+        env('APP_FRONTEND_URL'),
+        env('ROKEPET_FRONTEND_URL'),
+    ]);
+
+    $origins = [];
+    foreach ($rawOrigins as $raw) {
+        foreach (explode(',', (string) $raw) as $origin) {
+            $origin = trim($origin);
+            if ($origin !== '') {
+                $host = $normalizeReverbOriginHost($origin);
+                if ($host) {
+                    $origins[] = $host;
+                }
+            }
+        }
+    }
+
+    if (env('APP_ENV') !== 'local') {
+        $origins = array_merge($origins, [
+            'admin.rokeindustries.dev',
+            'app.rokeindustries.dev',
+            'rokeindustries.com',
+            '*.rokeindustries.com',
+            'rokeindustries.dev',
+            '*.rokeindustries.dev',
+            'roke.pet',
+            '*.roke.pet',
+        ]);
+    }
+
+    if (env('APP_ENV', 'production') === 'local') {
+        $origins = array_merge($origins, [
+            'localhost',
+            '127.0.0.1',
+        ]);
+    }
+
+    $origins = array_values(array_unique($origins));
+
+    return $origins ?: ['*'];
+};
+
 return [
 
     /*
@@ -82,10 +161,7 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => array_filter(array_map(
-                    'trim',
-                    explode(',', env('REVERB_ALLOWED_ORIGINS', env('CORS_ALLOWED_ORIGINS', '*')))
-                )),
+                'allowed_origins' => $reverbAllowedOrigins(),
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_message_size' => env('REVERB_APP_MAX_MESSAGE_SIZE', 10_000),

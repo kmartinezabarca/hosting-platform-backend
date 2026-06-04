@@ -23,15 +23,18 @@ class ChatController extends Controller
     {
         $query = Ticket::query()
             ->with([
-                'user:id,first_name,last_name,email,avatar_url',
+                'user:id,uuid,first_name,last_name,email,avatar_url,role',
                 'latestReply' => function ($q) {
                     $q->select(
                         'ticket_replies.id',
+                        'ticket_replies.uuid',
                         'ticket_replies.ticket_id',   // 👈 prefijado
                         'ticket_replies.user_id',
                         'ticket_replies.message',
+                        'ticket_replies.delivered_at',
+                        'ticket_replies.read_at',
                         'ticket_replies.created_at'
-                    )->with('user:id,first_name,last_name,avatar_url');
+                    )->with('user:id,uuid,first_name,last_name,email,avatar_url,role');
                 },
             ])
             ->whereIn('status', ['open', 'in_progress', 'waiting_customer'])
@@ -73,15 +76,18 @@ class ChatController extends Controller
     {
         $query = Ticket::query()
             ->with([
-                'user:id,first_name,last_name,email,avatar_url',
+                'user:id,uuid,first_name,last_name,email,avatar_url,role',
                 'latestReply' => function ($q) {
                     $q->select(
                         'ticket_replies.id',
+                        'ticket_replies.uuid',
                         'ticket_replies.ticket_id',   // 👈 prefijado
                         'ticket_replies.user_id',
                         'ticket_replies.message',
+                        'ticket_replies.delivered_at',
+                        'ticket_replies.read_at',
                         'ticket_replies.created_at'
-                    )->with('user:id,first_name,last_name,avatar_url');
+                    )->with('user:id,uuid,first_name,last_name,email,avatar_url,role');
                 },
             ])
             ->when($request->filled('status'), function ($q) use ($request) {
@@ -133,7 +139,7 @@ class ChatController extends Controller
         // Al abrir la conversación, el staff "lee" los mensajes del cliente.
         $this->markCustomerRepliesAsRead($ticket);
 
-        $messages = TicketReply::with('user:id,first_name,last_name,avatar_url')
+        $messages = TicketReply::with('user:id,uuid,first_name,last_name,email,avatar_url,role')
             ->where('ticket_id', $ticket->id)
             ->orderBy('created_at', 'asc')
             ->paginate(50);
@@ -235,7 +241,7 @@ class ChatController extends Controller
             'status'        => 'waiting_customer',
         ]);
 
-        $reply->load('user:id,first_name,last_name,avatar_url');
+        $reply->load('user:id,uuid,first_name,last_name,email,avatar_url,role');
 
         // Broadcast del evento (con el reply completo + adjuntos)
         event(new \App\Domains\Platform\Events\TicketReplied($ticket, $reply));

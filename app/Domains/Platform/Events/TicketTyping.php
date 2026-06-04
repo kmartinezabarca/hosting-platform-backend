@@ -53,7 +53,7 @@ class TicketTyping implements ShouldBroadcastNow
                 'id'       => $this->user->uuid,
                 'name'     => $this->user->full_name,
                 'role'     => $this->user->role,
-                'is_staff' => $this->user->isAdmin(),
+                'is_staff' => $this->user->isStaff(),
             ],
             'timestamp'   => now()->toISOString(),
         ];

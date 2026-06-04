@@ -47,32 +47,47 @@ class TicketReplied implements ShouldBroadcastNow
      */
     public function broadcastWith(): array
     {
+        $this->reply->load('user:id,uuid,first_name,last_name,email,avatar_url,role');
+
         $isFromStaff = $this->reply->isFromStaff();
         $author      = $this->reply->user;
+        $authorName  = $author?->full_name ?: $author?->email;
 
         return [
             'ticket_id'      => $this->ticket->uuid,
+            'ticket_uuid'    => $this->ticket->uuid,
             'ticket_subject' => $this->ticket->subject,
             'reply_id'       => $this->reply->id,
+            'reply_uuid'     => $this->reply->uuid,
             'reply_message'  => $this->reply->message,
-            'reply_by'       => $author?->full_name ?? 'Soporte',
+            'reply_by'       => $authorName ?? ($isFromStaff ? 'Soporte' : 'Cliente'),
             'is_from_staff'  => $isFromStaff,
 
             // Objeto reply completo para renderizar el mensaje en tiempo real
             // sin tener que hacer un refetch (incluye adjuntos con URL).
             'reply' => [
                 'id'          => $this->reply->id,
+                'uuid'        => $this->reply->uuid,
                 'ticket_id'   => $this->ticket->id,
+                'ticket_uuid' => $this->ticket->uuid,
+                'user_id'     => $this->reply->user_id,
                 'message'     => $this->reply->message,
                 'attachments' => $this->reply->attachments, // accessor añade `url`
                 'is_internal' => (bool) $this->reply->is_internal,
+                'is_from_staff' => $isFromStaff,
+                'delivered_at' => $this->reply->delivered_at?->toISOString(),
+                'read_at'     => $this->reply->read_at?->toISOString(),
                 'created_at'  => $this->reply->created_at?->toISOString(),
                 'user'        => $author ? [
                     'id'         => $author->id,
+                    'uuid'       => $author->uuid,
+                    'name'       => $authorName,
                     'first_name' => $author->first_name,
                     'last_name'  => $author->last_name,
+                    'email'      => $author->email,
                     'avatar_url' => $author->avatar_url,
-                    'role'       => $isFromStaff ? 'admin' : 'client',
+                    'role'       => $author->role ?: ($isFromStaff ? 'admin' : 'client'),
+                    'is_staff'   => $isFromStaff,
                 ] : null,
             ],
 

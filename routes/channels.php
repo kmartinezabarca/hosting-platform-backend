@@ -28,12 +28,28 @@ Broadcast::channel('user.{uuid}', function (User $user, $uuid) {
 Broadcast::channel('ticket.{uuid}', function (User $user, $uuid) {
     // El cliente dueño del ticket o cualquier staff (admin/super_admin/support)
     if ($user->isStaff()) {
-        return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
+        return [
+            'id'         => $user->uuid,
+            'user_id'    => $user->id,
+            'name'       => $user->full_name,
+            'email'      => $user->email,
+            'role'       => $user->role,
+            'avatar_url' => $user->avatar_full_url,
+            'is_staff'   => true,
+        ];
     }
 
     $ticket = \App\Domains\Platform\Models\Ticket::where('uuid', $uuid)->first();
     if ($ticket && (int) $ticket->user_id === (int) $user->id) {
-        return ['id' => $user->uuid, 'name' => $user->full_name, 'role' => $user->role];
+        return [
+            'id'         => $user->uuid,
+            'user_id'    => $user->id,
+            'name'       => $user->full_name,
+            'email'      => $user->email,
+            'role'       => $user->role,
+            'avatar_url' => $user->avatar_full_url,
+            'is_staff'   => false,
+        ];
     }
 
     return false;
@@ -120,4 +136,3 @@ Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $se
     $service = \App\Domains\Platform\Models\Service::where('uuid', $serviceUuid)->first();
     return $service && (int) $service->user_id === (int) $user->id;
 });
-
