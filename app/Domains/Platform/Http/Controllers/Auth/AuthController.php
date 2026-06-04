@@ -2,14 +2,14 @@
 
 namespace App\Domains\Platform\Http\Controllers\Auth;
 
-use App\Http\Controllers\Controller;
-
-use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\ValidationException;
 use App\Domains\Platform\Models\ActivityLog; // Importar el modelo ActivityLog
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Support\AuthCookie;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
@@ -46,15 +46,6 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        $cookie = cookie(
-            'auth_token', $token, 1440,
-            '/', null,
-            config('app.env') === 'production',
-            true,
-            false,
-            'strict'
-        );
-
         ActivityLog::record(
             'Registro de usuario',
             'Nuevo usuario registrado: ' . $user->email,
@@ -63,12 +54,12 @@ class AuthController extends Controller
             $user->id
         );
 
-        return response()->json([
+        return AuthCookie::attachAuthCookie(response()->json([
             'message'      => 'Usuario registrado exitosamente.',
             'access_token' => $token,   // Para clientes móviles (Bearer)
             'token_type'   => 'Bearer',
             'user'         => $this->userPayload($user),
-        ], 201)->withCookie($cookie);
+        ], 201), $token, 1440);
     }
 
     public function login(Request $request)
@@ -137,15 +128,6 @@ class AuthController extends Controller
         // TTL: admin/support → 8h, client → 24h
         $ttlMinutes = in_array($user->role, ['super_admin', 'admin', 'support']) ? 480 : 1440;
 
-        $cookie = cookie(
-            'auth_token', $token, $ttlMinutes,
-            '/', null,
-            config('app.env') === 'production', // Secure solo en producción
-            true,                                // HttpOnly — JS nunca puede leerla
-            false,
-            'strict'                             // SameSite=Strict — no se envía en navegación directa
-        );
-
         // Registrar inicio de sesión exitoso
         ActivityLog::record(
             'Inicio de sesión exitoso',
@@ -155,14 +137,14 @@ class AuthController extends Controller
             $user->id
         );
 
-        return response()->json([
+        return AuthCookie::attachAuthCookie(response()->json([
             'message'        => 'Logged in successfully',
             'access_token'   => $token,   // Para clientes móviles (Bearer)
             'token_type'     => 'Bearer',
             'user'           => $this->userPayload($user),
             'needs_username' => is_null($user->username),
             'redirect_to'    => $this->getRedirectPath($user->role),
-        ])->withCookie($cookie);
+        ]), $token, $ttlMinutes);
     }
 
     public function me(Request $request)
@@ -239,13 +221,10 @@ class AuthController extends Controller
             );
         }
 
-        return response()->json([
+        return AuthCookie::attachForgetCookies(response()->json([
             'success' => true,
             'message' => 'Logout successful.',
             'code' => 'LOGOUT_SUCCESS',
-        ])->withCookie(
-            cookie()->forget('auth_token')
-        );
+        ]));
     }
 }
-

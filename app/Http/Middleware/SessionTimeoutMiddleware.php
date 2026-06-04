@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Domains\Platform\Models\UserSession;
+use App\Support\AuthCookie;
 use Closure;
 use Illuminate\Http\Request;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -36,11 +37,11 @@ class SessionTimeoutMiddleware
                 // Revocar el token activo
                 $user->currentAccessToken()?->delete();
 
-                return response()->json([
+                return AuthCookie::attachForgetCookies(response()->json([
                     'success'    => false,
                     'message'    => 'Tu sesión ha expirado por inactividad. Por favor inicia sesión de nuevo.',
                     'error_code' => 'SESSION_EXPIRED',
-                ], 401)->withCookie(cookie()->forget('auth_token'));
+                ], 401));
             }
         }
 

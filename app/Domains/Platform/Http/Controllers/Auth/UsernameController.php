@@ -2,11 +2,12 @@
 
 namespace App\Domains\Platform\Http\Controllers\Auth;
 
+use App\Domains\Platform\Models\ActivityLog;
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Domains\Platform\Models\ActivityLog;
-use Illuminate\Http\Request;
+use App\Support\AuthCookie;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -111,16 +112,13 @@ class UsernameController extends Controller
             $user->id
         );
 
-        return response()->json([
+        return AuthCookie::attachAuthCookie(response()->json([
             'message'      => '¡Bienvenido! Tu cuenta ha sido creada exitosamente.',
             'access_token' => $token,
             'token_type'   => 'Bearer',
             'user'         => $this->userPayload($user),
             'redirect_to'  => '/client/dashboard',
-        ], 201)->withCookie(
-            cookie('auth_token', $token, config('sanctum.expiration'), null, null,
-                   config('session.secure'), true, false, config('session.same_site', 'lax'))
-        );
+        ], 201), $token, (int) config('sanctum.expiration'));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

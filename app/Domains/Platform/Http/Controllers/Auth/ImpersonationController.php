@@ -5,6 +5,7 @@ namespace App\Domains\Platform\Http\Controllers\Auth;
 use App\Domains\Platform\Models\AuditLog;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\AuthCookie;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -53,16 +54,15 @@ class ImpersonationController extends Controller
 
         // Token name encodes the impersonator so /leave can revert the session.
         $token  = $target->createToken(self::TOKEN_NAME_PREFIX . $payload['impersonator_id'])->plainTextToken;
-        $cookie = $this->authCookie($token, 1440); // client TTL
 
-        return response()->json([
+        return AuthCookie::attachAuthCookie(response()->json([
             'success' => true,
             'data'    => [
                 'user'         => $this->userPayload($target),
                 'impersonated' => true,
                 'redirect_to'  => '/client/dashboard',
             ],
-        ])->withCookie($cookie);
+        ]), $token, 1440);
     }
 
     /**
@@ -93,9 +93,8 @@ class ImpersonationController extends Controller
 
         // Revoke the impersonation token, mint a fresh admin session.
         $accessToken->delete();
-        $token  = $admin->createToken('auth_token')->plainTextToken;
-        $ttl    = in_array($admin->role, ['super_admin', 'admin', 'support'], true) ? 480 : 1440;
-        $cookie = $this->authCookie($token, $ttl);
+        $token = $admin->createToken('auth_token')->plainTextToken;
+        $ttl = in_array($admin->role, ['super_admin', 'admin', 'support'], true) ? 480 : 1440;
 
         AuditLog::record(
             action: 'user.impersonation_ended',
@@ -104,7 +103,7 @@ class ImpersonationController extends Controller
             actor: $admin,
         );
 
-        return response()->json([
+        return AuthCookie::attachAuthCookie(response()->json([
             'success' => true,
             'data'    => [
                 'user'        => $this->userPayload($admin),
@@ -112,19 +111,7 @@ class ImpersonationController extends Controller
                     ? '/admin/dashboard'
                     : '/admin/tickets',
             ],
-        ])->withCookie($cookie);
-    }
-
-    private function authCookie(string $token, int $ttlMinutes)
-    {
-        return cookie(
-            'auth_token', $token, $ttlMinutes,
-            '/', null,
-            config('app.env') === 'production',
-            true,
-            false,
-            'strict'
-        );
+        ]), $token, $ttl);
     }
 
     private function userPayload(User $user): array

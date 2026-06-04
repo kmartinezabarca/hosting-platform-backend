@@ -2,9 +2,10 @@
 
 namespace App\Domains\Platform\Http\Controllers\Auth;
 
+use App\Domains\Platform\Models\ActivityLog;
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Domains\Platform\Models\ActivityLog;
+use App\Support\AuthCookie;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
@@ -100,7 +101,7 @@ class GoogleLoginController extends Controller
         // El frontend decide si mostrar modal o redirigir.
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
+        return AuthCookie::attachAuthCookie(response()->json([
             'message'             => 'Logged in successfully',
             'access_token'        => $token,
             'token_type'          => 'Bearer',
@@ -108,10 +109,7 @@ class GoogleLoginController extends Controller
             'needs_username'      => is_null($user->username),
             'user'                => $this->userPayload($user),
             'redirect_to'         => $this->getRedirectPath($user->role),
-        ])->withCookie(
-            cookie('auth_token', $token, config('sanctum.expiration'), null, null,
-                   config('session.secure'), true, false, config('session.same_site', 'lax'))
-        );
+        ]), $token, (int) config('sanctum.expiration'));
     }
 
     /**
