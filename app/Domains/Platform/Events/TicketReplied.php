@@ -4,15 +4,14 @@ namespace App\Domains\Platform\Events;
 
 use App\Domains\Platform\Models\Ticket;
 use App\Domains\Platform\Models\TicketReply;
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class TicketReplied implements ShouldBroadcast
+class TicketReplied implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -36,10 +35,9 @@ class TicketReplied implements ShouldBroadcast
         return [
             new PrivateChannel('user.' . $this->ticket->user->uuid),
             new PrivateChannel('admin.tickets'),
-            // Canal del ticket en modo presence — el frontend usa .join() para
-            // saber quién está online (presence) y disparar whispers de typing
-            // y receipts sin costo extra de backend. La auth callback de
-            // channels.php devuelve datos de usuario, requisito para presence.
+            // Canal del ticket en modo presence. El frontend usa .join() para
+            // saber quién está online y recibir mensajes, typing y receipts
+            // emitidos por el backend en tiempo real.
             new PresenceChannel('ticket.' . $this->ticket->uuid),
         ];
     }
@@ -93,4 +91,3 @@ class TicketReplied implements ShouldBroadcast
         return 'ticket.replied';
     }
 }
-

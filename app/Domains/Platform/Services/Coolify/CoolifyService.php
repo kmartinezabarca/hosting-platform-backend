@@ -72,17 +72,24 @@ class CoolifyService
     {
         $buildPack   = $data['build_pack'] ?? 'static';
         $dockerImage = $this->resolveDockerImage($buildPack);
+        [$imageName, $imageTag] = $this->splitDockerImage($dockerImage);
 
+        // Coolify v4 (endpoint /applications/dockerimage) NO acepta 'docker_image'
+        // ni 'fqdn'. El nombre/tag van separados y el dominio va en 'domains'.
         $payload = [
-            'project_uuid'     => $data['project_uuid'],
-            'server_uuid'      => $data['server_uuid'] ?? $this->serverUuid,
-            'environment_name' => $data['environment_name'] ?? 'production',
-            'docker_image'     => $dockerImage,
-            'name'             => $data['name'],
-            'fqdn'             => $data['fqdn'] ?? null,
-            'ports_exposes'    => '80',
-            'instant_deploy'   => false,
+            'project_uuid'               => $data['project_uuid'],
+            'server_uuid'                => $data['server_uuid'] ?? $this->serverUuid,
+            'environment_name'           => $data['environment_name'] ?? 'production',
+            'docker_registry_image_name' => $imageName,
+            'docker_registry_image_tag'  => $imageTag,
+            'name'                       => $data['name'],
+            'ports_exposes'              => '80',
+            'instant_deploy'             => false,
         ];
+
+        if (!empty($data['fqdn'])) {
+            $payload['domains'] = $data['fqdn'];
+        }
 
         $response = $this->http()->post('/api/v1/applications/dockerimage', $payload);
 

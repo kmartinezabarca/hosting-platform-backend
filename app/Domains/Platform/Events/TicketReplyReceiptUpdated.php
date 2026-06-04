@@ -5,7 +5,7 @@ namespace App\Domains\Platform\Events;
 use App\Domains\Platform\Models\TicketReply;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
@@ -13,10 +13,10 @@ use Illuminate\Queue\SerializesModels;
  * Receipt broadcast: when a reply transitions to delivered_at or read_at,
  * we emit this event on the presence channel of the ticket so the SENDER's
  * UI updates the checkmark (✓ delivered, ✓✓ read) in real time without
- * polling. The other end uses whispers for the instant flick, this event
- * is the source-of-truth persistence + reconnection-safe path.
+ * polling. This event is the source-of-truth persistence + reconnection-safe
+ * path for the sender UI.
  */
-class TicketReplyReceiptUpdated implements ShouldBroadcast
+class TicketReplyReceiptUpdated implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
