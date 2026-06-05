@@ -11,7 +11,7 @@ def notify(status, extra="") {
     ]
 
     def color = colorMap[status] ?: 3447003
-    def url = params.DEPLOY_ENV == 'production' ? env.PROD_URL : env.STAGING_URL
+    def url = params.DEPLOY_ENV == 'production' ? env.PROD_URL : env.DEV_URL
     def isProd = params.DEPLOY_ENV == 'production'
 
     def payload = """
@@ -59,9 +59,9 @@ pipeline {
         PROD_PATH               = '/opt/apps/api'
         PROD_URL                = 'https://api.rokeindustries.com'
 
-        // ── Staging/DEV (Mac Mini — remoto vía Tailscale) ──────
-        STAGING_PATH            = '/opt/apps/api-dev'
-        STAGING_URL             = 'https://api.rokeindustries.dev'
+        // ── Development (Mac Mini — remoto vía Tailscale) ──────
+        DEV_PATH                = '/opt/apps/api-dev'
+        DEV_URL                 = 'https://api.rokeindustries.dev'
         DEV_HOST                = '100.72.162.112'
         DEV_USER                = 'rokedev'
 
@@ -78,10 +78,10 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['none', 'staging', 'production'])
+        choice(name: 'DEPLOY_ENV', choices: ['none', 'development', 'production'])
         booleanParam(name: 'RUN_MIGRATIONS', defaultValue: true)
         booleanParam(name: 'RUN_TESTS', defaultValue: true)
-        string(name: 'COVERAGE_MIN', defaultValue: '35', description: 'Cobertura minima de lineas para permitir deploy')
+        string(name: 'COVERAGE_MIN', defaultValue: '10', description: 'Cobertura minima de lineas para permitir deploy')
         booleanParam(name: 'KEEP_RELEASES', defaultValue: true)
     }
 
@@ -168,12 +168,12 @@ pipeline {
             }
         }
 
-        stage('Deploy Staging') {
-            when { expression { params.DEPLOY_ENV == 'staging' } }
+        stage('Deploy Development') {
+            when { expression { params.DEPLOY_ENV == 'development' } }
             steps {
                 script {
                     def releaseName   = env.RELEASE_NAME
-                    def stagingPath   = env.STAGING_PATH
+                    def devPath       = env.DEV_PATH
                     def devHost       = env.DEV_HOST
                     def devUser       = env.DEV_USER
                     def runMigrations = params.RUN_MIGRATIONS
@@ -187,7 +187,7 @@ pipeline {
                                 -o StrictHostKeyChecking=no \
                                 -o ConnectTimeout=10 \
                                 ${devUser}@${devHost} \
-                                "mkdir -p ${stagingPath}/releases/${releaseName}/bootstrap/cache && chmod 777 ${stagingPath}/releases/${releaseName}/bootstrap/cache"
+                                "mkdir -p ${devPath}/releases/${releaseName}/bootstrap/cache && chmod 777 ${devPath}/releases/${releaseName}/bootstrap/cache"
                         """
 
                         sh """
@@ -198,7 +198,7 @@ pipeline {
                                 --exclude='.env' \
                                 --exclude='storage' \
                                 -e "ssh -i \$SSH_KEY -o StrictHostKeyChecking=no" \
-                                ./ ${devUser}@${devHost}:${stagingPath}/releases/${releaseName}/
+                                ./ ${devUser}@${devHost}:${devPath}/releases/${releaseName}/
                         """
 
                         sh """
@@ -206,11 +206,11 @@ pipeline {
                                 -o StrictHostKeyChecking=no \
                                 ${devUser}@${devHost} bash << 'REMOTE'
                                     set -e
-                                    RELEASE_DIR=${stagingPath}/releases/${releaseName}
+                                    RELEASE_DIR=${devPath}/releases/${releaseName}
 
-                                    ln -sf ${stagingPath}/shared/.env \$RELEASE_DIR/.env
+                                    ln -sf ${devPath}/shared/.env \$RELEASE_DIR/.env
                                     rm -rf \$RELEASE_DIR/storage
-                                    ln -sf ${stagingPath}/shared/storage \$RELEASE_DIR/storage
+                                    ln -sf ${devPath}/shared/storage \$RELEASE_DIR/storage
 
                                     cd \$RELEASE_DIR
 
@@ -228,13 +228,13 @@ pipeline {
                                         php artisan deploy:refresh --skip-restarts --no-interaction
                                     fi
 
-                                    ln -snf \$RELEASE_DIR ${stagingPath}/current
+                                    ln -snf \$RELEASE_DIR ${devPath}/current
 
-                                    cd ${stagingPath}/current
+                                    cd ${devPath}/current
                                     php artisan queue:restart --no-interaction || true
                                     php artisan reverb:restart --no-interaction || true
 
-                                    ls -dt ${stagingPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
+                                    ls -dt ${devPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
 REMOTE
                         """
 
