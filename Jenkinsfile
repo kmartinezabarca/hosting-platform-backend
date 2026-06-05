@@ -260,6 +260,10 @@ REMOTE
                 cp -r . "\$RELEASE_DIR/"
                 ln -sf ${prodPath}/shared/.env "\$RELEASE_DIR/.env"
 
+                # Symlink storage al shared
+                rm -rf "\$RELEASE_DIR/storage"
+                ln -sf ${prodPath}/shared/storage "\$RELEASE_DIR/storage"
+
                 cd "\$RELEASE_DIR"
                 composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
 
