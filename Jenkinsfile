@@ -49,7 +49,7 @@ pipeline {
     agent {
         docker {
             image 'roke-jenkins-agent-php:latest'
-            args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer -v /opt/apps:/opt/apps:rw'
+            args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer -v /opt/apps:/opt/apps:rw --group-add 988'
             reuseNode true
         }
     }
@@ -92,8 +92,6 @@ pipeline {
                 checkout scm
                 script {
                     env.GIT_SHORT    = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
-                    // SemVer desde el tag mas cercano (ver scripts/release/release.ps1).
-                    // Cae a "v0.0.0-<sha>" si aun no hay tags.
                     env.APP_VERSION  = sh(returnStdout: true, script: "git describe --tags --always 2>/dev/null || echo v0.0.0").trim()
                     env.RELEASE_TS   = sh(returnStdout: true, script: "date +%Y%m%d_%H%M%S").trim()
                     env.RELEASE_NAME = "${env.APP_VERSION}_${env.RELEASE_TS}_${env.GIT_SHORT}"
@@ -130,55 +128,46 @@ pipeline {
         }
 
         stage('Tests') {
-    when { expression { params.RUN_TESTS } }
-    steps {
-        script {
-            docker.image('mysql:8.0').withRun(
-                '-e MYSQL_ROOT_PASSWORD=secret ' +
-                '-e MYSQL_DATABASE=hosting_platform_test ' +
-                '-e MYSQL_USER=laravel ' +
-                '-e MYSQL_PASSWORD=secret'
-            ) { mysqlContainer ->
-                sh """
-                    mkdir -p build/logs build/coverage
+            when { expression { params.RUN_TESTS } }
+            steps {
+                script {
+                    docker.image('mysql:8.0').withRun(
+                        '-e MYSQL_ROOT_PASSWORD=secret ' +
+                        '-e MYSQL_DATABASE=hosting_platform_test ' +
+                        '-e MYSQL_USER=laravel ' +
+                        '-e MYSQL_PASSWORD=secret'
+                    ) { mysqlContainer ->
+                        sh """
+                            mkdir -p build/logs build/coverage
 
-                    until docker exec ${mysqlContainer.id} mysqladmin ping -h 127.0.0.1 -u root -psecret --silent 2>/dev/null; do
-                        echo "Esperando MySQL..."
-                        sleep 3
-                    done
+                            until docker exec ${mysqlContainer.id} mysqladmin ping -h 127.0.0.1 -u root -psecret --silent 2>/dev/null; do
+                                echo "Esperando MySQL..."
+                                sleep 3
+                            done
 
-                    MYSQL_IP=\$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${mysqlContainer.id})
+                            MYSQL_IP=\$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${mysqlContainer.id})
 
-                    cp .env.testing .env
+                            cp .env.testing .env
 
-                    # Inyectar IP dinámica de MySQL en phpunit.xml
-                    sed -i "s/__MYSQL_IP__/\$MYSQL_IP/g" phpunit.xml
+                            sed -i "s/__MYSQL_IP__/\$MYSQL_IP/g" phpunit.xml
 
-                    # La cobertura es OBLIGATORIA → requiere un driver (pcov/xdebug)
-                    # en la imagen del agente. El agente corre como usuario no-root,
-                    # así que NO se puede instalar en runtime: debe venir en la imagen.
-                    if ! php -m | grep -qiE 'pcov|xdebug'; then
-                        echo "❌ No hay driver de cobertura (pcov/xdebug) en el agente."
-                        echo "   Agrega pcov a la imagen roke-jenkins-agent-php y reconstrúyela:"
-                        echo "     RUN pecl install pcov && docker-php-ext-enable pcov"
-                        exit 1
-                    fi
+                            if ! php -m | grep -qiE 'pcov|xdebug'; then
+                                echo "❌ No hay driver de cobertura (pcov/xdebug) en el agente."
+                                exit 1
+                            fi
 
-                    XDEBUG_MODE=coverage ./vendor/bin/phpunit \\
-                        --log-junit build/logs/junit.xml \\
-                        --coverage-clover build/coverage/clover.xml \\
-                        --coverage-cobertura build/coverage/cobertura.xml
+                            XDEBUG_MODE=coverage ./vendor/bin/phpunit \\
+                                --log-junit build/logs/junit.xml \\
+                                --coverage-clover build/coverage/clover.xml \\
+                                --coverage-cobertura build/coverage/cobertura.xml
 
-                    php scripts/ci/check-coverage.php build/coverage/clover.xml "${params.COVERAGE_MIN}"
-                """
+                            php scripts/ci/check-coverage.php build/coverage/clover.xml "${params.COVERAGE_MIN}"
+                        """
+                    }
+                }
             }
         }
-    }
-}
 
-        // ──────────────────────────────────────────────────────────
-        // 🖥️  DEPLOY STAGING → Mac Mini (remoto vía SSH/Tailscale)
-        // ──────────────────────────────────────────────────────────
         stage('Deploy Staging') {
             when { expression { params.DEPLOY_ENV == 'staging' } }
             steps {
@@ -193,7 +182,6 @@ pipeline {
                         credentialsId: 'mac-mini-deploy-key',
                         keyFileVariable: 'SSH_KEY'
                     )]) {
-                        // 1. Crear directorio de release en Mac Mini
                         sh """
                             ssh -i \$SSH_KEY \
                                 -o StrictHostKeyChecking=no \
@@ -202,7 +190,6 @@ pipeline {
                                 "mkdir -p ${stagingPath}/releases/${releaseName}/bootstrap/cache && chmod 777 ${stagingPath}/releases/${releaseName}/bootstrap/cache"
                         """
 
-                        // 2. Sincronizar código con rsync
                         sh """
                             rsync -az \
                                 --exclude='.git' \
@@ -214,7 +201,6 @@ pipeline {
                                 ./ ${devUser}@${devHost}:${stagingPath}/releases/${releaseName}/
                         """
 
-                        // 3. Symlinks, migraciones, caché y switch atómico — todo remoto
                         sh """
                             ssh -i \$SSH_KEY \
                                 -o StrictHostKeyChecking=no \
@@ -222,25 +208,19 @@ pipeline {
                                     set -e
                                     RELEASE_DIR=${stagingPath}/releases/${releaseName}
 
-                                    # Symlinks a shared
                                     ln -sf ${stagingPath}/shared/.env \$RELEASE_DIR/.env
                                     rm -rf \$RELEASE_DIR/storage
                                     ln -sf ${stagingPath}/shared/storage \$RELEASE_DIR/storage
 
                                     cd \$RELEASE_DIR
 
-                                    # Instalar vendor en el Mac Mini
                                     composer install --no-scripts --optimize-autoloader --prefer-dist
 
-                                    # Version: se hornea en la config cacheada (ver config/version.php)
                                     export APP_VERSION='${env.APP_VERSION}'
                                     export APP_GIT_COMMIT='${env.GIT_SHORT}'
                                     export APP_BUILD_ID='${env.BUILD_NUMBER}'
                                     export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
 
-                                    # Cache/config/migrations en una sola receta de deploy.
-                                    # Evita que CORS/Sanctum/Reverb queden con config vieja
-                                    # y bloquee login o WebSocket después de cada release.
                                     if [ "${runMigrations}" = "true" ]; then
                                         export DB_HOST=127.0.0.1
                                         php artisan deploy:refresh --migrate --skip-restarts --no-interaction
@@ -248,19 +228,16 @@ pipeline {
                                         php artisan deploy:refresh --skip-restarts --no-interaction
                                     fi
 
-                                    # Switch atómico
                                     ln -snf \$RELEASE_DIR ${stagingPath}/current
 
                                     cd ${stagingPath}/current
                                     php artisan queue:restart --no-interaction || true
                                     php artisan reverb:restart --no-interaction || true
 
-                                    # Limpiar releases viejos (mantener 5)
                                     ls -dt ${stagingPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
 REMOTE
                         """
 
-                        // 4. Reload servicios en Mac Mini
                         sh """
                             ssh -i \$SSH_KEY \
                                 -o StrictHostKeyChecking=no \
@@ -272,9 +249,6 @@ REMOTE
             }
         }
 
-        // ──────────────────────────────────────────────────────────
-        // 🏭  DEPLOY PRODUCCIÓN → Dell (local, sin cambios)
-        // ──────────────────────────────────────────────────────────
         stage('Deploy Production') {
             when { expression { params.DEPLOY_ENV == 'production' } }
             steps {
@@ -293,15 +267,11 @@ REMOTE
                         cd "\$RELEASE_DIR"
                         composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
 
-                        # Version: se hornea en la config cacheada (ver config/version.php)
                         export APP_VERSION='${env.APP_VERSION}'
                         export APP_GIT_COMMIT='${env.GIT_SHORT}'
                         export APP_BUILD_ID='${env.BUILD_NUMBER}'
                         export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
 
-                        # Cache/config/migrations en una sola receta de deploy.
-                        # Evita que CORS/Sanctum/Reverb queden con config vieja
-                        # y bloquee login o WebSocket después de cada release.
                         php artisan deploy:refresh --migrate --skip-restarts --no-interaction
 
                         ln -snf "\$RELEASE_DIR" ${prodPath}/current
@@ -310,7 +280,6 @@ REMOTE
                         php artisan queue:restart --no-interaction || true
                         php artisan reverb:restart --no-interaction || true
 
-                        # Limpiar releases viejos (mantener 5)
                         ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
                     """
                 }
