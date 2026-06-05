@@ -21,3 +21,5 @@ yarn-error.log
 /.claude
 .design-source
 .claude
+/bootstrap/cache/*.php
+/bootstrap/cache/*.tmp
