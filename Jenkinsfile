@@ -12,7 +12,6 @@ def notify(status, extra="") {
 
     def color = colorMap[status] ?: 3447003
     def url = params.DEPLOY_ENV == 'production' ? env.PROD_URL : env.DEV_URL
-    def isProd = params.DEPLOY_ENV == 'production'
 
     def payload = """
     {
@@ -49,7 +48,7 @@ pipeline {
     agent {
         docker {
             image 'roke-jenkins-agent-php:latest'
-            args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer -v /opt/apps:/opt/apps:rw --group-add 988'
+            args '-v /var/run/docker.sock:/var/run/docker.sock -v /opt/stacks/jenkins/workspace-cache/composer:/home/builder/.composer -v /opt/apps:/opt/apps:rw --group-add 988 --network host'
             reuseNode true
         }
     }
@@ -246,52 +245,54 @@ REMOTE
         }
 
         stage('Deploy Production') {
-    when { expression { params.DEPLOY_ENV == 'production' } }
-    steps {
-        input(message: "Confirmar producción ${env.RELEASE_NAME}", ok: 'Deploy')
+            when { expression { params.DEPLOY_ENV == 'production' } }
+            steps {
+                input(message: "Confirmar producción ${env.RELEASE_NAME}", ok: 'Deploy')
 
-        script {
-            def releaseName = env.RELEASE_NAME
-            def prodPath    = env.PROD_PATH
+                script {
+                    def releaseName = env.RELEASE_NAME
+                    def prodPath    = env.PROD_PATH
 
-            sh """
-                RELEASE_DIR=${prodPath}/releases/${releaseName}
-                mkdir -p "\$RELEASE_DIR"
-                cp -r . "\$RELEASE_DIR/"
-                ln -sf ${prodPath}/shared/.env "\$RELEASE_DIR/.env"
+                    sh """
+                        RELEASE_DIR=${prodPath}/releases/${releaseName}
+                        mkdir -p "\$RELEASE_DIR"
+                        cp -r . "\$RELEASE_DIR/"
+                        ln -sf ${prodPath}/shared/.env "\$RELEASE_DIR/.env"
 
-                # Symlink storage al shared
-                rm -rf "\$RELEASE_DIR/storage"
-                ln -sf ${prodPath}/shared/storage "\$RELEASE_DIR/storage"
+                        # Storage symlink
+                        rm -rf "\$RELEASE_DIR/storage"
+                        ln -sf ${prodPath}/shared/storage "\$RELEASE_DIR/storage"
 
-                cd "\$RELEASE_DIR"
-                composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
+                        cd "\$RELEASE_DIR"
+                        composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
 
-                rm -f bootstrap/cache/packages.php
-                rm -f bootstrap/cache/services.php
+                        # Limpiar bootstrap cache para regenerar sin paquetes dev
+                        rm -f bootstrap/cache/packages.php
+                        rm -f bootstrap/cache/services.php
+                        chmod -R 777 bootstrap/cache
 
-                export APP_VERSION='${env.APP_VERSION}'
-                export APP_GIT_COMMIT='${env.GIT_SHORT}'
-                export APP_BUILD_ID='${env.BUILD_NUMBER}'
-                export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+                        # Permisos storage compartido
+                        chmod -R 777 ${prodPath}/shared/storage
 
-                ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
-            """
+                        export APP_VERSION='${env.APP_VERSION}'
+                        export APP_GIT_COMMIT='${env.GIT_SHORT}'
+                        export APP_BUILD_ID='${env.BUILD_NUMBER}'
+                        export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+
+                        php artisan deploy:refresh --migrate --skip-restarts --no-interaction
+
+                        ln -snf "\$RELEASE_DIR" ${prodPath}/current
+
+                        cd ${prodPath}/current
+                        php artisan queue:restart --no-interaction || true
+                        php artisan reverb:restart --no-interaction || true
+
+                        ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
+                    """
+                }
+                sh '/usr/local/bin/roke-reload-prod 2>/dev/null || true'
+            }
         }
-
-        // Correr artisan FUERA del contenedor Docker, directo en el Dell
-        sh '''
-            cd /opt/apps/api/releases/$(ls -t /opt/apps/api/releases/ | head -1)
-            php artisan deploy:refresh --migrate --skip-restarts --no-interaction
-            ln -snf $(pwd) /opt/apps/api/current
-            cd /opt/apps/api/current
-            php artisan queue:restart --no-interaction || true
-            php artisan reverb:restart --no-interaction || true
-        '''
-
-        sh '/usr/local/bin/roke-reload-prod 2>/dev/null || true'
-    }
-}
     }
 
     post {
