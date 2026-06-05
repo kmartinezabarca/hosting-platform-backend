@@ -14,13 +14,10 @@ return new class extends Migration {
                 $table->index('stripe_payment_method_id', 'pm_stripe_pm_idx');
             }
 
-            if (! Schema::hasColumn('payment_methods', 'stripe_customer_id')) {
-                $table->string('stripe_customer_id', 191)->nullable()->after('stripe_payment_method_id');
-                $table->index('stripe_customer_id', 'pm_stripe_customer_idx');
-            }
+
 
             if (! Schema::hasColumn('payment_methods', 'type')) {
-                $table->string('type', 50)->nullable()->after('stripe_customer_id');
+                $table->string("type", 50)->nullable()->after("stripe_payment_method_id");
             }
 
             if (! Schema::hasColumn('payment_methods', 'name')) {
@@ -58,7 +55,7 @@ return new class extends Migration {
             Schema::table('payment_methods', function (Blueprint $table) {
                 $table->dropUnique('pm_user_stripe_pm_unique');
                 $table->dropIndex('pm_stripe_pm_idx');
-                $table->dropIndex('pm_stripe_customer_idx');
+                
             });
         } catch (\Throwable $e) {}
 
@@ -78,9 +75,7 @@ return new class extends Migration {
             if (Schema::hasColumn('payment_methods', 'type')) {
                 $table->dropColumn('type');
             }
-            if (Schema::hasColumn('payment_methods', 'stripe_customer_id')) {
-                $table->dropColumn('stripe_customer_id');
-            }
+
             if (Schema::hasColumn('payment_methods', 'stripe_payment_method_id')) {
                 $table->dropColumn('stripe_payment_method_id');
             }

@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class ApiResponseMiddleware
@@ -16,6 +17,10 @@ class ApiResponseMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
+
+        if ($response instanceof RedirectResponse) {
+            return $response;
+        }
 
         // Asegurar que todas las respuestas tengan headers JSON apropiados
         if ($response instanceof \Illuminate\Http\JsonResponse) {
@@ -32,16 +37,31 @@ class ApiResponseMiddleware
 
         // Si la respuesta no es JSON pero debería serlo (para rutas API o web)
         if (($request->is('api/*') || $request->is('/')) && !$response instanceof \Illuminate\Http\JsonResponse) {
+            // Dejar pasar sin modificar respuestas binarias / de descarga
+            $contentType = $response->headers->get('Content-Type', '');
+            $disposition  = $response->headers->get('Content-Disposition', '');
+            $binaryTypes  = ['application/pdf', 'application/xml', 'text/xml', 'application/octet-stream', 'image/'];
+
+            foreach ($binaryTypes as $type) {
+                if (str_starts_with($contentType, $type)) {
+                    return $response;
+                }
+            }
+
+            if (str_contains($disposition, 'attachment') || str_contains($disposition, 'inline')) {
+                return $response;
+            }
+
             // Convertir respuestas no-JSON a JSON para rutas API
             $content = $response->getContent();
-            
+
             if (empty($content)) {
                 return response()->json([
                     'message' => 'Success',
                     'status_code' => $response->getStatusCode()
                 ], $response->getStatusCode());
             }
-            
+
             // Si el contenido no es JSON válido, envolverlo
             if (!$this->isJson($content)) {
                 return response()->json([
@@ -68,4 +88,3 @@ class ApiResponseMiddleware
         return json_last_error() === JSON_ERROR_NONE;
     }
 }
-

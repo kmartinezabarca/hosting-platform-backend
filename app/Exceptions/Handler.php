@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Http\Request;
 use Illuminate\Auth\AuthenticationException;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -55,14 +57,22 @@ class Handler extends ExceptionHandler
      */
     protected function handleApiException(Request $request, Throwable $e)
     {
+        // Let the framework normalize AuthorizationException → HttpException(403)
+        // and ModelNotFoundException → HttpException(404) before our handling
+        if ($e instanceof HttpResponseException) {
+            return $e->getResponse();
+        }
+
+        $e = $this->prepareException($e);
+
         // Autenticación requerida
         if ($e instanceof AuthenticationException) {
             return response()->json([
-                'error' => 'Acceso no autorizado',
-                'message' => 'Este servicio API es de uso exclusivo para clientes autorizados de ROKE Industries. Acceso denegado.',
-                'status_code' => 403,
-                'type' => 'unauthorized_access'
-            ], 403);
+                'error' => 'Authentication required',
+                'message' => 'You must be authenticated to access this resource.',
+                'status_code' => 401,
+                'type' => 'authentication_error'
+            ], 401);
         }
 
         // Errores de validación
@@ -150,4 +160,3 @@ class Handler extends ExceptionHandler
         return redirect()->guest($exception->redirectTo() ?? route('login'));
     }
 }
-

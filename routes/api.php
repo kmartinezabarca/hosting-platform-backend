@@ -1,6 +1,26 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Domains\Platform\Http\Controllers\Api\CheckoutController;
+use App\Domains\Platform\Http\Controllers\Api\ContactController;
+use App\Domains\Platform\Http\Controllers\Api\DocumentationRequestController;
+use App\Domains\Platform\Http\Controllers\Api\NewsletterSubscriptionController;
+use App\Domains\Platform\Http\Controllers\Api\QuotationPublicController;
+use App\Domains\Platform\Http\Controllers\Api\SoftwareController;
+use App\Domains\Platform\Http\Controllers\Client\ApiDocsController;
+use App\Domains\Platform\Http\Controllers\Client\ApiDocumentationController;
+use App\Domains\Platform\Http\Controllers\Client\BillingCycleController;
+use App\Domains\Platform\Http\Controllers\Client\BlogController;
+use App\Domains\Platform\Http\Controllers\Client\BlogSubscriptionController;
+use App\Domains\Platform\Http\Controllers\Client\CategoryController;
+use App\Domains\Platform\Http\Controllers\Client\DocumentationController;
+use App\Domains\Platform\Http\Controllers\Client\MarketingServiceController;
+use App\Domains\Platform\Http\Controllers\Client\ProductController;
+use App\Domains\Platform\Http\Controllers\Client\ServicePlanController;
+use App\Domains\Platform\Http\Controllers\Client\SystemStatusController;
+use App\Domains\Platform\Http\Controllers\Client\GameEggController;
+use App\Domains\Platform\Http\Controllers\Client\HostingController;
+use App\Domains\Platform\Http\Controllers\Common\StripeWebhookController;
+use App\Http\Controllers\AppVersionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -8,64 +28,127 @@ use Illuminate\Support\Facades\Route;
 | API Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
-| ESTE ARCHIVO CONTIENE ÚNICAMENTE RUTAS PÚBLICAS QUE NO REQUIEREN AUTENTICACIÓN.
-| Las rutas que requieren autenticación (stateful, con cookies) están en web.php.
+| Here is where you can register API routes for your application.
 |
 */
 
-// Public authentication routes (initial login/registration, no session required yet)
-Route::post("auth/register", [App\Http\Controllers\Auth\AuthController::class, "register"]);
-Route::post("auth/login", [App\Http\Controllers\Auth\AuthController::class, "login"]);
-Route::post("auth/google/callback", [App\Http\Controllers\Auth\GoogleLoginController::class, "handleGoogleCallback"]);
-Route::post("auth/2fa/verify", [App\Http\Controllers\Auth\TwoFactorController::class, "verifyLogin"]);
+// Auth routes are defined in routes/auth.php (loaded from RouteServiceProvider).
+
+// ── App version — public, no auth required ────────────────────────────────────
+Route::get('/app/version', [AppVersionController::class, 'show']);
+
+// Checkout autoritativo
+Route::get('/checkout/catalog', [CheckoutController::class, 'catalog']);
+Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
+    Route::post('/checkout/quote', [CheckoutController::class, 'quote']);
+});
 
 // Stripe webhook (no authentication required)
-Route::post("/stripe/webhook", [App\Http\Controllers\Common\StripeWebhookController::class, "handleWebhook"]);
+Route::post('/stripe/webhook', [StripeWebhookController::class, 'handleWebhook']);
+
+// Catálogo de juegos disponibles — público (el usuario lo ve antes de pagar)
+Route::prefix('game-eggs')->group(function () {
+    Route::get('/',     [GameEggController::class, 'index']);   // ?plan_uuid=xxx
+    Route::get('/{id}', [GameEggController::class, 'show']);
+});
+
+// Swagger/OpenAPI Documentation
+Route::get('/docs', [ApiDocsController::class, 'json'])->name('api.docs.json');
+Route::get('/swagger', [ApiDocsController::class, 'ui'])->name('api.docs.ui');
 
 // Product routes (public)
-Route::get("/products", [App\Http\Controllers\Client\ProductController::class, "index"]);
-Route::get("/products/{uuid}", [App\Http\Controllers\Client\ProductController::class, "show"]);
-Route::get("/products/service-type/{serviceType}", [App\Http\Controllers\Client\ProductController::class, "getByServiceType"]);
+Route::get('/products', [ProductController::class, 'index']);
+Route::get('/products/{uuid}', [ProductController::class, 'show']);
+Route::get('/products/service-type/{serviceType}', [ProductController::class, 'getByServiceType']);
 
-// Public routes for Categories, Billing Cycles, and Service Plans
-Route::prefix("categories")->group(function () {
-    Route::get("/", [App\Http\Controllers\Client\CategoryController::class, "index"]);
-    Route::get("/with-plans", [App\Http\Controllers\Client\CategoryController::class, "indexWithPlans"]);
-    Route::get("/slug/{slug}", [App\Http\Controllers\Client\CategoryController::class, "showBySlug"]);
+// Categories, Billing Cycles, and Service Plans
+Route::prefix('categories')->group(function () {
+    Route::get('/', [CategoryController::class, 'index']);
+    Route::get('/with-plans', [CategoryController::class, 'withPlans']);
+    Route::get('/slug/{slug}', [CategoryController::class, 'getBySlug']);
 });
 
-Route::prefix("billing-cycles")->group(function () {
-    Route::get("/", [App\Http\Controllers\Client\BillingCycleController::class, "index"]);
+Route::prefix('billing-cycles')->group(function () {
+    Route::get('/', [BillingCycleController::class, 'index']);
+    Route::get('/{uuid}', [BillingCycleController::class, 'show']);
 });
 
-Route::prefix("service-plans")->group(function () {
-    Route::get("/", [App\Http\Controllers\Client\ServicePlanController::class, "index"]);
-    Route::get("/add-ons/{AddSlug}", [App\Http\Controllers\Client\ServicePlanController::class, "listAddOns"]);
-    Route::get("/category/{categorySlug}", [App\Http\Controllers\Client\ServicePlanController::class, "indexByCategorySlug"]);
-    Route::get("/{uuid}", [App\Http\Controllers\Client\ServicePlanController::class, "show"]);
+Route::prefix('service-plans')->group(function () {
+    Route::get('/', [ServicePlanController::class, 'index']);
+    Route::get('/add-ons/{AddSlug}', [ServicePlanController::class, 'listAddOns']);
+    Route::get('/category/{categorySlug}', [ServicePlanController::class, 'getByCategorySlug']);
+    Route::get('/{uuid}', [ServicePlanController::class, 'show']);
 });
 
-// Temporary routes for testing (without authentication) - Consider removing in production
-// Route::get("/test/dashboard/stats", [App\Http\Controllers\DashboardController::class, "getStats"]);
-// Route::get("/test/dashboard/services", [App\Http\Controllers\DashboardController::class, "getServices"]);
-// Route::get("/test/dashboard/activity", [App\Http\Controllers\DashboardController::class, "getActivity"]);
+// Marketing Services
+Route::get('/marketing-services', [MarketingServiceController::class, 'index']);
 
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('/contact', [ContactController::class, 'store']);
+    Route::post('/newsletter/subscribe', [NewsletterSubscriptionController::class, 'subscribe']);
+});
 
+// Blog
+Route::prefix('blog')->group(function () {
+    Route::get('/posts', [BlogController::class, 'index']);
+    Route::get('/posts/featured', [BlogController::class, 'featuredPosts']);
+    Route::get('/posts/{slug}', [BlogController::class, 'show']);
+    Route::get('/categories', [BlogController::class, 'categories']);
+    Route::get('/categories/{categorySlug}/posts', [BlogController::class, 'postsByCategory']);
+});
 
+Route::post('/blog/subscribe', [BlogSubscriptionController::class, 'subscribe']);
+Route::post('/blog/unsubscribe/{uuid}', [BlogSubscriptionController::class, 'unsubscribe']);
 
-// Marketing Services (public)
-Route::get("/marketing-services", [App\Http\Controllers\Client\MarketingServiceController::class, "index"]);
+// Documentation
+Route::prefix('documentation')->group(function () {
+    Route::get('/', [DocumentationController::class, 'index']);
+    Route::get('/{slug}', [DocumentationController::class, 'show']);
+});
 
+Route::prefix('api-documentation')->group(function () {
+    Route::get('/', [ApiDocumentationController::class, 'index']);
+    Route::get('/{slug}', [ApiDocumentationController::class, 'show']);
+});
 
-// Blog routes (public)
-Route::prefix("blog")->group(function () {
-    Route::get("/posts", [App\Http\Controllers\Client\BlogController::class, "index"]);
-    Route::get("/posts/featured", [App\Http\Controllers\Client\BlogController::class, "featuredPosts"]);
-    Route::get("/posts/{slug}", [App\Http\Controllers\Client\BlogController::class, "show"]);
-    Route::get("/categories", [App\Http\Controllers\Client\BlogController::class, "categories"]);
-    Route::get("/categories/{categorySlug}/posts", [App\Http\Controllers\Client\BlogController::class, "postsByCategory"]);
+Route::prefix('system-status')->group(function () {
+    Route::get('/', [SystemStatusController::class, 'index']);
+});
+
+Route::post('/documentation-requests', [DocumentationRequestController::class, 'store']);
+
+// Versiones de software de servidores de Minecraft (Pterodactyl Eggs)
+Route::get('/software/{identifier}/versions', [SoftwareController::class, 'getVersions']);
+
+// Cotizaciones públicas (sin autenticación)
+Route::prefix('quotations/public')->group(function () {
+    Route::get('/{token}',         [QuotationPublicController::class, 'show']);
+    Route::post('/{token}/viewed', [QuotationPublicController::class, 'markViewed']);
+});
+
+// Postal Codes API
+Route::get('/postal-codes/{code}', [App\Domains\Platform\Http\Controllers\Api\PostalCodeController::class, 'search']);
+
+// Hosting — cliente autenticado
+Route::middleware(['auth:sanctum', 'session.timeout'])->prefix('hosting')->group(function () {
+    Route::get('/{uuid}/info',       [HostingController::class, 'info']);
+    Route::get('/{uuid}/files',      [HostingController::class, 'files']);
+    Route::get('/{uuid}/databases',  [HostingController::class, 'databases']);
+    Route::post('/{uuid}/databases', [HostingController::class, 'createDatabase']);
+    Route::delete('/{uuid}/databases/{db}', [HostingController::class, 'deleteDatabase']);
+    // NOTE: Email hosting (Mailcow) has been removed. ROKE guides clients to
+    // Google Workspace / Microsoft 365 / Zoho Mail via the DNS records panel.
+    Route::get ('/{uuid}/wordpress',          [HostingController::class, 'wordpress']);
+    Route::post('/{uuid}/wordpress/restart',  [HostingController::class, 'wordpressRestart']);
+    Route::post('/{uuid}/wordpress/deploy',   [HostingController::class, 'wordpressDeploy']);
+    Route::get('/{uuid}/domains',    [HostingController::class, 'domains']);
+    Route::post('/{uuid}/domains',   [HostingController::class, 'createDomain']);
+    Route::delete('/{uuid}/domains/{domain}', [HostingController::class, 'deleteDomain']);
+    Route::get('/{uuid}/stats',      [HostingController::class, 'stats']);
+    Route::get('/{uuid}/ssl',                         [HostingController::class, 'ssl']);
+    Route::post('/{uuid}/ssl/toggle-https',           [HostingController::class, 'toggleForceHttps']);
+    Route::get('/{uuid}/dns',                         [HostingController::class, 'dnsRecords']);
+    Route::post('/{uuid}/dns',                        [HostingController::class, 'createDnsRecord']);
+    Route::put('/{uuid}/dns/{recordId}',              [HostingController::class, 'updateDnsRecord']);
+    Route::delete('/{uuid}/dns/{recordId}',           [HostingController::class, 'deleteDnsRecord']);
 });

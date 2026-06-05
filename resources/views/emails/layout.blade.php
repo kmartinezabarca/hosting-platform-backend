@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'Hosting Platform')</title>
+    <title>@yield('title', 'Roke Industries')</title>
     <style>
         * {
             margin: 0;
@@ -29,6 +29,15 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 30px 40px;
             text-align: center;
+        }
+
+        .header .logo {
+            display: block;
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+            margin: 0 auto 16px auto;
+            border-radius: 16px;
         }
         
         .header h1 {
@@ -165,10 +174,16 @@
     </style>
 </head>
 <body>
+    @php
+        $frontendUrl = rtrim(config('app.frontend_url', config('app.url')), '/');
+        $logoUrl = trim($__env->yieldContent('logo_url')) ?: (config('app.company_logo_url') ?: asset('server-icon.png'));
+    @endphp
+
     <div class="email-container">
         <div class="header">
+            <img src="{{ $logoUrl }}" alt="Roke Industries" class="logo">
             <h1>@yield('company_name', 'Roke Industries')</h1>
-            <p>@yield('header_subtitle', 'Hosting Platform Profesional')</p>
+            <p>@yield('header_subtitle', 'Plataforma de hosting profesional')</p>
         </div>
         
         <div class="content">
@@ -180,19 +195,17 @@
             <p>Tu plataforma de hosting confiable</p>
             
             <div class="social-links">
-                <a href="#">Soporte</a>
-                <a href="#">Documentación</a>
-                <a href="#">Estado del Servicio</a>
+                <a href="{{ $frontendUrl }}/support">Soporte</a>
+                <a href="{{ $frontendUrl }}/documentation">Documentación</a>
+                <a href="{{ $frontendUrl }}/status">Estado del servicio</a>
             </div>
             
             <p>© {{ date('Y') }} Roke Industries. Todos los derechos reservados.</p>
             <p>
-                <a href="#">Política de Privacidad</a> | 
-                <a href="#">Términos de Servicio</a> | 
-                <a href="#">Cancelar suscripción</a>
+                <a href="{{ $frontendUrl }}/privacy">Política de privacidad</a> |
+                <a href="{{ $frontendUrl }}/terms">Términos de servicio</a>
             </p>
         </div>
     </div>
 </body>
 </html>
-

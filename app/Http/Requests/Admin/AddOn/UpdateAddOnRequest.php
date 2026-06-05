@@ -17,7 +17,7 @@ class UpdateAddOnRequest extends FormRequest
     {
         $uuid = $this->route('uuid');
         return [
-            'slug'        => ['sometimes', 'string', 'max:100', Rule::unique('add_ons', 'slug')->ignore(fn() => \App\Models\AddOn::where('uuid', $uuid)->value('id'))],
+            'slug'        => ['sometimes', 'string', 'max:100', Rule::unique('add_ons', 'slug')->ignore(fn() => \App\Domains\Platform\Models\AddOn::where('uuid', $uuid)->value('id'))],
             'name'        => ['sometimes', 'string', 'max:150'],
             'description' => ['nullable', 'string'],
             'price'       => ['sometimes', 'numeric', 'min:0'],

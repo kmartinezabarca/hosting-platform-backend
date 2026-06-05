@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROKE Industries API Documentation</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui@5.11.0/dist/swagger-ui.min.css">
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+        .topbar { background: #1a1a2e; padding: 12px 20px; display: flex; align-items: center; }
+        .topbar h1 { color: #fff; margin: 0; font-size: 18px; }
+        .topbar .version { color: #6fcfef; margin-left: 10px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h1>ROKE Industries API</h1>
+        <span class="version">v1.0</span>
+    </div>
+    
+    <div id="swagger-ui"></div>
+    
+    <script src="https://unpkg.com/swagger-ui@5.11.0/dist/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui@5.11.0/dist/swagger-ui-standalone-preset.js"></script>
+    <script>
+        console.log('SwaggerUI bundled:', typeof SwaggerUIBundle);
+        console.log('StandalonePreset:', typeof SwaggerUIStandalonePreset);
+        
+        window.onload = function() {
+            if (typeof SwaggerUIBundle === 'undefined') {
+                console.error('SwaggerUIBundle not loaded!');
+                document.getElementById('swagger-ui').innerHTML = '<pre style="color:red;">Error cargando Swagger UI. Ver consola.</pre>';
+                return;
+            }
+            
+            SwaggerUIBundle({
+                url: '/api-docs-json.php',
+                dom_id: '#swagger-ui',
+                deepLink: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                layout: 'StandaloneLayout'
+            });
+        };
+    </script>
+</body>
+</html>

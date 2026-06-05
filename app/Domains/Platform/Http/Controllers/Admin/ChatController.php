@@ -1,0 +1,445 @@
+<?php
+
+namespace App\Domains\Platform\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Domains\Platform\Events\TicketReplyReceiptUpdated;
+use App\Domains\Platform\Events\TicketTyping;
+use App\Domains\Platform\Models\Ticket;
+use App\Domains\Platform\Models\TicketReply;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
+class ChatController extends Controller
+{
+    /**
+     * GET /admin/chat/active-rooms
+     * Tickets “activos”: open, in_progress, waiting_customer
+     */
+    public function getActiveRooms(Request $request): JsonResponse
+    {
+        $query = Ticket::query()
+            ->with([
+                'user:id,uuid,first_name,last_name,email,avatar_url,role',
+                'latestReply' => function ($q) {
+                    $q->select(
+                        'ticket_replies.id',
+                        'ticket_replies.uuid',
+                        'ticket_replies.ticket_id',   // 👈 prefijado
+                        'ticket_replies.user_id',
+                        'ticket_replies.message',
+                        'ticket_replies.delivered_at',
+                        'ticket_replies.read_at',
+                        'ticket_replies.created_at'
+                    )->with('user:id,uuid,first_name,last_name,email,avatar_url,role');
+                },
+            ])
+            ->whereIn('status', ['open', 'in_progress', 'waiting_customer'])
+            ->orderByDesc('last_reply_at')
+            ->orderByDesc('created_at');
+
+        // Búsqueda opcional por asunto / ticket_number / usuario
+        if ($search = trim((string)$request->get('search'))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('subject', 'like', "%{$search}%")
+                  ->orWhere('ticket_number', 'like', "%{$search}%")
+                  ->orWhereHas('user', function ($qu) use ($search) {
+                      $qu->where(DB::raw("CONCAT(first_name,' ',last_name)"), 'like', "%{$search}%")
+                         ->orWhere('email', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // Conteo real de mensajes del cliente sin leer por sala (badge admin)
+        $query->withCount(['replies as unread_count' => function ($q) {
+            $q->whereNull('read_at')
+              ->where('is_internal', false)
+              ->whereColumn('ticket_replies.user_id', 'tickets.user_id');
+        }]);
+
+        $rooms = $query->paginate(min((int)($request->get('per_page', 20)), 100));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $rooms,
+        ]);
+    }
+
+    /**
+     * GET /admin/chat/all-rooms
+     * Todos los tickets con filtros opcionales
+     */
+    public function getAllRooms(Request $request): JsonResponse
+    {
+        $query = Ticket::query()
+            ->with([
+                'user:id,uuid,first_name,last_name,email,avatar_url,role',
+                'latestReply' => function ($q) {
+                    $q->select(
+                        'ticket_replies.id',
+                        'ticket_replies.uuid',
+                        'ticket_replies.ticket_id',   // 👈 prefijado
+                        'ticket_replies.user_id',
+                        'ticket_replies.message',
+                        'ticket_replies.delivered_at',
+                        'ticket_replies.read_at',
+                        'ticket_replies.created_at'
+                    )->with('user:id,uuid,first_name,last_name,email,avatar_url,role');
+                },
+            ])
+            ->when($request->filled('status'), function ($q) use ($request) {
+                // status: open | in_progress | waiting_customer | resolved | closed
+                $q->where('status', $request->get('status'));
+            })
+            ->when($request->filled('priority'), function ($q) use ($request) {
+                $q->where('priority', $request->get('priority'));
+            })
+            ->when($request->filled('category'), function ($q) use ($request) {
+                $q->where('category', $request->get('category'));
+            })
+            ->when($request->filled('assigned'), function ($q) use ($request) {
+                // assigned = "1" -> solo asignados, "0" -> solo sin asignar
+                if ($request->get('assigned') === '1') $q->whereNotNull('assigned_to');
+                if ($request->get('assigned') === '0') $q->whereNull('assigned_to');
+            })
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $search = trim((string)$request->get('search'));
+                $q->where(function ($qq) use ($search) {
+                    $qq->where('subject', 'like', "%{$search}%")
+                       ->orWhere('ticket_number', 'like', "%{$search}%")
+                       ->orWhereHas('user', function ($qu) use ($search) {
+                           $qu->where(DB::raw("CONCAT(first_name,' ',last_name)"), 'like', "%{$search}%")
+                              ->orWhere('email', 'like', "%{$search}%");
+                       });
+                });
+            })
+            ->orderByDesc('last_reply_at')
+            ->orderByDesc('created_at');
+
+        $query->addSelect([
+            'unread_for_admin' => DB::raw('CASE WHEN tickets.last_reply_by = tickets.user_id THEN 1 ELSE 0 END'),
+        ]);
+
+        $rooms = $query->paginate(min((int)($request->get('per_page', 20)), 100));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $rooms,
+        ]);
+    }
+
+    /**
+     * GET /admin/chat/{ticket}/messages
+     */
+    public function getMessages(Ticket $ticket): JsonResponse
+    {
+        // Al abrir la conversación, el staff "lee" los mensajes del cliente.
+        $this->markCustomerRepliesAsRead($ticket);
+
+        $messages = TicketReply::with('user:id,uuid,first_name,last_name,email,avatar_url,role')
+            ->where('ticket_id', $ticket->id)
+            ->orderBy('created_at', 'asc')
+            ->paginate(50);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $messages,
+        ]);
+    }
+
+    /**
+     * Marca como leídas las respuestas del cliente (entrantes para el staff)
+     * que aún no tienen read_at en el ticket dado.
+     */
+    private function markCustomerRepliesAsRead(Ticket $ticket): void
+    {
+        $admin = Auth::user();
+        $now   = now();
+
+        $unreadReplies = TicketReply::where('ticket_id', $ticket->id)
+            ->where('is_internal', false)
+            ->whereNull('read_at')
+            ->where('user_id', $ticket->user_id) // del cliente dueño
+            ->get();
+
+        if ($unreadReplies->isEmpty()) {
+            return;
+        }
+
+        foreach ($unreadReplies as $reply) {
+            $patch = ['read_at' => $now];
+            // Si todavía no fue marcado como entregado, lo cubrimos en el mismo update.
+            if (!$reply->delivered_at) {
+                $patch['delivered_at'] = $now;
+            }
+            $reply->forceFill($patch)->save();
+
+            // Receipt en vivo (✓✓) en el canal presence del ticket — el cliente
+            // ve sus propios mensajes marcados como leídos por el staff sin polling.
+            broadcast(new TicketReplyReceiptUpdated($reply, 'read', $admin?->id));
+        }
+    }
+
+    /**
+     * PUT /admin/chat/{ticket}/read — marca leídos los mensajes del cliente.
+     */
+    public function markAsRead(Ticket $ticket): JsonResponse
+    {
+        $this->markCustomerRepliesAsRead($ticket);
+
+        return response()->json(['success' => true, 'message' => 'OK']);
+    }
+
+    /**
+     * POST /admin/chat/{ticket}/typing
+     * Señal de "escribiendo…" del staff hacia el cliente.
+     * Body: { is_typing: bool } — por defecto true.
+     */
+    public function typing(Request $request, Ticket $ticket): JsonResponse
+    {
+        $admin = Auth::user();
+
+        $isTyping = $request->boolean('is_typing', true);
+
+        // ->toOthers() evita que el propio autor reciba el eco de su typing.
+        broadcast(new TicketTyping($ticket, $admin, $isTyping))->toOthers();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * POST /admin/chat/{ticket}/messages
+     * Enviar mensaje como admin/agent
+     */
+    public function sendMessage(Request $request, Ticket $ticket): JsonResponse
+    {
+        $admin = Auth::user();
+
+        $validated = $request->validate([
+            'message'       => 'required_without:attachments|nullable|string|max:2000',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:20480|mimes:jpg,jpeg,png,webp,gif,pdf,txt,zip',
+        ]);
+
+        $stored = $this->storeAttachments($request, $ticket);
+
+        $reply = TicketReply::create([
+            'ticket_id'   => $ticket->id,
+            'user_id'     => $admin->id,
+            'message'     => $validated['message'] ?? '',
+            'is_internal' => false,
+            'attachments' => $stored ?: null,
+        ]);
+
+        $ticket->update([
+            'last_reply_at' => now(),
+            'last_reply_by' => $admin->id,
+            // Tras responder el agente, típicamente queda esperando al cliente:
+            'status'        => 'waiting_customer',
+        ]);
+
+        $reply->load('user:id,uuid,first_name,last_name,email,avatar_url,role');
+
+        // Broadcast del evento (con el reply completo + adjuntos)
+        event(new \App\Domains\Platform\Events\TicketReplied($ticket, $reply));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $reply,
+            'message' => 'Mensaje enviado.',
+        ]);
+    }
+
+    /**
+     * PUT /admin/chat/{ticket}/assign
+     */
+    public function assignToAgent(Request $request, Ticket $ticket): JsonResponse
+    {
+        $validated = $request->validate([
+            'agent_id' => 'required|exists:users,id',
+        ]);
+
+        $agent = User::findOrFail($validated['agent_id']);
+
+        $ticket->update([
+            'assigned_to' => $agent->id,
+            'status'      => $ticket->status === 'open' ? 'in_progress' : $ticket->status,
+        ]);
+
+        TicketReply::create([
+            'ticket_id'   => $ticket->id,
+            'user_id'     => $agent->id,
+            'message'     => "Ticket asignado a {$agent->first_name} {$agent->last_name}.",
+            'is_internal' => true, // mensaje de sistema interno
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Ticket asignado a {$agent->first_name} {$agent->last_name}.",
+        ]);
+    }
+
+    /**
+     * PUT /admin/chat/{ticket}/close
+     */
+    public function closeRoom(Ticket $ticket): JsonResponse
+    {
+        $admin = Auth::user();
+
+        $ticket->update([
+            'status'    => 'closed',
+            'closed_at' => now(),
+            'last_reply_at' => now(),
+            'last_reply_by' => $admin->id,
+        ]);
+
+        TicketReply::create([
+            'ticket_id'   => $ticket->id,
+            'user_id'     => $admin->id,
+            'message'     => "El ticket ha sido cerrado por {$admin->first_name} {$admin->last_name}.",
+            'is_internal' => false,
+        ]);
+
+        event(new \App\Domains\Platform\Events\TicketClosed($ticket->fresh(), $admin));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ticket cerrado.',
+        ]);
+    }
+
+    /**
+     * PUT /admin/chat/{ticket}/reopen
+     */
+    public function reopenRoom(Ticket $ticket): JsonResponse
+    {
+        $admin = Auth::user();
+
+        $ticket->update([
+            'status'       => 'open',
+            'closed_at'    => null,
+            'last_reply_at'=> now(),
+            'last_reply_by'=> $admin->id,
+        ]);
+
+        TicketReply::create([
+            'ticket_id'   => $ticket->id,
+            'user_id'     => $admin->id,
+            'message'     => "El ticket ha sido reabierto por {$admin->first_name} {$admin->last_name}.",
+            'is_internal' => false,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ticket reabierto.',
+        ]);
+    }
+
+    /**
+     * Guarda los archivos adjuntos subidos en el disco público y devuelve
+     * el arreglo [{path, name, mime, size}] que se persiste en el reply.
+     */
+    private function storeAttachments(Request $request, Ticket $ticket): array
+    {
+        if (!$request->hasFile('attachments')) {
+            return [];
+        }
+
+        $stored = [];
+        foreach ($request->file('attachments') as $file) {
+            if (!$file->isValid()) {
+                continue;
+            }
+            $path = $file->store('chat-attachments/' . $ticket->id, 'public');
+            $stored[] = [
+                'path' => $path,
+                'name' => $file->getClientOriginalName(),
+                'mime' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+            ];
+        }
+
+        return $stored;
+    }
+
+    /**
+     * GET /admin/chat/stats
+     */
+    public function getStats(): JsonResponse
+    {
+        $activeStatuses = ['open','in_progress','waiting_customer'];
+
+        $stats = [
+            'active_chats'      => Ticket::whereIn('status', $activeStatuses)->count(),
+            'total_chats'       => Ticket::count(),
+            'unassigned_chats'  => Ticket::whereIn('status', $activeStatuses)->whereNull('assigned_to')->count(),
+            'today_chats'       => Ticket::whereDate('created_at', today())->count(),
+            // Heurística: tickets activos donde el último en responder fue el cliente
+            'awaiting_admin'    => Ticket::whereIn('status', $activeStatuses)
+                                        ->whereColumn('last_reply_by', 'user_id')
+                                        ->count(),
+            'avg_response_time' => 0.0, // TODO si más adelante guardas métricas de respuesta
+        ];
+
+        // Chats por agente (solo conteo)
+        $chatsByAgent = Ticket::select('assigned_to', DB::raw('COUNT(*) as count'))
+            ->whereNotNull('assigned_to')
+            ->groupBy('assigned_to')
+            ->get()
+            ->map(function ($row) {
+                $agent = User::select('id','first_name','last_name')->find($row->assigned_to);
+                return [
+                    'agent_id'   => $row->assigned_to,
+                    'agent_name' => $agent ? "{$agent->first_name} {$agent->last_name}" : 'N/A',
+                    'count'      => (int)$row->count,
+                ];
+            });
+
+        // Actividad por día últimos 7 días
+        $dailyActivity = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date  = now()->subDays($i);
+            $count = Ticket::whereDate('created_at', $date)->count();
+            $dailyActivity[] = [
+                'date'  => $date->format('Y-m-d'),
+                'count' => $count,
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'stats'          => $stats,
+                'chats_by_agent' => $chatsByAgent,
+                'daily_activity' => $dailyActivity,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /admin/chat/unread-count
+     * Heurística: tickets activos cuyo último en responder fue el cliente.
+     */
+    public function getUnreadCount(): JsonResponse
+    {
+        $activeStatuses = ['open','in_progress','waiting_customer'];
+
+        // Respuestas del cliente (entrantes para el staff) sin leer
+        // en tickets activos.
+        $count = TicketReply::query()
+            ->join('tickets', 'tickets.id', '=', 'ticket_replies.ticket_id')
+            ->where('ticket_replies.is_internal', false)
+            ->whereNull('ticket_replies.read_at')
+            ->whereIn('tickets.status', $activeStatuses)
+            ->whereColumn('ticket_replies.user_id', '=', 'tickets.user_id')
+            ->count('ticket_replies.id');
+
+        return response()->json([
+            'success'      => true,
+            'unread_count' => $count,
+        ]);
+    }
+}

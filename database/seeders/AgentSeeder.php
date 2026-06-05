@@ -4,7 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\User;
-use App\Models\Agent;
+use App\Domains\Platform\Models\Agent;
 use Illuminate\Support\Facades\Hash;
 
 class AgentSeeder extends Seeder

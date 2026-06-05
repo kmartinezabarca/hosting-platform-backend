@@ -15,9 +15,13 @@ return [
     |
     */
 
-    'stateful' => [
-        env('SANCTUM_STATEFUL_DOMAINS', 'localhost,localhost:5173,127.0.0.1,127.0.0.1:8000,::1'),
-    ],
+    'stateful' => array_filter(array_map(
+        'trim',
+        explode(',', env(
+            'SANCTUM_STATEFUL_DOMAINS',
+            'localhost,localhost:5173,127.0.0.1,127.0.0.1:8000,::1'
+        ))
+    )),
 
     /*
     |--------------------------------------------------------------------------
@@ -44,7 +48,7 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION', 43200), // 30 days in minutes; set to null to disable
 
     /*
     |--------------------------------------------------------------------------

@@ -7,7 +7,7 @@ use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Auth\Events\Logout;
-use App\Listeners\MarkUserSessionLoggedOut;
+use App\Domains\Platform\Listeners\MarkUserSessionLoggedOut;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -23,64 +23,71 @@ class EventServiceProvider extends ServiceProvider
         Logout::class => [
             MarkUserSessionLoggedOut::class,
         ],
-        
+
         // Email Events
-        \App\Events\UserRegistered::class => [
-            \App\Listeners\SendWelcomeEmail::class,
+        \App\Domains\Platform\Events\UserRegistered::class => [
+            \App\Domains\Platform\Listeners\SendWelcomeEmail::class,
         ],
-        \App\Events\PasswordResetRequested::class => [
-            \App\Listeners\SendPasswordResetEmail::class,
+        \App\Domains\Platform\Events\PasswordResetRequested::class => [
+            \App\Domains\Platform\Listeners\SendPasswordResetEmail::class,
         ],
-        \App\Events\PurchaseCompleted::class => [
-            \App\Listeners\SendPurchaseConfirmationEmail::class,
+        // \App\Domains\Platform\Events\PurchaseCompleted::class => [
+        //     \App\Domains\Platform\Listeners\SendPurchaseConfirmationEmail::class,
+        // ],
+        \App\Domains\Platform\Events\PaymentProcessed::class => [
+            \App\Domains\Platform\Listeners\SendPaymentSuccessEmail::class,
+            \App\Domains\Platform\Listeners\CreatePaymentNotification::class . '@handleProcessed',
         ],
-        \App\Events\PaymentProcessed::class => [
-            \App\Listeners\SendPaymentSuccessEmail::class,
-            \App\Listeners\CreatePaymentNotification::class . '@handleProcessed',
+        \App\Domains\Platform\Events\ServiceNotificationSent::class => [
+            \App\Domains\Platform\Listeners\SendServiceNotificationEmail::class,
         ],
-        \App\Events\InvoiceGenerated::class => [
-            \App\Listeners\SendInvoiceGeneratedEmail::class,
-        ],
-        \App\Events\ServiceNotificationSent::class => [
-            \App\Listeners\SendServiceNotificationEmail::class,
-        ],
-        \App\Events\AccountUpdated::class => [
-            \App\Listeners\SendAccountUpdateEmail::class,
+        \App\Domains\Platform\Events\AccountUpdated::class => [
+            \App\Domains\Platform\Listeners\SendAccountUpdateEmail::class,
         ],
 
         // Service Events
-        \App\Events\ServiceStatusChanged::class => [
-            \App\Listeners\CreateServiceNotification::class . '@handleStatusChanged',
+        \App\Domains\Platform\Events\ServiceStatusChanged::class => [
+            \App\Domains\Platform\Listeners\CreateServiceNotification::class . '@handleStatusChanged',
         ],
-        \App\Events\ServicePurchased::class => [
-            \App\Listeners\CreateServiceNotification::class . '@handlePurchased',
+        \App\Domains\Platform\Events\ServicePurchased::class => [
+            \App\Domains\Platform\Listeners\SendPurchaseConfirmationEmail::class,
+            \App\Domains\Platform\Listeners\CreateServiceNotification::class . '@handlePurchased',
         ],
-        \App\Events\ServiceReady::class => [
-            \App\Listeners\CreateServiceNotification::class . '@handleReady',
+        \App\Domains\Platform\Events\ServiceReady::class => [
+            \App\Domains\Platform\Listeners\CreateServiceNotification::class . '@handleReady',
         ],
-        \App\Events\ServiceMaintenanceScheduled::class => [
-            \App\Listeners\CreateServiceNotification::class . '@handleMaintenanceScheduled',
+        \App\Domains\Platform\Events\ServiceMaintenanceScheduled::class => [
+            \App\Domains\Platform\Listeners\CreateServiceNotification::class . '@handleMaintenanceScheduled',
         ],
-        \App\Events\ServiceMaintenanceCompleted::class => [
-            \App\Listeners\CreateServiceNotification::class . '@handleMaintenanceCompleted',
+        \App\Domains\Platform\Events\ServiceMaintenanceCompleted::class => [
+            \App\Domains\Platform\Listeners\CreateServiceNotification::class . '@handleMaintenanceCompleted',
         ],
 
         // Payment Events
-        \App\Events\PaymentFailed::class => [
-            \App\Listeners\CreatePaymentNotification::class . '@handleFailed',
+        \App\Domains\Platform\Events\PaymentFailed::class => [
+            \App\Domains\Platform\Listeners\CreatePaymentNotification::class . '@handleFailed',
         ],
-        \App\Events\AutomaticPaymentProcessed::class => [
-            \App\Listeners\CreatePaymentNotification::class . '@handleAutomaticProcessed',
+        \App\Domains\Platform\Events\AutomaticPaymentProcessed::class => [
+            \App\Domains\Platform\Listeners\CreatePaymentNotification::class . '@handleAutomaticProcessed',
         ],
 
-        // Invoice Events
-        \App\Events\InvoiceGenerated::class => [
-            \App\Listeners\SendInvoiceGeneratedEmail::class,
-            \App\Listeners\CreateInvoiceNotification::class . '@handleGenerated',
+        // Receipt / Invoice Events
+        \App\Domains\Platform\Events\ReceiptGenerated::class => [
+            \App\Domains\Platform\Listeners\CreateInvoiceNotification::class . '@handleGenerated',
         ],
-        \App\Events\InvoiceStatusChanged::class => [
-            \App\Listeners\CreateInvoiceNotification::class . '@handleStatusChanged',
+        \App\Domains\Platform\Events\InvoiceGenerated::class => [
+            \App\Domains\Platform\Listeners\SendInvoiceGeneratedEmail::class,
+            \App\Domains\Platform\Listeners\CreateInvoiceNotification::class . '@handleGenerated',
         ],
+        \App\Domains\Platform\Events\InvoiceStatusChanged::class => [
+            \App\Domains\Platform\Listeners\CreateInvoiceNotification::class . '@handleStatusChanged',
+        ],
+
+        // Quotation Events — wire listeners here as needed
+        \App\Domains\Platform\Events\QuotationAccepted::class => [],
+        \App\Domains\Platform\Events\QuotationRejected::class => [],
+        \App\Domains\Platform\Events\QuotationReopened::class => [],
+        \App\Domains\Platform\Events\QuotationViewed::class   => [],
     ];
 
     /**

@@ -18,6 +18,13 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    // Version SemVer del release desplegado (tag git via Jenkins). Ver config/version.php.
+    'version' => env('APP_VERSION', '0.0.0'),
+
+    // Prefijo de los RECIBOS de pago (no fiscales). La factura CFDI usa
+    // su propia serie+folio (config/facturama.php).
+    'receipt_prefix' => env('RECEIPT_PREFIX', 'REC-'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment
@@ -55,7 +62,9 @@ return [
     |
     */
 
-    'url' => env('APP_URL', 'http://localhost'),
+    'url'          => env('APP_URL', 'http://localhost'),
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+    'company_logo_url' => env('COMPANY_LOGO_URL'),
 
     'asset_url' => env('ASSET_URL'),
 
@@ -166,8 +175,13 @@ return [
         App\Providers\AppServiceProvider::class,
         App\Providers\AuthServiceProvider::class,
         App\Providers\BroadcastServiceProvider::class,
+        App\Providers\PrometheusServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
+
+        // Dominios (frontera explícita: rutas, comandos, contratos, factories)
+        App\Domains\Platform\PlatformServiceProvider::class,
+        App\Domains\Pet\PetServiceProvider::class,
     ])->toArray(),
 
     /*

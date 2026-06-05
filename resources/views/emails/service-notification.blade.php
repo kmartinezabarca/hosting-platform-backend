@@ -1,18 +1,25 @@
 @extends('emails.layout')
 
-@section('title', 'Notificación de Servicio - Roke Industries')
+@section('title', 'Notificación de servicio - Roke Industries')
 
 @section('header_subtitle', 'Información importante sobre tus servicios')
 
 @section('content')
-    <h2>Hola {{ $user->name }},</h2>
+    @php
+        $customerName = trim($user->full_name ?? '')
+            ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''))
+            ?: $user->email;
+        $frontendUrl = rtrim(config('app.frontend_url', config('app.url')), '/');
+    @endphp
+
+    <h2>Hola {{ $customerName }},</h2>
     
     <p>Te escribimos para informarte sobre una actualización importante relacionada con tus servicios en Roke Industries.</p>
     
     @if(isset($notificationType))
         @if($notificationType === 'maintenance')
             <div class="info-box" style="border-left-color: #d69e2e;">
-                <h3>🔧 Mantenimiento Programado</h3>
+                <h3>Mantenimiento programado</h3>
                 <p><strong>Fecha:</strong> {{ $maintenanceDate ?? 'Por definir' }}</p>
                 <p><strong>Duración estimada:</strong> {{ $maintenanceDuration ?? '2 horas' }}</p>
                 <p><strong>Servicios afectados:</strong> {{ $affectedServices ?? 'Todos los servicios de hosting' }}</p>
@@ -30,7 +37,7 @@
             
         @elseif($notificationType === 'outage')
             <div class="info-box" style="border-left-color: #e53e3e;">
-                <h3>⚠️ Interrupción del Servicio</h3>
+                <h3>Interrupción del servicio</h3>
                 <p><strong>Estado:</strong> {{ $outageStatus ?? 'Investigando' }}</p>
                 <p><strong>Inicio:</strong> {{ $outageStart ?? 'Hace unos minutos' }}</p>
                 <p><strong>Servicios afectados:</strong> {{ $affectedServices ?? 'Hosting web' }}</p>
@@ -48,7 +55,7 @@
             
         @elseif($notificationType === 'upgrade')
             <div class="info-box" style="border-left-color: #38a169;">
-                <h3>🚀 Actualización de Servicios</h3>
+                <h3>Actualización de servicios</h3>
                 <p><strong>Fecha de implementación:</strong> {{ $upgradeDate ?? 'Próximamente' }}</p>
                 <p><strong>Servicios mejorados:</strong> {{ $upgradedServices ?? 'Todos los planes' }}</p>
             </div>
@@ -65,7 +72,7 @@
             
         @elseif($notificationType === 'security')
             <div class="info-box" style="border-left-color: #e53e3e;">
-                <h3>🔒 Alerta de Seguridad</h3>
+                <h3>Alerta de seguridad</h3>
                 <p><strong>Nivel de prioridad:</strong> {{ $securityLevel ?? 'Alto' }}</p>
                 <p><strong>Fecha de detección:</strong> {{ $detectionDate ?? now()->format('d/m/Y H:i') }}</p>
             </div>
@@ -83,14 +90,14 @@
         @endif
     @else
         <div class="info-box">
-            <h3>Información General del Servicio</h3>
+            <h3>Información general del servicio</h3>
             <p>{{ $message ?? 'Actualización importante sobre tus servicios.' }}</p>
         </div>
     @endif
     
     @if(isset($actionRequired) && $actionRequired)
     <div style="text-align: center;">
-        <a href="{{ $actionUrl ?? url('/dashboard') }}" class="button">{{ $actionText ?? 'Ir al Panel de Control' }}</a>
+        <a href="{{ $actionUrl ?? $frontendUrl . '/client/dashboard' }}" class="button">{{ $actionText ?? 'Ir al panel de control' }}</a>
     </div>
     @endif
     
@@ -100,9 +107,9 @@
     <p>Si tienes alguna pregunta o inquietud sobre esta notificación, nuestro equipo de soporte está disponible 24/7 para ayudarte.</p>
     
     <ul style="color: #4a5568; padding-left: 20px; margin-bottom: 20px;">
-        <li style="margin-bottom: 8px;"><strong>Email:</strong> <a href="mailto:soporte@rokeindustries.com" style="color: #667eea;">soporte@rokeindustries.com</a></li>
-        <li style="margin-bottom: 8px;"><strong>Panel de soporte:</strong> <a href="{{ url('/support') }}" style="color: #667eea;">Crear ticket</a></li>
-        <li style="margin-bottom: 8px;"><strong>Estado del servicio:</strong> <a href="{{ url('/status') }}" style="color: #667eea;">Ver estado actual</a></li>
+        <li style="margin-bottom: 8px;"><strong>Correo:</strong> <a href="mailto:soporte@rokeindustries.com" style="color: #667eea;">soporte@rokeindustries.com</a></li>
+        <li style="margin-bottom: 8px;"><strong>Panel de soporte:</strong> <a href="{{ $frontendUrl }}/support" style="color: #667eea;">Crear ticket</a></li>
+        <li style="margin-bottom: 8px;"><strong>Estado del servicio:</strong> <a href="{{ $frontendUrl }}/status" style="color: #667eea;">Ver estado actual</a></li>
     </ul>
     
     <p>Mantendremos esta información actualizada en nuestro panel de estado del servicio y te notificaremos sobre cualquier cambio importante.</p>
@@ -114,4 +121,3 @@
         <strong>El equipo técnico de Roke Industries</strong>
     </p>
 @endsection
-

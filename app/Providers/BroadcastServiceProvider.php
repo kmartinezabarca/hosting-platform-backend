@@ -12,7 +12,10 @@ class BroadcastServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Broadcast::routes(['middleware' => ['web', 'auth:sanctum']]);
+        Broadcast::routes(['middleware' => [
+            \App\Http\Middleware\InjectTokenFromCookie::class,
+            'auth:sanctum',
+        ]]);
 
         require base_path('routes/channels.php');
     }

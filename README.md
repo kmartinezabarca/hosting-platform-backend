@@ -6,7 +6,7 @@ API backend para la plataforma de gestión de servicios de hosting desarrollada 
 
 - **Gestión de Usuarios**: Sistema completo de autenticación y autorización con roles
 - **Servicios de Hosting**: Gestión de hosting web, VPS y servidores de juegos
-- **Registro de Dominios**: Integración con registradores como Namecheap
+- **Gestión de Dominios**: Verificación de ownership DNS + gestión vía Cloudflare API (registrar-agnóstico)
 - **Sistema de Facturación**: Procesamiento de pagos con Stripe y PayPal
 - **Soporte Técnico**: Sistema de tickets integrado
 - **Aprovisionamiento Automático**: Integración con Proxmox y Pterodactyl
@@ -58,10 +58,9 @@ PROXMOX_PASSWORD=tu_contraseña_api
 PTERODACTYL_URL=https://tu-panel.com
 PTERODACTYL_API_KEY=tu_api_key
 
-# Configuración de Namecheap
-NAMECHEAP_API_USER=tu_usuario
-NAMECHEAP_API_KEY=tu_api_key
-NAMECHEAP_CLIENT_IP=tu_ip_servidor
+# Cloudflare (DNS management)
+CLOUDFLARE_API_TOKEN=tu_token_cloudflare
+CLOUDFLARE_ZONE_ID=tu_zone_id
 
 # Configuración de Stripe
 STRIPE_KEY=pk_test_tu_clave_publica
@@ -198,14 +197,14 @@ Gestiona servidores de juegos:
 - Consola en tiempo real
 - Monitoreo de recursos y jugadores
 
-### Namecheap
+### Cloudflare (DNS)
 
-Gestiona dominios:
+Gestión de DNS para dominios de clientes de forma registrar-agnóstica:
 
-- Registro de dominios
-- Renovación automática
-- Gestión de DNS
-- WHOIS privacy
+- Los clientes aportan su propio dominio (cualquier registrador)
+- Verificación de ownership mediante reto TXT
+- Gestión de registros DNS (A, CNAME, MX, TXT, SRV) vía Cloudflare API
+- SSL automático una vez el DNS apunta al servidor
 
 ## Colas y Jobs
 

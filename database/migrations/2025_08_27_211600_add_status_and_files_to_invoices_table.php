@@ -61,6 +61,9 @@ return new class extends Migration {
                 'xml_path','pdf_path','provider_invoice_id','invoice_number',
                 'paid_at','due_date','status','currency','total','user_id','service_id'
             ] as $col) {
+                if ($col === 'user_id' && Schema::hasColumn('invoices', 'user_id')) {
+                    $table->dropForeign(['user_id']);
+                }
                 if (Schema::hasColumn('invoices', $col)) $table->dropColumn($col);
             }
         });

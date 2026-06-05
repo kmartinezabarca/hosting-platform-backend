@@ -2,9 +2,13 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\Auth\GoogleLoginController;
-use App\Http\Controllers\Auth\TwoFactorController;
+use App\Domains\Platform\Http\Controllers\Auth\AuthController;
+use App\Domains\Platform\Http\Controllers\Auth\GoogleLoginController;
+use App\Domains\Platform\Http\Controllers\Auth\AdminGoogleLoginController;
+use App\Domains\Platform\Http\Controllers\Auth\TwoFactorController;
+use App\Domains\Platform\Http\Controllers\Auth\UsernameController;
+use App\Domains\Platform\Http\Controllers\Auth\PasswordResetController;
+use App\Domains\Platform\Http\Controllers\Auth\ImpersonationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,19 +22,44 @@ use App\Http\Controllers\Auth\TwoFactorController;
 */
 
 // Public authentication routes (initial login/registration, no session required yet)
-Route::post("auth/register", [AuthController::class, "register"]);
-Route::post("auth/login", [AuthController::class, "login"])->name('login');
-Route::post("auth/google/callback", [GoogleLoginController::class, "handleGoogleCallback"]);
-Route::post("auth/2fa/verify", [TwoFactorController::class, "verifyLogin"]);
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post("auth/register",          [AuthController::class,      "register"]);
+    Route::post("auth/google/callback",         [GoogleLoginController::class,      "handleGoogleCallback"]);
+    Route::post("admin/auth/google/callback",   [AdminGoogleLoginController::class, "handleAdminGoogleCallback"]);
+    // Username — endpoints públicos
+    Route::get ("auth/username/check",    [UsernameController::class,  "check"]);           // ?username=xxx
+    Route::post("auth/complete-profile",  [UsernameController::class,  "completeGoogleProfile"]); // setup_token + username
+});
 
-// Protected authentication routes (require active session)
-Route::middleware("auth")->group(function () {
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post("/forgot-password", [PasswordResetController::class, "sendResetLinkEmail"]);
+    Route::post("/reset-password",  [PasswordResetController::class, "reset"]);
+});
+
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post("auth/login", [AuthController::class, "login"])->name('login');
+    Route::post("auth/2fa/verify", [TwoFactorController::class, "verifyLogin"]);
+
+    // Impersonation hand-off: the client portal exchanges the single-use token
+    // (minted by an admin) for a target-user session. Public — the one-time
+    // token is the credential; throttled to deter brute force.
+    Route::post("auth/impersonate/exchange", [ImpersonationController::class, "exchange"]);
+});
+
+// Protected authentication routes (require Sanctum token / cookie)
+Route::middleware(["auth:sanctum"])->group(function () {
     // Authentication management
     Route::post("auth/logout", [AuthController::class, "logout"]);
+
+    // End an impersonation session and restore the original admin session.
+    Route::post("auth/impersonate/leave", [ImpersonationController::class, "leave"]);
     Route::get("/auth/me", [AuthController::class, "me"]);
     Route::get("/user", function (Illuminate\Http\Request $request) {
         return $request->user();
     });
+
+    // Username — endpoint autenticado (usuarios existentes sin username)
+    Route::post("auth/setup-username", [UsernameController::class, "setupUsername"]);
 
     // Two-Factor Authentication management
     Route::prefix("2fa")->group(function () {

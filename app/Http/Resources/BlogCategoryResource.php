@@ -15,14 +15,15 @@ class BlogCategoryResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->uuid,
-            'name' => $this->name,
-            'slug' => $this->slug,
+            'id'          => $this->uuid,   // public-facing identifier (UUID)
+            'name'        => $this->name,
+            'slug'        => $this->slug,
             'description' => $this->description,
-            'isActive' => $this->is_active,
-            'sortOrder' => $this->sort_order,
-            'createdAt' => $this->created_at->format('Y-m-d H:i:s'),
-            'updatedAt' => $this->updated_at->format('Y-m-d H:i:s'),
+            'isActive'    => $this->is_active,
+            'sortOrder'   => $this->sort_order,
+            'postsCount'  => $this->when(isset($this->posts_count), $this->posts_count),
+            'createdAt'   => $this->created_at->format('Y-m-d H:i:s'),
+            'updatedAt'   => $this->updated_at->format('Y-m-d H:i:s'),
         ];
     }
 }

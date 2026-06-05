@@ -14,22 +14,45 @@ use App\Models\User;
 |
 */
 
-Broadcast::channel('admin.chat.status', function (User $user) {
-    return $user->isAdmin();
-});
-
-Broadcast::channel('admin.chat', function (User $user) {
-    return $user->isAdmin(); // sólo administradores
-});
-
 // Canal general para usuarios autenticados
-Broadcast::channel('App.Models.User.{uuid}', function ($user, $uuid) {
-    return (int) $user->uuid === (int) $uuid;
+Broadcast::channel('App.Models.User.{uuid}', function (User $user, $uuid) {
+    return $user->uuid === $uuid;
 });
 
 // Canal privado para cada usuario específico
 Broadcast::channel('user.{uuid}', function (User $user, $uuid) {
-    return (int) $user->uuid === (int) $uuid;
+    return $user->uuid === $uuid;
+});
+
+// Canal privado por ticket (chat de soporte en tiempo real)
+Broadcast::channel('ticket.{uuid}', function (User $user, $uuid) {
+    // El cliente dueño del ticket o cualquier staff (admin/super_admin/support)
+    if ($user->isStaff()) {
+        return [
+            'id'         => $user->uuid,
+            'user_id'    => $user->id,
+            'name'       => $user->full_name,
+            'email'      => $user->email,
+            'role'       => $user->role,
+            'avatar_url' => $user->avatar_full_url,
+            'is_staff'   => true,
+        ];
+    }
+
+    $ticket = \App\Domains\Platform\Models\Ticket::where('uuid', $uuid)->first();
+    if ($ticket && (int) $ticket->user_id === (int) $user->id) {
+        return [
+            'id'         => $user->uuid,
+            'user_id'    => $user->id,
+            'name'       => $user->full_name,
+            'email'      => $user->email,
+            'role'       => $user->role,
+            'avatar_url' => $user->avatar_full_url,
+            'is_staff'   => false,
+        ];
+    }
+
+    return false;
 });
 
 // Canales administrativos - solo para administradores
@@ -54,10 +77,19 @@ Broadcast::channel('admin.users', function (User $user) {
 });
 
 Broadcast::channel('admin.tickets', function (User $user) {
-    return $user->isAdmin();
+    // Support también atiende tickets, por lo que recibe el feed de tickets.
+    return $user->isStaff();
 });
 
 Broadcast::channel('admin.notifications', function (User $user) {
+    return $user->isAdmin();
+});
+
+Broadcast::channel('admin.backups', function (User $user) {
+    return $user->isAdmin();
+});
+
+Broadcast::channel('admin.pet.notifications', function (User $user) {
     return $user->isAdmin();
 });
 
@@ -98,3 +130,9 @@ Broadcast::channel('system.maintenance', function (User $user) {
     return true; // Todos los usuarios autenticados pueden recibir notificaciones de mantenimiento
 });
 
+// Canal privado por game server — recibe ping en tiempo real vía Reverb
+// El scheduler CollectGameServerPings hace broadcast en este canal cada 5 min.
+Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $serviceUuid) {
+    $service = \App\Domains\Platform\Models\Service::where('uuid', $serviceUuid)->first();
+    return $service && (int) $service->user_id === (int) $user->id;
+});
