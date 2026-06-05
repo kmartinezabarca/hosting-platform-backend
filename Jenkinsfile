@@ -246,46 +246,48 @@ REMOTE
         }
 
         stage('Deploy Production') {
-            when { expression { params.DEPLOY_ENV == 'production' } }
-            steps {
-                input(message: "Confirmar producción ${env.RELEASE_NAME}", ok: 'Deploy')
+    when { expression { params.DEPLOY_ENV == 'production' } }
+    steps {
+        input(message: "Confirmar producción ${env.RELEASE_NAME}", ok: 'Deploy')
 
-                script {
-                    def releaseName = env.RELEASE_NAME
-                    def prodPath    = env.PROD_PATH
+        script {
+            def releaseName = env.RELEASE_NAME
+            def prodPath    = env.PROD_PATH
 
-                    sh """
-                        RELEASE_DIR=${prodPath}/releases/${releaseName}
-                        mkdir -p "\$RELEASE_DIR"
-                        cp -r . "\$RELEASE_DIR/"
-                        ln -sf ${prodPath}/shared/.env "\$RELEASE_DIR/.env"
+            sh """
+                RELEASE_DIR=${prodPath}/releases/${releaseName}
+                mkdir -p "\$RELEASE_DIR"
+                cp -r . "\$RELEASE_DIR/"
+                ln -sf ${prodPath}/shared/.env "\$RELEASE_DIR/.env"
 
-                        cd "\$RELEASE_DIR"
-                        composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
+                cd "\$RELEASE_DIR"
+                composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
 
-                        # Limpiar cache de bootstrap para regenerar limpio sin paquetes dev
-                        rm -f bootstrap/cache/packages.php
-                        rm -f bootstrap/cache/services.php
+                rm -f bootstrap/cache/packages.php
+                rm -f bootstrap/cache/services.php
 
-                        export APP_VERSION='${env.APP_VERSION}'
-                        export APP_GIT_COMMIT='${env.GIT_SHORT}'
-                        export APP_BUILD_ID='${env.BUILD_NUMBER}'
-                        export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+                export APP_VERSION='${env.APP_VERSION}'
+                export APP_GIT_COMMIT='${env.GIT_SHORT}'
+                export APP_BUILD_ID='${env.BUILD_NUMBER}'
+                export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
 
-                        php artisan deploy:refresh --migrate --skip-restarts --no-interaction
-
-                        ln -snf "\$RELEASE_DIR" ${prodPath}/current
-
-                        cd ${prodPath}/current
-                        php artisan queue:restart --no-interaction || true
-                        php artisan reverb:restart --no-interaction || true
-
-                        ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
-                    """
-                }
-                sh '/usr/local/bin/roke-reload-prod 2>/dev/null || true'
-            }
+                ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
+            """
         }
+
+        // Correr artisan FUERA del contenedor Docker, directo en el Dell
+        sh '''
+            cd /opt/apps/api/releases/$(ls -t /opt/apps/api/releases/ | head -1)
+            php artisan deploy:refresh --migrate --skip-restarts --no-interaction
+            ln -snf $(pwd) /opt/apps/api/current
+            cd /opt/apps/api/current
+            php artisan queue:restart --no-interaction || true
+            php artisan reverb:restart --no-interaction || true
+        '''
+
+        sh '/usr/local/bin/roke-reload-prod 2>/dev/null || true'
+    }
+}
     }
 
     post {
