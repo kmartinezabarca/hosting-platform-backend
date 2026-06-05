@@ -138,7 +138,7 @@ pipeline {
                         '-e MYSQL_PASSWORD=secret'
                     ) { mysqlContainer ->
                         sh """
-                            mkdir -p build/logs build/coverage
+                            mkdir -p build/logs build/coverage bootstrap/cache
 
                             until docker exec ${mysqlContainer.id} mysqladmin ping -h 127.0.0.1 -u root -psecret --silent 2>/dev/null; do
                                 echo "Esperando MySQL..."
