@@ -27,9 +27,10 @@ class DeployRefreshCommand extends Command
         $this->runRequired('package:discover', ['--ansi' => true]);
 
         if ($this->option('migrate')) {
-            $this->runRequired('migrate', [
+            $this->runOptional('migrate', [
                 '--force' => true,
                 '--no-interaction' => true,
+                '--graceful' => true,
             ]);
         }
 
