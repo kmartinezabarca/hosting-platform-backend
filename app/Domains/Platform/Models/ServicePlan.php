@@ -309,17 +309,30 @@ class ServicePlan extends Model
 
     public function getPterodactylEggAttribute(): ?string
     {
-        return $this->provisioner_config['egg'] ?? null;
+        $egg = $this->provisioner_config['egg'] ?? null;
+
+        // Los planes multi-juego guardan una lista de eggs permitidos
+        // (p. ej. ["paper","vanilla"]); el atributo singular expone el
+        // primero para mantener compatibilidad con el contrato ?string.
+        if (is_array($egg)) {
+            $egg = $egg[0] ?? null;
+        }
+
+        return is_string($egg) ? $egg : null;
     }
 
     public function getPterodactylVersionAttribute(): ?string
     {
-        return $this->provisioner_config['version'] ?? null;
+        $version = $this->provisioner_config['version'] ?? null;
+
+        return is_string($version) ? $version : null;
     }
 
     public function getCoolifyBuildPackAttribute(): ?string
     {
-        return $this->provisioner_config['build_pack'] ?? null;
+        $buildPack = $this->provisioner_config['build_pack'] ?? null;
+
+        return is_string($buildPack) ? $buildPack : null;
     }
 
     public function getCoolifyDbEnabledAttribute(): ?bool
