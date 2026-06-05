@@ -55,16 +55,12 @@ pipeline {
     }
 
     environment {
-        // ── Producción (Dell — local) ──────────────────────────
         PROD_PATH               = '/opt/apps/api'
         PROD_URL                = 'https://api.rokeindustries.com'
-
-        // ── Development (Mac Mini — remoto vía Tailscale) ──────
         DEV_PATH                = '/opt/apps/api-dev'
         DEV_URL                 = 'https://api.rokeindustries.dev'
         DEV_HOST                = '100.72.162.112'
         DEV_USER                = 'rokedev'
-
         COMPOSER_NO_INTERACTION = '1'
         COMPOSER_MEMORY_LIMIT   = '-1'
         DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1501364059117715558/W_w1xbGHR_jifhNtdE9koiPjoaiXB2fYEJ62mAsMn9zSeOnQxLXasOWpPN9a-Is35Wsd'
@@ -266,6 +262,10 @@ REMOTE
 
                         cd "\$RELEASE_DIR"
                         composer install --no-dev --no-scripts --optimize-autoloader --prefer-dist
+
+                        # Limpiar cache de bootstrap para regenerar limpio sin paquetes dev
+                        rm -f bootstrap/cache/packages.php
+                        rm -f bootstrap/cache/services.php
 
                         export APP_VERSION='${env.APP_VERSION}'
                         export APP_GIT_COMMIT='${env.GIT_SHORT}'
