@@ -284,7 +284,7 @@ REMOTE
                         php artisan queue:restart --no-interaction || true
                         php artisan reverb:restart --no-interaction || true
 
-                        ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs rm -rf || true
+                        ls -dt ${prodPath}/releases/*/ | tail -n +6 | xargs sudo rm -rf || true
                     """
                 }
                 sh '/usr/local/bin/roke-reload-prod 2>/dev/null || true'
