@@ -272,7 +272,7 @@ REMOTE
                         chmod -R 777 bootstrap/cache
 
                         # Permisos storage compartido
-                        chmod -R 777 ${prodPath}/shared/storage
+                        // chmod -R 777 ${prodPath}/shared/storage
 
                         export APP_VERSION='${env.APP_VERSION}'
                         export APP_GIT_COMMIT='${env.GIT_SHORT}'
