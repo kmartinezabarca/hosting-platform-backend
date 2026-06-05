@@ -156,7 +156,7 @@ pipeline {
                                 exit 1
                             fi
 
-                            XDEBUG_MODE=coverage ./vendor/bin/phpunit \\
+                            XDEBUG_MODE=coverage php -d memory_limit=512M ./vendor/bin/phpunit \\
                                 --log-junit build/logs/junit.xml \\
                                 --coverage-clover build/coverage/clover.xml \\
                                 --coverage-cobertura build/coverage/cobertura.xml
