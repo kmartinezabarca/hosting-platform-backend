@@ -17,8 +17,8 @@ class DeployRefreshCommand extends Command
     {
         $this->info('Refreshing deploy state...');
 
-        $this->runRequired('optimize:clear');
-        $this->runRequired('cache:clear');
+        $this->runOptional('optimize:clear');
+        $this->runOptional('cache:clear');
         $this->runRequired('config:clear');
         $this->runRequired('route:clear');
         $this->runRequired('view:clear');
