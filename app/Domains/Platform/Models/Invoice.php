@@ -99,7 +99,7 @@ class Invoice extends Model
             'name'               => self::PUBLICO_GENERAL_NAME,
             'zip'                => self::PUBLICO_GENERAL_ZIP,
             'regimen'            => self::PUBLICO_GENERAL_REGIMEN,
-            'uso_cfdi'           => self::PUBLICO_GENERAL_USO,
+            'cfdi_use_code'      => self::PUBLICO_GENERAL_USO,
             'cfdi_status'        => self::CFDI_SCHEDULED,
             'stamp_scheduled_at' => now()->addHours(72),
             'is_publico_general' => true,
