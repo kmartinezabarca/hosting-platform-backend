@@ -14,7 +14,6 @@ use App\Domains\Platform\Http\Controllers\Client\BlogSubscriptionController;
 use App\Domains\Platform\Http\Controllers\Client\CategoryController;
 use App\Domains\Platform\Http\Controllers\Client\DocumentationController;
 use App\Domains\Platform\Http\Controllers\Client\MarketingServiceController;
-use App\Domains\Platform\Http\Controllers\Client\ProductController;
 use App\Domains\Platform\Http\Controllers\Client\ServicePlanController;
 use App\Domains\Platform\Http\Controllers\Client\SystemStatusController;
 use App\Domains\Platform\Http\Controllers\Client\GameEggController;
@@ -67,11 +66,6 @@ Route::prefix('game-eggs')->group(function () {
 // Swagger/OpenAPI Documentation
 Route::get('/docs', [ApiDocsController::class, 'json'])->name('api.docs.json');
 Route::get('/swagger', [ApiDocsController::class, 'ui'])->name('api.docs.ui');
-
-// Product routes (public)
-Route::get('/products', [ProductController::class, 'index']);
-Route::get('/products/{uuid}', [ProductController::class, 'show']);
-Route::get('/products/service-type/{serviceType}', [ProductController::class, 'getByServiceType']);
 
 // Categories, Billing Cycles, and Service Plans
 Route::prefix('categories')->group(function () {

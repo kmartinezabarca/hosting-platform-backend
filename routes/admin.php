@@ -4,7 +4,6 @@
 use Illuminate\Support\Facades\Route;
 use App\Domains\Platform\Http\Controllers\Admin\AdminController;
 use App\Domains\Platform\Http\Controllers\Admin\AgentController;
-use App\Domains\Platform\Http\Controllers\Admin\ProductController;
 use App\Domains\Platform\Http\Controllers\Admin\CategoryController;
 use App\Domains\Platform\Http\Controllers\Admin\BillingCycleController;
 use App\Domains\Platform\Http\Controllers\Admin\ServicePlanController;
@@ -228,13 +227,6 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
         Route::post("/invoices/{id}/refund", [AdminController::class, "refundInvoice"]);
         Route::get("/invoices/{uuid}/receipt", [AdminController::class, "downloadReceipt"]);
         Route::get('/invoices/{serviceId}',[AdminController::class, 'getInvoicesByService']);
-
-        // Products management
-        Route::prefix("products")->group(function () {
-            Route::post("/", [ProductController::class, "store"]);
-            Route::put("/{uuid}", [ProductController::class, "update"]);
-            Route::delete("/{uuid}", [ProductController::class, "destroy"]);
-        });
 
         // Add-ons management
         Route::prefix('add-ons')->group(function () {

@@ -84,13 +84,5 @@ class Category extends Model
     {
         return $this->hasMany(ServicePlan::class)->where('is_active', true);
     }
-
-    /**
-     * Get the products for this category (legacy support).
-     */
-    public function products()
-    {
-        return $this->hasMany(Product::class, 'service_type', 'slug');
-    }
 }
 
