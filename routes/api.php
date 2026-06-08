@@ -141,6 +141,9 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->prefix('hosting')->group
     Route::get ('/{uuid}/wordpress',          [HostingController::class, 'wordpress']);
     Route::post('/{uuid}/wordpress/restart',  [HostingController::class, 'wordpressRestart']);
     Route::post('/{uuid}/wordpress/deploy',   [HostingController::class, 'wordpressDeploy']);
+    // Acciones genéricas de hosting (cualquier servicio Coolify, no solo WordPress)
+    Route::post('/{uuid}/restart',            [HostingController::class, 'restart']);
+    Route::post('/{uuid}/redeploy',           [HostingController::class, 'redeploy']);
     Route::get('/{uuid}/domains',    [HostingController::class, 'domains']);
     Route::post('/{uuid}/domains',   [HostingController::class, 'createDomain']);
     Route::delete('/{uuid}/domains/{domain}', [HostingController::class, 'deleteDomain']);

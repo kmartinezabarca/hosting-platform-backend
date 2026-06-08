@@ -119,6 +119,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
                 Route::get ('/startup',           [GameServerController::class, 'getStartupConfig']);
                 Route::get ('/usage',             [GameServerController::class, 'getServiceUsage']);
                 Route::post('/power',             [GameServerController::class, 'power']);
+                Route::post('/reinstall',         [GameServerController::class, 'reinstall']);
                 Route::get ('/websocket',         [GameServerController::class, 'websocket']);
                 Route::post('/command',           [GameServerController::class, 'command']);
                 Route::get ('/software-options',  [GameServerController::class, 'softwareOptions']);

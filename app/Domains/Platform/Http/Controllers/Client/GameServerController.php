@@ -740,6 +740,49 @@ class GameServerController extends Controller
     }
 
     /**
+     * POST /services/{uuid}/game-server/reinstall
+     * Reinstala el servidor en Pterodactyl (restablece a su estado base).
+     * Operación destructiva: el cliente confirma desde la Danger Zone.
+     */
+    public function reinstall(string $uuid): JsonResponse
+    {
+        $user    = Auth::user();
+        $service = Service::where('user_id', $user->id)->where('uuid', $uuid)->firstOrFail();
+
+        if (!$service->isPterodactylManaged()) {
+            return response()->json(['success' => false, 'message' => 'Este servicio no es un servidor de juego administrado.'], 422);
+        }
+
+        if ($service->status === 'suspended') {
+            return response()->json(['success' => false, 'message' => 'Tu servidor está suspendido. Contacta a soporte.'], 403);
+        }
+
+        if (!$service->pterodactyl_server_id) {
+            return response()->json(['success' => false, 'message' => 'El servidor no tiene identificador asignado. Contacta a soporte.'], 500);
+        }
+
+        try {
+            $this->pterodactyl->reinstallServer($service->pterodactyl_server_id);
+
+            ActivityLog::record(
+                'Reinstalación de servidor',
+                "El cliente reinstaló el servicio {$service->name}.",
+                'service',
+                ['service_id' => $service->id],
+                $user->id
+            );
+
+            return response()->json(['success' => true, 'message' => 'Reinstalación iniciada. El servidor volverá a estar disponible en unos minutos.']);
+        } catch (\Throwable $e) {
+            Log::error('Reinstalación fallida', [
+                'service_id' => $service->id,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'No se pudo reinstalar el servidor. Intenta de nuevo.'], 503);
+        }
+    }
+
+    /**
      * GET /services/{uuid}/game-server/websocket
      * Retorna token + URL del WebSocket de Wings.
      */

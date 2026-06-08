@@ -599,6 +599,55 @@ class HostingController extends Controller
         }
     }
 
+    /**
+     * POST /hosting/{uuid}/restart
+     * Reinicia el contenedor de la aplicación en Coolify (cualquier hosting,
+     * no solo WordPress). Limpia cachés en memoria sin perder datos.
+     */
+    public function restart(string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+        $appUuid = $this->requireAppUuid($service);
+
+        try {
+            $this->coolify->restartApplication($appUuid);
+            return response()->json(['success' => true, 'message' => 'Servicio reiniciado correctamente.']);
+        } catch (\Throwable $e) {
+            Log::warning('hosting restart failed', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo reiniciar el servicio.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
+    /**
+     * POST /hosting/{uuid}/redeploy
+     * Dispara un nuevo despliegue desde el origen en Coolify (cualquier hosting).
+     */
+    public function redeploy(string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+        $appUuid = $this->requireAppUuid($service);
+
+        try {
+            $result = $this->coolify->deployApplication($appUuid);
+            return response()->json([
+                'success' => true,
+                'message' => 'Redespliegue iniciado. El servicio se actualizará en unos minutos.',
+                'data'    => $result,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('hosting redeploy failed', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo iniciar el redespliegue.',
+                'debug'   => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
     // ── Helpers privados ──────────────────────────────────────────────────────
 
     private function hostingService(string $uuid): Service
