@@ -66,7 +66,13 @@ class ContractServiceRequest extends FormRequest
             'invoice.zip'        => ['required_with:invoice', 'string', 'size:5'],
             'invoice.regimen'    => ['required_with:invoice', 'string', 'max:4'],
             'invoice.cfdi_use_code' => ['required_with:invoice', 'string', 'max:10'],
-            'invoice.constancia' => ['nullable', 'string'],
+            // La constancia puede llegar como string base64 (diseño original) o como
+            // objeto {filename, mime, content_b64} (lo que arma el frontend). Se aceptan
+            // ambos; el servicio extrae el base64. Sin esto, subir constancia daba 422.
+            'invoice.constancia'             => ['nullable'],
+            'invoice.constancia.content_b64' => ['nullable', 'string'],
+            'invoice.constancia.filename'    => ['nullable', 'string', 'max:255'],
+            'invoice.constancia.mime'        => ['nullable', 'string', 'max:120'],
 
             'generate_cfdi'       => ['sometimes', 'boolean'],
             'fiscal_profile_uuid' => ['sometimes', 'nullable', 'uuid'],

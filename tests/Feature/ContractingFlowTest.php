@@ -151,6 +151,32 @@ class ContractingFlowTest extends TestCase
         $this->assertSame(0, Service::count());
     }
 
+    public function test_contract_accepts_constancia_as_object_without_422(): void
+    {
+        // El frontend manda la constancia como objeto {filename, mime, content_b64}.
+        // Antes daba 422 (la regla era nullable|string). Ahora se acepta.
+        $user = User::factory()->create();
+        $plan = $this->hostingTrialPlan();
+
+        $this->actingAs($user)->postJson('/api/services/contract', [
+            'plan_id'       => $plan->slug,
+            'billing_cycle' => 'monthly',
+            'service_name'  => 'Con constancia',
+            'invoice' => [
+                'rfc'           => 'XAXX010101000',
+                'name'          => 'CLIENTE DEMO',
+                'zip'           => '99999',
+                'regimen'       => '616',
+                'cfdi_use_code' => 'G03',
+                'constancia'    => [
+                    'filename'    => 'csf.pdf',
+                    'mime'        => 'application/pdf',
+                    'content_b64' => base64_encode('PDF-FAKE'),
+                ],
+            ],
+        ])->assertCreated();
+    }
+
     public function test_game_server_rejects_egg_from_a_nest_not_allowed_by_plan(): void
     {
         $user = User::factory()->create();

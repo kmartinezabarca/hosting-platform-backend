@@ -664,7 +664,7 @@ class ServiceContractingService
                 'zip'        => $validated['invoice']['zip'],
                 'regimen'    => $validated['invoice']['regimen'],
                 'cfdi_use_code' => $validated['invoice']['cfdi_use_code'],
-                'constancia' => $validated['invoice']['constancia'] ?? null,
+                'constancia' => $this->normalizeConstancia($validated['invoice']['constancia'] ?? null),
             ];
         }
 
@@ -674,6 +674,22 @@ class ServiceContractingService
             ->first();
 
         return $defaultProfile?->toInvoiceData();
+    }
+
+    /**
+     * Normaliza la constancia a base64 para la columna longText `constancia`.
+     * El frontend la manda como objeto {filename, mime, content_b64}; el diseño
+     * original esperaba el string base64 directo. Acepta ambos.
+     */
+    private function normalizeConstancia(mixed $constancia): ?string
+    {
+        if (is_array($constancia)) {
+            $b64 = $constancia['content_b64'] ?? null;
+
+            return is_string($b64) && $b64 !== '' ? $b64 : null;
+        }
+
+        return is_string($constancia) && $constancia !== '' ? $constancia : null;
     }
 
     private function resolveLocalPaymentMethodId(User $user, array $validated): ?int
