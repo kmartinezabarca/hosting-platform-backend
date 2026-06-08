@@ -34,6 +34,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/pterodactyl-sync.log'));
 
+        // Sincronización del catálogo de nodos desde Pterodactyl → server_nodes.
+        // Diario: los nodos cambian con poca frecuencia. --prune marca offline los eliminados.
+        $schedule->command('pterodactyl:sync-nodes --prune')
+            ->dailyAt('03:30')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/pterodactyl-sync.log'));
+
         // Expiración de servicios en periodo de prueba (trial).
         // Se ejecuta cada hora; suspende servicios cuyo trial_ends_at haya vencido.
         $schedule->command('services:expire-trials')

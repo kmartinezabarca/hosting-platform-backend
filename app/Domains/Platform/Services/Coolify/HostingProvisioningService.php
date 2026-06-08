@@ -38,10 +38,15 @@ class HostingProvisioningService
         $dbType       = $plan->provisioner_config['db_type'] ?? 'mariadb';
         $dnsRecordIds = [];
 
+        // Coolify valida el nombre: solo letras (unicode), números, espacios y
+        // - _ . / @ & ( ) # , : +  → cualquier otro carácter (p. ej. "—") da 422.
+        // El nombre lo elige el cliente, así que hay que sanitizarlo.
+        $coolifyName = $this->sanitizeCoolifyName($service->name);
+
         try {
             // 1) Crear proyecto en Coolify
             $project = $this->coolify->createProject(
-                $service->name,
+                $coolifyName,
                 "Hosting para {$user->email}"
             );
             $projectUuid = $project['uuid'];
@@ -50,7 +55,7 @@ class HostingProvisioningService
             $app = $this->coolify->createApplication([
                 'project_uuid' => $projectUuid,
                 'server_uuid'  => config('coolify.server_uuid'),
-                'name'         => $service->name,
+                'name'         => $coolifyName,
                 'build_pack'   => $buildPack,
                 'fqdn'         => $fqdn,
             ]);
@@ -193,17 +198,10 @@ class HostingProvisioningService
             }
         }
 
-        // Borrar proyecto
+        // Borrar proyecto (con reintentos: tras borrar la app, Coolify puede
+        // tardar un instante en liberar el proyecto y rechazar el primer borrado).
         if (!empty($conn['coolify_project_uuid'])) {
-            try {
-                $this->coolify->deleteProject($conn['coolify_project_uuid']);
-            } catch (\Throwable $e) {
-                Log::warning('No se pudo borrar proyecto Coolify', [
-                    'service_id'   => $service->id,
-                    'project_uuid' => $conn['coolify_project_uuid'],
-                    'error'        => $e->getMessage(),
-                ]);
-            }
+            $this->deleteProjectWithRetry($service, $conn['coolify_project_uuid']);
         }
 
         $service->update([
@@ -212,6 +210,37 @@ class HostingProvisioningService
         ]);
 
         Log::info('Hosting Coolify terminado', ['service_id' => $service->id]);
+    }
+
+    /**
+     * Borra un proyecto de Coolify reintentando con backoff. Coolify rechaza el
+     * borrado mientras el proyecto aún tenga recursos (la app recién borrada puede
+     * tardar en liberarse), así que reintentamos antes de rendirnos. Best-effort:
+     * si tras todos los intentos falla, se registra pero no se lanza excepción.
+     */
+    private function deleteProjectWithRetry(Service $service, string $projectUuid, int $attempts = 4): void
+    {
+        for ($i = 1; $i <= $attempts; $i++) {
+            try {
+                $this->coolify->deleteProject($projectUuid);
+
+                return;
+            } catch (\Throwable $e) {
+                if ($i === $attempts) {
+                    Log::warning('No se pudo borrar proyecto Coolify tras reintentos', [
+                        'service_id'   => $service->id,
+                        'project_uuid' => $projectUuid,
+                        'attempts'     => $attempts,
+                        'error'        => $e->getMessage(),
+                    ]);
+
+                    return;
+                }
+
+                // Backoff incremental: 1.5s, 3s, 4.5s…
+                usleep($i * 1_500_000);
+            }
+        }
     }
 
     public function syncStatus(Service $service): array
@@ -277,6 +306,20 @@ class HostingProvisioningService
         $domain = trim(explode('/', $domain)[0] ?? '', '.');
 
         return $domain !== '' ? $domain : null;
+    }
+
+    /**
+     * Sanitiza un nombre para Coolify. Coolify solo acepta letras (unicode),
+     * números, espacios y los caracteres - _ . / @ & ( ) # , : + — cualquier
+     * otro (p. ej. guión largo "—", emojis, comillas tipográficas) provoca un
+     * 422 al crear el proyecto/app. Reemplaza lo no permitido por un espacio.
+     */
+    private function sanitizeCoolifyName(string $name): string
+    {
+        $clean = preg_replace('/[^\p{L}\p{N} \-_.\/@&()#,:+]/u', ' ', $name);
+        $clean = trim((string) preg_replace('/\s+/', ' ', (string) $clean));
+
+        return $clean !== '' ? mb_substr($clean, 0, 100) : 'Hosting';
     }
 
     private function cloudflareName(string $domain): string

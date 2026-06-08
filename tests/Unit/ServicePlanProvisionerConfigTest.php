@@ -9,21 +9,21 @@ use Tests\TestCase;
 
 class ServicePlanProvisionerConfigTest extends TestCase
 {
-    public function test_hestia_top_level_fields_are_normalized_into_config(): void
+    public function test_coolify_fields_are_normalized_into_config(): void
     {
         $payload = $this->normalize([
-            'provisioner' => 'hestia',
-            'hestia_package' => 'hosting-enterprise',
-            'hestia_web_template' => 'default',
-            'hestia_dns_template' => 'default',
-            'hestia_mail_enabled' => true,
-            'hestia_db_enabled' => false,
+            'provisioner' => 'coolify',
+            'provisioner_config' => [
+                'build_pack' => 'php',
+                'db_enabled' => true,
+                'db_type'    => 'postgresql',
+            ],
         ]);
 
-        $this->assertSame('hestia', $payload['provisioner']);
-        $this->assertSame('hosting-enterprise', $payload['provisioner_config']['package']);
-        $this->assertTrue($payload['provisioner_config']['mail_enabled']);
-        $this->assertFalse($payload['provisioner_config']['db_enabled']);
+        $this->assertSame('coolify', $payload['provisioner']);
+        $this->assertSame('php', $payload['provisioner_config']['build_pack']);
+        $this->assertTrue($payload['provisioner_config']['db_enabled']);
+        $this->assertSame('postgresql', $payload['provisioner_config']['db_type']);
     }
 
     public function test_pterodactyl_legacy_fields_are_normalized_into_config(): void
@@ -44,16 +44,15 @@ class ServicePlanProvisionerConfigTest extends TestCase
     public function test_admin_serialization_returns_generic_and_legacy_fields(): void
     {
         $plan = new ServicePlan([
-            'provisioner' => 'hestia',
-            'hestia_package' => 'hosting-enterprise',
+            'provisioner' => 'coolify',
+            'provisioner_config' => ['build_pack' => 'php', 'db_enabled' => true],
         ]);
 
         $serialized = $this->serialize($plan);
 
-        $this->assertSame('hestia', $serialized['provisioner']);
-        $this->assertSame('hosting-enterprise', $serialized['provisioner_config']['package']);
-        $this->assertSame('hosting-enterprise', $serialized['hestia_package']);
-        $this->assertSame('default', $serialized['hestia_web_template']);
+        $this->assertSame('coolify', $serialized['provisioner']);
+        $this->assertSame('php', $serialized['provisioner_config']['build_pack']);
+        $this->assertSame('php', $serialized['coolify_build_pack']);
     }
 
     private function normalize(array $payload): array

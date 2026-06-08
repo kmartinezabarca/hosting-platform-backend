@@ -580,7 +580,7 @@ class AdminController extends Controller
     /**
      * POST /admin/services/{uuid}/reprovision
      * Re-ejecuta el flujo de aprovisionamiento completo para cualquier tipo de servicio
-     * (pterodactyl → Pterodactyl, coolify → Coolify, hestia → no implementado aún).
+     * (pterodactyl → Pterodactyl, coolify → Coolify).
      *
      * Útil cuando el aprovisionamiento inicial falló o cuando se necesita recrear
      * el servidor/hosting desde cero en la infraestructura.

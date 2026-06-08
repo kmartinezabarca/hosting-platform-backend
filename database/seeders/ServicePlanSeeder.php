@@ -585,7 +585,7 @@ class ServicePlanSeeder extends Seeder
             foreach ($plans as $planData) {
                 $provisioner = isset($planData['game'])
                     ? 'pterodactyl'
-                    : ($categorySlug === 'hosting' ? 'hestia' : null);
+                    : ($categorySlug === 'hosting' ? 'coolify' : null);
 
                 $provisionerConfig = match ($provisioner) {
                     'pterodactyl' => [
@@ -593,12 +593,10 @@ class ServicePlanSeeder extends Seeder
                         'version' => 'latest',
                         'environment' => [],
                     ],
-                    'hestia' => [
-                        'package' => $planData['hestia_package'] ?? config('hestia.default_package', 'default'),
-                        'web_template' => $planData['hestia_web_template'] ?? 'default',
-                        'dns_template' => $planData['hestia_dns_template'] ?? 'default',
-                        'mail_enabled' => $planData['hestia_mail_enabled'] ?? true,
-                        'db_enabled' => $planData['hestia_db_enabled'] ?? true,
+                    'coolify' => [
+                        'build_pack' => $planData['coolify_build_pack'] ?? 'static',
+                        'db_enabled' => $planData['coolify_db_enabled'] ?? false,
+                        'db_type'    => $planData['coolify_db_type'] ?? 'mariadb',
                     ],
                     default => null,
                 };
@@ -616,9 +614,6 @@ class ServicePlanSeeder extends Seeder
                         // Aprovisionamiento
                         'provisioner'              => $provisioner,
                         'provisioner_config'       => $provisionerConfig,
-                        'hestia_package'           => $categorySlug === 'hosting'
-                            ? ($provisionerConfig['package'] ?? config('hestia.default_package', 'default'))
-                            : null,
                         'game_type'                => $planData['game']['type']         ?? null,
                         'game_runtime_options'     => isset($planData['game'])
                             ? ['software' => $planData['game']['software']]
@@ -634,6 +629,39 @@ class ServicePlanSeeder extends Seeder
                         'max_players'                => $planData['max_players']    ?? null,
                     ]
                 );
+
+                // Config por provisioner (Fase 2: tablas 1:1 dedicadas).
+                if ($provisioner === 'pterodactyl') {
+                    // Un game server corre UN solo egg → primero de la lista de software.
+                    $software = $planData['game']['software'] ?? [];
+                    $egg = is_array($software) ? ($software[0] ?? null) : $software;
+
+                    $servicePlan->pterodactylConfig()->updateOrCreate(
+                        ['service_plan_id' => $servicePlan->id],
+                        [
+                            'egg'                  => is_string($egg) ? $egg : null,
+                            'version'              => $provisionerConfig['version'] ?? 'latest',
+                            'docker_image'         => $planData['game']['docker_image'] ?? null,
+                            'node_id'              => $planData['game']['node_id'] ?? null,
+                            'max_players'          => $planData['max_players'] ?? null,
+                            'game_type'            => $planData['game']['type'] ?? null,
+                            'environment'          => ! empty($provisionerConfig['environment']) ? $provisionerConfig['environment'] : null,
+                            'limits'               => $planData['ptero_limits'] ?? null,
+                            'feature_limits'       => $planData['ptero_features'] ?? null,
+                            'allowed_nest_ids'     => $planData['game']['allowed_nest_ids'] ?? null,
+                            'game_runtime_options' => isset($planData['game']) ? ['software' => $software] : null,
+                        ]
+                    );
+                } elseif ($provisioner === 'coolify') {
+                    $servicePlan->coolifyConfig()->updateOrCreate(
+                        ['service_plan_id' => $servicePlan->id],
+                        [
+                            'build_pack' => $provisionerConfig['build_pack'] ?? 'static',
+                            'db_enabled' => (bool) ($provisionerConfig['db_enabled'] ?? false),
+                            'db_type'    => $provisionerConfig['db_type'] ?? 'mariadb',
+                        ]
+                    );
+                }
 
                 // Features — limpiar y recrear
                 $servicePlan->features()->delete();

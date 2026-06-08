@@ -319,6 +319,27 @@ class CoolifyService
         };
     }
 
+    /**
+     * Separa una imagen Docker en [nombre, tag]. El tag es lo que va tras el
+     * ÚLTIMO ':' siempre que esté en el segmento final (después del último '/'),
+     * para no confundir el puerto de un registro (p. ej. registry:5000/img).
+     * Si no hay tag, devuelve 'latest'.
+     *
+     * @return array{0:string,1:string}
+     */
+    private function splitDockerImage(string $image): array
+    {
+        $image = trim($image);
+        $slash = strrpos($image, '/');
+        $colon = strrpos($image, ':');
+
+        if ($colon !== false && ($slash === false || $colon > $slash)) {
+            return [substr($image, 0, $colon), substr($image, $colon + 1)];
+        }
+
+        return [$image, 'latest'];
+    }
+
     private function generateDbPassword(): string
     {
         return Str::random(32);

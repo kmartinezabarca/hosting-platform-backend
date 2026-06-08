@@ -168,6 +168,44 @@ class PterodactylService
     throw new RuntimeException("No hay allocations libres en el nodo #{$nodeId}.");
 }
 
+    /**
+     * Lista todos los nodos configurados en Pterodactyl.
+     *
+     * @return array<int, array>  Arreglo de objetos nodo (cada uno con clave 'attributes')
+     */
+    public function listNodes(): array
+    {
+        $response = $this->http()->get('/api/application/nodes', ['per_page' => 200]);
+        $this->assertOk($response, 'listNodes');
+
+        return $response->json('data', []);
+    }
+
+    /**
+     * Lista las ubicaciones (locations) configuradas en Pterodactyl.
+     * Devuelve un mapa id => short_code para resolver el nombre de ubicación de cada nodo.
+     *
+     * @return array<int, string>
+     */
+    public function listLocationsMap(): array
+    {
+        $response = $this->http()->get('/api/application/locations', ['per_page' => 200]);
+
+        if ($response->failed()) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($response->json('data', []) as $location) {
+            $attrs = $location['attributes'] ?? $location;
+            if (isset($attrs['id'])) {
+                $map[(int) $attrs['id']] = $attrs['short'] ?? $attrs['long'] ?? (string) $attrs['id'];
+            }
+        }
+
+        return $map;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Eggs (juegos)
     // ─────────────────────────────────────────────────────────────────────────

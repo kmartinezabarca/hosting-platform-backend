@@ -24,6 +24,7 @@ use App\Domains\Platform\Http\Controllers\Admin\CfdiController;
 use App\Domains\Platform\Http\Controllers\Admin\GameServerController;
 use App\Domains\Platform\Http\Controllers\Admin\QuotationController;
 use App\Domains\Platform\Http\Controllers\Admin\PterodactylEggController;
+use App\Domains\Platform\Http\Controllers\Admin\ServerNodeController;
 use App\Domains\Platform\Http\Controllers\Admin\GlobalSearchController;
 use App\Domains\Platform\Http\Controllers\Admin\GameSoftwareVersionController;
 use App\Domains\Platform\Http\Controllers\Admin\PetNotificationController;
@@ -188,6 +189,13 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
             Route::patch ("/eggs/{id}",     [PterodactylEggController::class, "update"]);
             Route::post  ("/eggs/{id}/toggle", [PterodactylEggController::class, "toggle"]);
             Route::post  ("/eggs/sync",     [PterodactylEggController::class, "sync"]);
+        });
+
+        // ── Nodos de infraestructura (server_nodes) ────────────────────────────
+        Route::prefix("server-nodes")->group(function () {
+            Route::get  ("/",        [ServerNodeController::class, "index"]);
+            Route::post ("/sync",    [ServerNodeController::class, "sync"]);
+            Route::patch("/{id}",    [ServerNodeController::class, "update"]);
         });
 
         // Users — mutaciones + herramientas de soporte sensibles

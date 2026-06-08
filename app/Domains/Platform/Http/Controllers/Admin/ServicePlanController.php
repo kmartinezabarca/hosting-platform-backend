@@ -158,7 +158,7 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
-                'provisioner' => 'nullable|in:pterodactyl,coolify,hestia,manual',
+                'provisioner' => 'nullable|in:pterodactyl,coolify,manual',
                 'provisioner_config' => 'nullable|array',
                 'provisioner_config.egg' => 'nullable|string|max:255',
                 'provisioner_config.version' => 'nullable|string|max:100',
@@ -205,6 +205,7 @@ class ServicePlanController extends Controller
 
             // Create service plan
             $servicePlan = ServicePlan::create($this->onlyPlanFields($payload));
+            $this->syncProvisionerConfig($servicePlan, $payload);
 
             // Create features if provided
             if (array_key_exists('features', $payload) && is_array($payload['features'])) {
@@ -279,7 +280,7 @@ class ServicePlanController extends Controller
                 'is_active' => 'boolean',
                 'sort_order' => 'nullable|integer',
                 'specifications' => 'nullable|array',
-                'provisioner' => 'nullable|in:pterodactyl,coolify,hestia,manual',
+                'provisioner' => 'nullable|in:pterodactyl,coolify,manual',
                 'provisioner_config' => 'nullable|array',
                 'provisioner_config.egg' => 'nullable|string|max:255',
                 'provisioner_config.version' => 'nullable|string|max:100',
@@ -326,6 +327,7 @@ class ServicePlanController extends Controller
 
             // Update service plan
             $servicePlan->update($this->onlyPlanFields($payload));
+            $this->syncProvisionerConfig($servicePlan, $payload);
 
             // Update features if provided
             if (array_key_exists('features', $payload) && is_array($payload['features'])) {
@@ -488,6 +490,56 @@ class ServicePlanController extends Controller
         }
     }
 
+    /**
+     * Persiste la config específica del provisioner en su tabla 1:1 dedicada
+     * (pterodactyl_plan_configs / coolify_plan_configs).
+     *
+     * Fuente de verdad del rediseño Fase 2. Tras escribir, recarga las relaciones
+     * para que la respuesta serializada refleje los valores nuevos.
+     */
+    private function syncProvisionerConfig(ServicePlan $plan, array $payload): void
+    {
+        $config = is_array($payload['provisioner_config'] ?? null) ? $payload['provisioner_config'] : [];
+
+        if ($plan->provisioner === 'pterodactyl') {
+            $egg = $payload['pterodactyl_egg'] ?? $config['egg'] ?? null;
+            if (is_array($egg)) {
+                $egg = $egg[0] ?? null; // un game server corre un solo egg
+            }
+
+            $plan->pterodactylConfig()->updateOrCreate(
+                ['service_plan_id' => $plan->id],
+                array_filter([
+                    'egg'                  => is_string($egg) ? $egg : null,
+                    'version'              => $payload['pterodactyl_version'] ?? $config['version'] ?? null,
+                    'docker_image'         => $payload['pterodactyl_docker_image'] ?? null,
+                    'startup'              => $payload['pterodactyl_startup'] ?? null,
+                    'node_id'              => $payload['pterodactyl_node_id'] ?? null,
+                    'max_players'          => $payload['max_players'] ?? null,
+                    'game_type'            => $payload['game_type'] ?? null,
+                    'environment'          => $payload['pterodactyl_environment'] ?? $config['environment'] ?? null,
+                    'limits'               => $payload['pterodactyl_limits'] ?? null,
+                    'feature_limits'       => $payload['pterodactyl_feature_limits'] ?? null,
+                    'allowed_nest_ids'     => $payload['allowed_nest_ids'] ?? null,
+                    'game_runtime_options' => $payload['game_runtime_options'] ?? null,
+                    'game_config_schema'   => $payload['game_config_schema'] ?? null,
+                ], fn ($v) => $v !== null)
+            );
+        } elseif ($plan->provisioner === 'coolify') {
+            $plan->coolifyConfig()->updateOrCreate(
+                ['service_plan_id' => $plan->id],
+                [
+                    'build_pack' => $config['build_pack'] ?? 'static',
+                    'db_enabled' => (bool) ($config['db_enabled'] ?? false),
+                    'db_type'    => $config['db_type'] ?? 'mariadb',
+                ]
+            );
+        }
+
+        // Refrescar relaciones para que serializePlan() devuelva los valores nuevos.
+        $plan->load(['pterodactylConfig', 'coolifyConfig']);
+    }
+
     private function normalizeProvisionerPayload(array $payload, ?ServicePlan $existing = null): array
     {
         if (array_key_exists('provisioner_config', $payload) && is_string($payload['provisioner_config'])) {
@@ -526,18 +578,6 @@ class ServicePlanController extends Controller
             }
 
             $payload['provisioner_config'] = $config ?: null;
-        } elseif ($provisioner === 'hestia') {
-            $config['package'] = $payload['hestia_package'] ?? $config['package'] ?? null;
-            $config['web_template'] = $payload['hestia_web_template'] ?? $config['web_template'] ?? 'default';
-            $config['dns_template'] = $payload['hestia_dns_template'] ?? $config['dns_template'] ?? 'default';
-            $config['mail_enabled'] = $this->booleanConfigValue($payload['hestia_mail_enabled'] ?? $config['mail_enabled'] ?? true);
-            $config['db_enabled'] = $this->booleanConfigValue($payload['hestia_db_enabled'] ?? $config['db_enabled'] ?? true);
-
-            if (! empty($config['package'])) {
-                $payload['hestia_package'] = $config['package'];
-            }
-
-            $payload['provisioner_config'] = $config;
         } elseif ($provisioner === 'coolify') {
             $config['build_pack'] = $payload['provisioner_config']['build_pack'] ?? $config['build_pack'] ?? 'static';
             $config['db_enabled'] = $this->booleanConfigValue($payload['provisioner_config']['db_enabled'] ?? $config['db_enabled'] ?? false);
@@ -566,14 +606,6 @@ class ServicePlanController extends Controller
             $data['coolify_db_enabled'] = $plan->coolify_db_enabled;
         }
 
-        if ($plan->provisioner === 'hestia') {
-            $data['hestia_package'] = data_get($data, 'provisioner_config.package');
-            $data['hestia_web_template'] = data_get($data, 'provisioner_config.web_template', 'default');
-            $data['hestia_dns_template'] = data_get($data, 'provisioner_config.dns_template', 'default');
-            $data['hestia_mail_enabled'] = data_get($data, 'provisioner_config.mail_enabled', true);
-            $data['hestia_db_enabled'] = data_get($data, 'provisioner_config.db_enabled', true);
-        }
-
         return $data;
     }
 
@@ -597,7 +629,7 @@ class ServicePlanController extends Controller
         return array_intersect_key($payload, array_flip([
             'category_id', 'slug', 'name', 'description', 'base_price',
             'setup_fee', 'is_popular', 'is_active', 'sort_order', 'specifications',
-            'provisioner', 'provisioner_config', 'hestia_package',
+            'provisioner', 'provisioner_config',
             'game_type', 'game_runtime_options', 'game_config_schema',
             'pterodactyl_nest_id', 'pterodactyl_egg_id', 'pterodactyl_node_id',
             'pterodactyl_limits', 'pterodactyl_feature_limits', 'pterodactyl_environment',

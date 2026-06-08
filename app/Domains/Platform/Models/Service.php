@@ -67,6 +67,10 @@ class Service extends Model
         'selected_egg_id',
         'max_players',
         'payment_intent_id',
+        // Trial — sin estos campos en $fillable, contractFree() los descartaba
+        // silenciosamente y los trials nunca expiraban (trial_ends_at quedaba null).
+        'trial_ends_at',
+        'plan_type',
     ];
 
     /**
@@ -82,6 +86,7 @@ class Service extends Model
         'next_due_date'         => 'date',
         'grace_period_ends_at'  => 'datetime',
         'suspended_at'          => 'datetime',
+        'trial_ends_at'         => 'datetime',
         // Runtime status del proveedor (sync). live_metrics es JSON → requiere cast
         // array para (de)serializar correctamente; sin él, el guardado del array falla.
         'live_metrics'          => 'array',

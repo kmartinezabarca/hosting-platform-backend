@@ -20,6 +20,7 @@ use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
 use App\Domains\Platform\Services\PaymentReceiptService;
 use App\Domains\Platform\Services\Pterodactyl\GameServerProvisioningService;
 use App\Domains\Platform\Services\InvoiceService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -415,6 +416,39 @@ class ServiceContractingService
      */
     public function contractFree(User $user, ServicePlan $plan, array $validated): array
     {
+        // Serializa contrataciones concurrentes del mismo (usuario, plan) para
+        // evitar duplicados por doble-submit / carrera. En producción (redis)
+        // protege entre procesos; el pre-check de BD cubre el caso secuencial.
+        $lock = Cache::lock("contract_free:{$user->id}:{$plan->id}", 10);
+        $lock->block(5);
+
+        try {
+            // ── Idempotencia / anti-abuso ────────────────────────────────────
+            // A diferencia del flujo pagado (que deduplica por payment_intent_id),
+            // el flujo free/trial no tenía guarda: un doble-submit creaba servicios
+            // duplicados y permitía trials ilimitados por usuario. Regla: un usuario
+            // no puede tener más de un servicio vigente del mismo plan free/trial;
+            // el segundo intento devuelve el existente (idempotente).
+            $existingActive = Service::where('user_id', $user->id)
+                ->where('plan_id', $plan->id)
+                ->whereNotIn('status', ['terminated', 'cancelled'])
+                ->latest('id')
+                ->first();
+
+            if ($existingActive) {
+                Log::info('contractFree(): servicio idempotente devuelto (plan free/trial ya vigente)', [
+                    'service_id' => $existingActive->id,
+                    'user_id'    => $user->id,
+                    'plan_id'    => $plan->id,
+                ]);
+
+                return [
+                    'service' => $existingActive,
+                    'receipt' => Receipt::where('service_id', $existingActive->id)->latest('id')->first(),
+                    'invoice' => null,
+                ];
+            }
+
         // ── Egg validation (game servers) ────────────────────────────────────
         $selectedEgg        = null;
         $resolvedMaxPlayers = null;
@@ -563,6 +597,11 @@ class ServiceContractingService
 
             return ['service' => $service, 'receipt' => $receipt, 'invoice' => null];
         });
+        } finally {
+            // Liberar el lock antes del aprovisionamiento (que ya es idempotente
+            // vía ProvisioningJob y puede tardar al hablar con el proveedor).
+            $lock->release();
+        }
 
         // ── Provisioning (idempotente + reintentos) ──────────────────────────
         app(\App\Domains\Platform\Services\ProvisioningService::class)

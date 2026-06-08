@@ -55,7 +55,10 @@ class GameServerProvisioningService
             $pteroUserId     = $pterodactylUser['attributes']['id'];
 
             // 2) Seleccionar nodo
-            $nodeId = $plan->pterodactyl_node_id
+            // Prioridad: nodo elegido por el admin en el servicio (server_nodes) →
+            // nodo fijo del plan → default del .env (PTERODACTYL_DEFAULT_NODE) → autoselección.
+            $nodeId = $service->serverNode?->pterodactyl_node_id
+                ?? $plan->pterodactyl_node_id
                 ?? config('pterodactyl.default_node')
                 ?? $this->pterodactyl->autoSelectNode();
 

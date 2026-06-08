@@ -18,6 +18,15 @@ class ServicePlan extends Model
     ];
 
     /**
+     * Eager-load de las configs 1:1 por provisioner para evitar N+1 al serializar
+     * planes (los accessors pterodactyl_* / coolify_* leen de aquí).
+     */
+    protected $with = [
+        'pterodactylConfig',
+        'coolifyConfig',
+    ];
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>
@@ -39,7 +48,6 @@ class ServicePlan extends Model
         // Aprovisionamiento automático
         'provisioner',
         'provisioner_config',
-        'hestia_package',
 
         'game_type',
         'game_runtime_options',
@@ -251,27 +259,19 @@ class ServicePlan extends Model
 
         if ($this->provisioner === 'pterodactyl') {
             return array_filter([
-                'egg' => $config['egg'] ?? null,
-                'version' => $config['version'] ?? null,
-                'environment' => $config['environment'] ?? $this->pterodactyl_environment ?? null,
+                'egg' => $this->pterodactyl_egg,
+                'version' => $this->pterodactyl_version,
+                'environment' => $this->pterodactyl_environment,
             ], fn ($value) => $value !== null);
         }
 
         if ($this->provisioner === 'coolify') {
-            return [
-                'build_pack' => $config['build_pack'] ?? 'static',
-                'db_enabled' => (bool) ($config['db_enabled'] ?? false),
-                'db_type'    => $config['db_type'] ?? 'mariadb',
-            ];
-        }
+            $cfg = $this->coolifyConfig;
 
-        if ($this->provisioner === 'hestia') {
             return [
-                'package' => $config['package'] ?? $this->attributes['hestia_package'] ?? null,
-                'web_template' => $config['web_template'] ?? 'default',
-                'dns_template' => $config['dns_template'] ?? 'default',
-                'mail_enabled' => (bool) ($config['mail_enabled'] ?? true),
-                'db_enabled' => (bool) ($config['db_enabled'] ?? true),
+                'build_pack' => $cfg?->build_pack ?? $config['build_pack'] ?? 'static',
+                'db_enabled' => (bool) ($cfg?->db_enabled ?? $config['db_enabled'] ?? false),
+                'db_type'    => $cfg?->db_type ?? $config['db_type'] ?? 'mariadb',
             ];
         }
 
@@ -307,13 +307,36 @@ class ServicePlan extends Model
         return null;
     }
 
+    // ── Relaciones 1:1 con la config por provisioner ──────────────────────────
+
+    public function pterodactylConfig(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(PterodactylPlanConfig::class);
+    }
+
+    public function coolifyConfig(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(CoolifyPlanConfig::class);
+    }
+
+    // ── Accessors de compatibilidad ───────────────────────────────────────────
+    // Fuente: tabla de config 1:1 del provisioner; fallback a la columna/JSON
+    // legacy mientras exista (hasta la migración "contract" que las elimina).
+    // @deprecated El código nuevo debería usar $plan->pterodactylConfig->... etc.
+
+    /** Lee un valor JSON crudo de las columnas legacy (decodificado a array o null). */
+    private function legacyJson(string $attr): ?array
+    {
+        $decoded = $this->decodeJsonAttribute($this->attributes[$attr] ?? null);
+
+        return empty($decoded) ? null : $decoded;
+    }
+
     public function getPterodactylEggAttribute(): ?string
     {
-        $egg = $this->provisioner_config['egg'] ?? null;
+        $egg = $this->pterodactylConfig?->egg ?? ($this->provisioner_config['egg'] ?? null);
 
-        // Los planes multi-juego guardan una lista de eggs permitidos
-        // (p. ej. ["paper","vanilla"]); el atributo singular expone el
-        // primero para mantener compatibilidad con el contrato ?string.
+        // Compatibilidad con datos antiguos donde el egg era una lista.
         if (is_array($egg)) {
             $egg = $egg[0] ?? null;
         }
@@ -323,20 +346,88 @@ class ServicePlan extends Model
 
     public function getPterodactylVersionAttribute(): ?string
     {
-        $version = $this->provisioner_config['version'] ?? null;
+        $version = $this->pterodactylConfig?->version ?? ($this->provisioner_config['version'] ?? null);
 
         return is_string($version) ? $version : null;
     }
 
+    public function getPterodactylDockerImageAttribute(): ?string
+    {
+        return $this->pterodactylConfig?->docker_image
+            ?? ($this->attributes['pterodactyl_docker_image'] ?? null);
+    }
+
+    public function getPterodactylStartupAttribute(): ?string
+    {
+        return $this->pterodactylConfig?->startup
+            ?? ($this->attributes['pterodactyl_startup'] ?? null);
+    }
+
+    public function getPterodactylNodeIdAttribute(): ?int
+    {
+        $value = $this->pterodactylConfig?->node_id ?? ($this->attributes['pterodactyl_node_id'] ?? null);
+
+        return $value !== null ? (int) $value : null;
+    }
+
+    public function getMaxPlayersAttribute(): ?int
+    {
+        $value = $this->pterodactylConfig?->max_players ?? ($this->attributes['max_players'] ?? null);
+
+        return $value !== null ? (int) $value : null;
+    }
+
+    public function getGameTypeAttribute(): ?string
+    {
+        return $this->pterodactylConfig?->game_type
+            ?? ($this->attributes['game_type'] ?? null);
+    }
+
+    public function getPterodactylEnvironmentAttribute(): ?array
+    {
+        $env = $this->pterodactylConfig?->environment ?? $this->legacyJson('pterodactyl_environment');
+
+        return empty($env) ? null : $env;
+    }
+
+    public function getPterodactylLimitsAttribute(): ?array
+    {
+        return $this->pterodactylConfig?->limits ?? $this->legacyJson('pterodactyl_limits');
+    }
+
+    public function getPterodactylFeatureLimitsAttribute(): ?array
+    {
+        return $this->pterodactylConfig?->feature_limits ?? $this->legacyJson('pterodactyl_feature_limits');
+    }
+
+    public function getAllowedNestIdsAttribute(): ?array
+    {
+        return $this->pterodactylConfig?->allowed_nest_ids ?? $this->legacyJson('allowed_nest_ids');
+    }
+
+    public function getGameRuntimeOptionsAttribute(): ?array
+    {
+        return $this->pterodactylConfig?->game_runtime_options ?? $this->legacyJson('game_runtime_options');
+    }
+
+    public function getGameConfigSchemaAttribute(): ?array
+    {
+        return $this->pterodactylConfig?->game_config_schema ?? $this->legacyJson('game_config_schema');
+    }
+
     public function getCoolifyBuildPackAttribute(): ?string
     {
-        $buildPack = $this->provisioner_config['build_pack'] ?? null;
+        $buildPack = $this->coolifyConfig?->build_pack ?? ($this->provisioner_config['build_pack'] ?? null);
 
         return is_string($buildPack) ? $buildPack : null;
     }
 
     public function getCoolifyDbEnabledAttribute(): ?bool
     {
+        if ($this->coolifyConfig) {
+            return (bool) $this->coolifyConfig->db_enabled;
+        }
+
         return array_key_exists('db_enabled', $this->provisioner_config ?? [])
             ? (bool) $this->provisioner_config['db_enabled']
             : null;
