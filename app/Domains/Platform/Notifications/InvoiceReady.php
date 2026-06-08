@@ -47,15 +47,15 @@ class InvoiceReady extends Notification implements ShouldQueue
         $currency = strtoupper($this->invoice->currency ?? 'MXN');
 
         return (new MailMessage)
-            ->subject("Comprobante de pago #{$this->invoice->invoice_number} disponible - Roke Industries")
+            ->subject("Comprobante de pago #{$this->invoice->receipt_number} disponible - Roke Industries")
             ->view('emails.notification', [
                 'notifiable' => $notifiable,
                 'title' => 'Comprobante de pago disponible',
                 'subtitle' => 'Tu comprobante de pago está listo',
-                'intro' => "Tu comprobante #{$this->invoice->invoice_number} está listo para revisar y descargar desde tu panel.",
+                'intro' => "Tu comprobante #{$this->invoice->receipt_number} está listo para revisar y descargar desde tu panel.",
                 'detailsTitle' => 'Detalles del comprobante',
                 'details' => [
-                    'Folio' => $this->invoice->invoice_number,
+                    'Folio' => $this->invoice->receipt_number,
                     'Total' => "\${$amount} {$currency}",
                     'Fecha de vencimiento' => $this->invoice->due_date?->format('d/m/Y') ?? 'No disponible',
                     'Estado' => $this->invoice->status_text ?? 'Enviada',
@@ -73,12 +73,12 @@ class InvoiceReady extends Notification implements ShouldQueue
         return [
             'type' => 'invoice_ready',
             'invoice_id' => $this->invoice->uuid,
-            'invoice_number' => $this->invoice->invoice_number,
+            'invoice_number' => $this->invoice->receipt_number,
             'amount' => $this->invoice->total,
             'currency' => $this->invoice->currency,
             'due_date' => $this->invoice->due_date?->toDateString(),
             'title' => 'Nuevo comprobante de pago',
-            'message' => "Tu comprobante #{$this->invoice->invoice_number} por {$this->invoice->total} {$this->invoice->currency} está listo.",
+            'message' => "Tu comprobante #{$this->invoice->receipt_number} por {$this->invoice->total} {$this->invoice->currency} está listo.",
             'action_url' => '/client/invoices/' . $this->invoice->uuid,
             'action_text' => 'Ver comprobante',
             'icon' => 'document-text',
@@ -94,12 +94,12 @@ class InvoiceReady extends Notification implements ShouldQueue
         return new BroadcastMessage([
             'type' => 'invoice_ready',
             'invoice_id' => $this->invoice->uuid,
-            'invoice_number' => $this->invoice->invoice_number,
+            'invoice_number' => $this->invoice->receipt_number,
             'amount' => $this->invoice->total,
             'currency' => $this->invoice->currency,
             'due_date' => $this->invoice->due_date?->toDateString(),
             'title' => 'Nuevo comprobante de pago',
-            'message' => "Tu comprobante #{$this->invoice->invoice_number} por {$this->invoice->total} {$this->invoice->currency} está listo.",
+            'message' => "Tu comprobante #{$this->invoice->receipt_number} por {$this->invoice->total} {$this->invoice->currency} está listo.",
             'action_url' => '/client/invoices/' . $this->invoice->uuid,
             'action_text' => 'Ver comprobante',
             'icon' => 'document-text',

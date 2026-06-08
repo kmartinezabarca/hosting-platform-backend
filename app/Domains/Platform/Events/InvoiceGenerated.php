@@ -43,7 +43,7 @@ class InvoiceGenerated implements ShouldBroadcast
     {
         return [
             'invoice_id'     => $this->invoice->uuid,
-            'invoice_number' => $this->invoice->invoice_number,
+            'invoice_number' => $this->invoice->receipt_number,
             'amount'         => $this->invoice->total,
             'currency'       => $this->invoice->currency,
             'due_date'       => $this->invoice->due_date?->toDateString(),
@@ -66,7 +66,7 @@ class InvoiceGenerated implements ShouldBroadcast
      */
     private function getInvoiceMessage(): string
     {
-        return "Nuevo comprobante #{$this->invoice->invoice_number} por {$this->invoice->total} {$this->invoice->currency} está disponible.";
+        return "Nuevo comprobante #{$this->invoice->receipt_number} por {$this->invoice->total} {$this->invoice->currency} está disponible.";
     }
 }
 

@@ -32,12 +32,12 @@ class ReceiptGenerated implements ShouldBroadcast
     {
         return [
             'receipt_id'     => $this->receipt->uuid,
-            'invoice_number' => $this->receipt->invoice_number,
+            'invoice_number' => $this->receipt->receipt_number,
             'amount'         => $this->receipt->total,
             'currency'       => $this->receipt->currency,
             'due_date'       => $this->receipt->due_date?->toDateString(),
             'status'         => $this->receipt->status,
-            'message'        => "Tu comprobante #{$this->receipt->invoice_number} por {$this->receipt->total} {$this->receipt->currency} está disponible.",
+            'message'        => "Tu comprobante #{$this->receipt->receipt_number} por {$this->receipt->total} {$this->receipt->currency} está disponible.",
             'timestamp'      => now()->toISOString(),
         ];
     }

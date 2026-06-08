@@ -3,7 +3,6 @@
 namespace App\Domains\Platform\Services;
 
 use App\Domains\Platform\Models\Receipt;
-use App\Domains\Platform\Models\InvoiceItem;
 use App\Domains\Platform\Models\Invoice;
 use App\Domains\Platform\Models\PaymentMethod;
 use App\Domains\Platform\Models\Service;
@@ -270,7 +269,7 @@ class ServiceContractingService
             Transaction::create([
                 'uuid'                    => (string) Str::uuid(),
                 'user_id'                 => $user->id,
-                'invoice_id'              => $receipt->id,
+                'receipt_id'              => $receipt->id,
                 'payment_method_id'       => $localPaymentMethodId,
                 'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
                 'provider_transaction_id' => $paymentIntentId,
@@ -327,7 +326,7 @@ class ServiceContractingService
                 }
 
                 // ── CFDI ────────────────────────────────────────────────────
-                $cfdiInvoice->update(['invoice_id' => $receipt->id]);
+                $cfdiInvoice->update(['receipt_id' => $receipt->id]);
 
                 if ($fiscalData) {
                     try {

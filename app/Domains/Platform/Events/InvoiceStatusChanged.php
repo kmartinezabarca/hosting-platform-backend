@@ -47,7 +47,7 @@ class InvoiceStatusChanged implements ShouldBroadcast
     {
         return [
             'invoice_id' => $this->invoice->uuid,
-            'invoice_number' => $this->invoice->invoice_number,
+            'invoice_number' => $this->invoice->receipt_number,
             'old_status' => $this->oldStatus,
             'new_status' => $this->newStatus,
             'amount' => $this->invoice->total_amount,
@@ -72,15 +72,15 @@ class InvoiceStatusChanged implements ShouldBroadcast
     {
         switch ($this->newStatus) {
             case 'paid':
-                return "Tu factura #{$this->invoice->invoice_number} ha sido pagada exitosamente.";
+                return "Tu factura #{$this->invoice->receipt_number} ha sido pagada exitosamente.";
             case 'overdue':
-                return "Tu factura #{$this->invoice->invoice_number} está vencida. Por favor realiza el pago lo antes posible.";
+                return "Tu factura #{$this->invoice->receipt_number} está vencida. Por favor realiza el pago lo antes posible.";
             case 'cancelled':
-                return "Tu factura #{$this->invoice->invoice_number} ha sido cancelada.";
+                return "Tu factura #{$this->invoice->receipt_number} ha sido cancelada.";
             case 'refunded':
-                return "Tu factura #{$this->invoice->invoice_number} ha sido reembolsada.";
+                return "Tu factura #{$this->invoice->receipt_number} ha sido reembolsada.";
             default:
-                return "El estado de tu factura #{$this->invoice->invoice_number} ha cambiado a {$this->newStatus}.";
+                return "El estado de tu factura #{$this->invoice->receipt_number} ha cambiado a {$this->newStatus}.";
         }
     }
 }

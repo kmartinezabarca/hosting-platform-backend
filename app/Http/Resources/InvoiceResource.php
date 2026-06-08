@@ -11,7 +11,7 @@ class InvoiceResource extends JsonResource
     {
         return [
             'uuid'             => $this->uuid,
-            'invoice_number'   => $this->invoice_number,
+            'invoice_number'   => $this->receipt_number,
             'status'           => $this->status,
             'currency'         => $this->currency,
             'subtotal'         => (float) $this->subtotal,

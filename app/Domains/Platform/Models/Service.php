@@ -217,11 +217,11 @@ class Service extends Model
     }
 
     /**
-     * Get the invoice items for this service.
+     * Líneas de recibo de este servicio (tabla receipt_items).
      */
     public function invoiceItems()
     {
-        return $this->hasMany(InvoiceItem::class);
+        return $this->hasMany(ReceiptItem::class);
     }
 
     public function invoice()

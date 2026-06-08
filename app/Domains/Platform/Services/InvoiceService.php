@@ -3,7 +3,7 @@
 namespace App\Domains\Platform\Services;
 
 use App\Domains\Platform\Models\Receipt;
-use App\Domains\Platform\Models\InvoiceItem;
+use App\Domains\Platform\Models\ReceiptItem;
 use Illuminate\Support\Facades\DB;
 
 class InvoiceService
@@ -22,9 +22,9 @@ class InvoiceService
         $year   = now()->format('Y');
         $month  = now()->format('m');
 
-        $last = Receipt::where('invoice_number', 'like', $prefix . $year . $month . '%')
-            ->orderByDesc('invoice_number')
-            ->value('invoice_number');
+        $last = Receipt::where('receipt_number', 'like', $prefix . $year . $month . '%')
+            ->orderByDesc('receipt_number')
+            ->value('receipt_number');
 
         $seq = $last ? ((int) substr($last, -4)) + 1 : 1;
 
@@ -48,12 +48,12 @@ class InvoiceService
     {
         return DB::transaction(function () use ($data, $items) {
             $receipt = Receipt::create(array_merge($data, [
-                'invoice_number' => $this->generateNumber(),
+                'receipt_number' => $this->generateNumber(),
             ]));
 
             foreach ($items as $item) {
-                InvoiceItem::create([
-                    'invoice_id'  => $receipt->id,
+                ReceiptItem::create([
+                    'receipt_id'  => $receipt->id,
                     'service_id'  => $item['service_id'] ?? null,
                     'description' => $item['description'],
                     'quantity'    => (int) $item['quantity'],

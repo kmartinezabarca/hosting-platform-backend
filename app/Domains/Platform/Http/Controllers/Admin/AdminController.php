@@ -14,7 +14,7 @@ use App\Http\Resources\TicketResource;
 use App\Http\Resources\UserResource;
 use App\Domains\Platform\Models\AuditLog;
 use App\Domains\Platform\Models\Receipt;
-use App\Domains\Platform\Models\InvoiceItem;
+use App\Domains\Platform\Models\ReceiptItem;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Models\Ticket;
 use App\Domains\Platform\Models\TicketReply;
@@ -663,13 +663,13 @@ class AdminController extends Controller
         $perPage = min((int) $request->get('per_page', 15), 100);
         $search  = $request->get('search');
 
-        $allowedSort = ['created_at', 'invoice_number', 'total', 'due_date', 'paid_at', 'status'];
+        $allowedSort = ['created_at', 'receipt_number', 'total', 'due_date', 'paid_at', 'status'];
         $sortBy      = in_array($request->get('sort_by'), $allowedSort) ? $request->get('sort_by') : 'created_at';
         $sortOrder   = $request->get('sort_order') === 'asc' ? 'asc' : 'desc';
 
         $invoices = Receipt::with(['user', 'items'])
             ->when($search, fn($q) => $q->where(fn($q) =>
-                $q->where('invoice_number', 'like', "%{$search}%")
+                $q->where('receipt_number', 'like', "%{$search}%")
                   ->orWhereHas('user', fn($u) =>
                       $u->where('first_name', 'like', "%{$search}%")
                         ->orWhere('last_name',  'like', "%{$search}%")
@@ -690,7 +690,7 @@ class AdminController extends Controller
 
     $allowedSort = [
         'created_at',
-        'invoice_number',
+        'receipt_number',
         'total',
         'due_date',
         'paid_at',
@@ -709,7 +709,7 @@ class AdminController extends Controller
         ->where('service_id', $serviceId)
         ->when($search, function ($q) use ($search) {
             $q->where(function ($q) use ($search) {
-                $q->where('invoice_number', 'like', "%{$search}%")
+                $q->where('receipt_number', 'like', "%{$search}%")
                     ->orWhereHas('user', function ($u) use ($search) {
                         $u->where('first_name', 'like', "%{$search}%")
                             ->orWhere('last_name', 'like', "%{$search}%")
@@ -746,7 +746,7 @@ class AdminController extends Controller
 
         return response($content, 200, [
             'Content-Type'        => 'application/pdf',
-            'Content-Disposition' => "attachment; filename=\"comprobante-{$invoice->invoice_number}.pdf\"",
+            'Content-Disposition' => "attachment; filename=\"comprobante-{$invoice->receipt_number}.pdf\"",
         ]);
     }
 
@@ -821,8 +821,8 @@ class AdminController extends Controller
                 $invoice->items()->delete();
 
                 foreach ($validated['items'] as $item) {
-                    InvoiceItem::create([
-                        'invoice_id'  => $invoice->id,
+                    ReceiptItem::create([
+                        'receipt_id'  => $invoice->id,
                         'service_id'  => $item['service_id'] ?? null,
                         'description' => $item['description'],
                         'quantity'    => (int) $item['quantity'],

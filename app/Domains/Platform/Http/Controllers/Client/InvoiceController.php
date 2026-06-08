@@ -86,7 +86,7 @@ class InvoiceController extends Controller
                 return [
                     'id'                 => $inv->id,
                     'uuid'               => $r?->uuid,                 // para descargar (pdf/xml/receipt)
-                    'receipt_number'     => $r?->invoice_number,       // REC-...
+                    'receipt_number'     => $r?->receipt_number,       // REC-...
                     'fiscal_number'      => "{$serie}-{$folio}",       // serie + folio
                     'serie'              => $serie,
                     'folio'              => (string) $folio,
@@ -246,7 +246,7 @@ class InvoiceController extends Controller
 
         return response($content, 200, [
             'Content-Type'        => 'application/pdf',
-            'Content-Disposition' => "attachment; filename=\"comprobante-{$receipt->invoice_number}.pdf\"",
+            'Content-Disposition' => "attachment; filename=\"comprobante-{$receipt->receipt_number}.pdf\"",
         ]);
     }
 
@@ -259,7 +259,7 @@ class InvoiceController extends Controller
 
     private function resolveInvoice(Receipt $receipt): ?Invoice
     {
-        $inv = Invoice::where('invoice_id', $receipt->id)->first();
+        $inv = Invoice::where('receipt_id', $receipt->id)->first();
         if ($inv) return $inv;
 
         if ($receipt->service_id) {
@@ -281,7 +281,7 @@ class InvoiceController extends Controller
         // El Receipt tiene hasMany Invoice (CFDI); tomamos el más reciente.
         $cfdi = $receipt->relationLoaded('invoice')
             ? $receipt->invoice->sortByDesc('id')->first()
-            : Invoice::where('invoice_id', $receipt->id)->latest('id')->first();
+            : Invoice::where('receipt_id', $receipt->id)->latest('id')->first();
 
         if (!$cfdi) {
             // Servicios gratis / $0 no generan CFDI.

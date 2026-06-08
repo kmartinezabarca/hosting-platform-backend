@@ -200,7 +200,7 @@ class PaymentService
         return Transaction::create([
             'uuid'                    => (string) Str::uuid(),
             'user_id'                 => $user->id,
-            'invoice_id'              => $receipt->id,
+            'receipt_id'              => $receipt->id,
             'payment_method_id'       => $localPaymentMethodId,
             'transaction_id'          => 'TRX-' . Str::upper(Str::random(10)),
             'provider_transaction_id' => $paymentIntentId,
@@ -271,7 +271,7 @@ class PaymentService
         $transaction = Transaction::create([
             'uuid'                    => (string) Str::uuid(),
             'user_id'                 => $receipt->user_id,
-            'invoice_id'              => $receipt->id,
+            'receipt_id'              => $receipt->id,
             'payment_method_id'       => null,
             'transaction_id'          => 'REF-' . Str::upper(Str::random(10)),
             'provider_transaction_id' => $refund->id,

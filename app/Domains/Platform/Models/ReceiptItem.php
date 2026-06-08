@@ -11,11 +11,11 @@ class ReceiptItem extends Model
 {
     use HasFactory, HasUuidColumn;
 
-    protected $table = 'invoice_items';
+    protected $table = 'receipt_items';
 
     protected $fillable = [
         'uuid',
-        'invoice_id',
+        'receipt_id',
         'service_id',
         'description',
         'quantity',
@@ -31,8 +31,9 @@ class ReceiptItem extends Model
         'total'      => 'decimal:2',
     ];
 
+    /** Líneas de un RECIBO (comprobante de pago). */
     public function receipt(): BelongsTo
     {
-        return $this->belongsTo(Receipt::class, 'invoice_id');
+        return $this->belongsTo(Receipt::class, 'receipt_id');
     }
 }

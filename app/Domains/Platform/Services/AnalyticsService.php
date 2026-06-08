@@ -40,7 +40,7 @@ class AnalyticsService
             ->where('status', 'completed')
             ->where('created_at', '>=', $prevStart)
             ->where('created_at', '<=', $end)
-            ->get(['id', 'amount', 'invoice_id', 'created_at']);
+            ->get(['id', 'amount', 'receipt_id', 'created_at']);
 
         $subscriptions = Subscription::query()
             ->get(['id', 'user_id', 'amount', 'billing_cycle', 'status', 'created_at', 'canceled_at', 'ends_at']);
@@ -250,7 +250,7 @@ class AnalyticsService
             ->where('created_at', '>=', $start)
             ->where('created_at', '<=', $end)
             ->with('invoice.service.plan.category:id,name')
-            ->get(['id', 'amount', 'invoice_id', 'created_at'])
+            ->get(['id', 'amount', 'receipt_id', 'created_at'])
             ->groupBy(fn ($t) => $t->invoice?->service?->plan?->category?->name ?? 'Otros')
             ->map(fn ($group, $name) => ['name' => $name, 'value' => round((float) $group->sum('amount'), 2)])
             ->values()

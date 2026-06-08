@@ -47,7 +47,7 @@ class AutomaticPaymentProcessed implements ShouldBroadcast
         return [
             'transaction_id' => $this->transaction->uuid,
             'invoice_id' => $this->invoice?->uuid,
-            'invoice_number' => $this->invoice?->invoice_number,
+            'invoice_number' => $this->invoice?->receipt_number,
             'amount' => $this->transaction->amount,
             'currency' => $this->transaction->currency,
             'status' => $this->transaction->status,
@@ -69,7 +69,7 @@ class AutomaticPaymentProcessed implements ShouldBroadcast
      */
     private function getPaymentMessage(): string
     {
-        $invoiceText = $this->invoice ? " para la factura #{$this->invoice->invoice_number}" : "";
+        $invoiceText = $this->invoice ? " para la factura #{$this->invoice->receipt_number}" : "";
         
         if ($this->transaction->status === 'completed') {
             return "Tu pago automático de {$this->transaction->amount} {$this->transaction->currency}{$invoiceText} ha sido procesado exitosamente.";

@@ -13,7 +13,7 @@ class Transaction extends Model
     protected $fillable = [
         'uuid',
         'user_id',
-        'invoice_id',
+        'receipt_id',
         'payment_method_id',
         'transaction_id',
         'provider_transaction_id',
@@ -45,11 +45,11 @@ class Transaction extends Model
     }
 
     /**
-     * Get the invoice associated with the transaction
+     * Recibo (comprobante de pago) asociado a la transacción (FK receipt_id).
      */
     public function invoice()
     {
-        return $this->belongsTo(Receipt::class, 'invoice_id');
+        return $this->belongsTo(Receipt::class, 'receipt_id');
     }
 
     /**

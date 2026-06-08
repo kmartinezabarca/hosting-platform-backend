@@ -30,7 +30,7 @@ class Receipt extends Model
         'uuid',
         'user_id',
         'service_id',
-        'invoice_number',
+        'receipt_number',
         'provider_invoice_id',
         'status',
         'subtotal',
@@ -64,16 +64,16 @@ class Receipt extends Model
         static::creating(function (self $receipt) {
             $receipt->uuid ??= (string) Str::uuid();
 
-            if (empty($receipt->invoice_number)) {
+            if (empty($receipt->receipt_number)) {
                 $prefix = config('app.receipt_prefix', 'REC-') . now()->format('Ym');
-                $last   = self::where('invoice_number', 'like', "{$prefix}-%")
-                    ->orderByDesc('invoice_number')->value('invoice_number');
+                $last   = self::where('receipt_number', 'like', "{$prefix}-%")
+                    ->orderByDesc('receipt_number')->value('receipt_number');
 
                 $seq = 1;
                 if ($last && preg_match('/-(\d+)$/', $last, $m)) {
                     $seq = (int) $m[1] + 1;
                 }
-                $receipt->invoice_number = sprintf('%s-%04d', $prefix, $seq);
+                $receipt->receipt_number = sprintf('%s-%04d', $prefix, $seq);
             }
         });
     }
@@ -88,19 +88,21 @@ class Receipt extends Model
         return $this->belongsTo(Service::class);
     }
 
+    /** Líneas de este recibo. */
     public function items(): HasMany
     {
-        return $this->hasMany(ReceiptItem::class, 'invoice_id');
+        return $this->hasMany(ReceiptItem::class, 'receipt_id');
     }
 
     public function transactions(): HasMany
     {
-        return $this->hasMany(Transaction::class, 'invoice_id');
+        return $this->hasMany(Transaction::class, 'receipt_id');
     }
 
+    /** Facturas CFDI emitidas a partir de este recibo (FK invoices.receipt_id). */
     public function invoice(): HasMany
     {
-        return $this->hasMany(Invoice::class, 'invoice_id');
+        return $this->hasMany(Invoice::class, 'receipt_id');
     }
 
     public function statusColor(): Attribute

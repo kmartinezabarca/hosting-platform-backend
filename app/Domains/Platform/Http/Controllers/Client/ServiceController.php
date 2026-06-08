@@ -136,7 +136,7 @@ class ServiceController extends Controller
                 'message' => 'Servicio contratado exitosamente.',
                 'service' => new ServiceResource($service),
                 'data'    => new ServiceResource($service),
-                'receipt' => $receipt->only(['uuid', 'invoice_number', 'total', 'currency']),
+                'receipt' => $receipt->only(['uuid', 'receipt_number', 'total', 'currency']),
             ], 201);
         } catch (CheckoutQuoteException $e) {
             // No liberar aquí: si la excepción es QUOTE_ALREADY_USED proviene de

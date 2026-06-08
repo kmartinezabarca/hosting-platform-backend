@@ -222,7 +222,7 @@ class ServiceSupportOverviewService
         return $receipts->take(5)->map(fn (Receipt $receipt) => [
             'type' => 'payment',
             'title' => 'invoice_' . $receipt->status,
-            'description' => $receipt->invoice_number,
+            'description' => $receipt->receipt_number,
             'created_at' => $this->date($receipt->paid_at ?? $receipt->created_at),
         ])->all();
     }

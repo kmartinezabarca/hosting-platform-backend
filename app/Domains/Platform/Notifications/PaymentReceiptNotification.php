@@ -27,7 +27,7 @@ class PaymentReceiptNotification extends Notification implements ShouldQueue
         $currency = strtoupper($invoice->currency ?? 'MXN');
         $total = number_format((float) ($invoice->total ?? 0), 2);
         $mail = (new MailMessage)
-            ->subject("Comprobante de pago #{$invoice->invoice_number} - {$this->appName()}")
+            ->subject("Comprobante de pago #{$invoice->receipt_number} - {$this->appName()}")
             ->view('emails.notification', [
                 'notifiable' => $notifiable,
                 'title' => 'Comprobante de pago',
@@ -35,7 +35,7 @@ class PaymentReceiptNotification extends Notification implements ShouldQueue
                 'intro' => 'Hemos procesado tu pago correctamente. Adjuntamos tu comprobante en PDF para que lo conserves.',
                 'detailsTitle' => 'Detalles del comprobante',
                 'details' => [
-                    'Folio' => $invoice->invoice_number,
+                    'Folio' => $invoice->receipt_number,
                     'Total' => "\${$total} {$currency}",
                     'Fecha' => ($invoice->paid_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i')) . ' hrs',
                     'Método de pago' => $invoice->payment_method ?? 'No disponible',
@@ -51,7 +51,7 @@ class PaymentReceiptNotification extends Notification implements ShouldQueue
         try {
             $content = app(PaymentReceiptService::class)->getContent($invoice->fresh(['user', 'items']));
             if ($content) {
-                $mail->attachData($content, "comprobante-{$invoice->invoice_number}.pdf", [
+                $mail->attachData($content, "comprobante-{$invoice->receipt_number}.pdf", [
                     'mime' => 'application/pdf',
                 ]);
             }
@@ -70,9 +70,9 @@ class PaymentReceiptNotification extends Notification implements ShouldQueue
         return [
             'type'           => 'payment.receipt',
             'title'          => 'Comprobante de pago generado',
-            'message'        => "Tu comprobante #{$this->invoice->invoice_number} está listo. Revisa tu correo.",
+            'message'        => "Tu comprobante #{$this->invoice->receipt_number} está listo. Revisa tu correo.",
             'invoice_uuid'   => $this->invoice->uuid,
-            'invoice_number' => $this->invoice->invoice_number,
+            'invoice_number' => $this->invoice->receipt_number,
             'total'          => $this->invoice->total,
             'currency'       => $this->invoice->currency,
             'action_url'     => '/dashboard/billing/invoices/' . $this->invoice->uuid,

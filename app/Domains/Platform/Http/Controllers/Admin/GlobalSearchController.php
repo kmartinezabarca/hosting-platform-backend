@@ -109,15 +109,15 @@ class GlobalSearchController extends Controller
     private function searchInvoices(string $q): array
     {
         return Invoice::where(fn($query) =>
-            $query->where('invoice_number', 'like', "%{$q}%")
+            $query->where('receipt_number', 'like', "%{$q}%")
         )
-        ->select('id', 'uuid', 'invoice_number', 'status')
+        ->select('id', 'uuid', 'receipt_number', 'status')
         ->limit(self::LIMIT)
         ->get()
         ->map(fn($inv) => [
             'id'          => $inv->id,
             'uuid'        => $inv->uuid,
-            'name'        => "Factura #{$inv->invoice_number}",
+            'name'        => "Factura #{$inv->receipt_number}",
             'description' => $inv->status,
             'href'        => "/admin/invoices/{$inv->id}",
             'category'    => 'Facturas',

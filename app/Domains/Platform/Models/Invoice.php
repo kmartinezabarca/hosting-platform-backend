@@ -34,7 +34,7 @@ class Invoice extends Model
         'uuid',
         'facturama_id',
         'folio',
-        'invoice_id',
+        'receipt_id',
         'service_id',
         'rfc',
         'name',
@@ -68,7 +68,7 @@ class Invoice extends Model
     /** El comprobante de pago interno al que está vinculada esta factura CFDI. */
     public function receipt()
     {
-        return $this->belongsTo(Receipt::class, 'invoice_id');
+        return $this->belongsTo(Receipt::class, 'receipt_id');
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────

@@ -100,14 +100,14 @@ class ClientSearchController extends Controller
     private function searchReceipts(string $q, int $userId): array
     {
         return Receipt::where('user_id', $userId)
-            ->where('invoice_number', 'like', "%{$q}%")
-            ->select('id', 'uuid', 'invoice_number', 'status', 'total')
+            ->where('receipt_number', 'like', "%{$q}%")
+            ->select('id', 'uuid', 'receipt_number', 'status', 'total')
             ->limit(self::LIMIT)
             ->get()
             ->map(fn($r) => [
                 'id'          => $r->id,
                 'uuid'        => $r->uuid,
-                'name'        => "Comprobante {$r->invoice_number}",
+                'name'        => "Comprobante {$r->receipt_number}",
                 'description' => ucfirst($r->status) . ($r->total ? " · \${$r->total}" : ''),
                 'href'        => '/client/invoices',
                 'category'    => 'Comprobantes',

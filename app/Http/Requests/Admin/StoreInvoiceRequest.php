@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
-use App\Domains\Platform\Models\Invoice;
+use App\Domains\Platform\Models\Receipt;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,18 +20,18 @@ class StoreInvoiceRequest extends FormRequest
             'user_id'            => ['required', 'integer', 'exists:users,id'],
             'service_id'         => ['nullable', 'integer', 'exists:services,id'],
 
-            // ── Folio ────────────────────────────────────────────────
-            'invoice_number'     => ['nullable', 'string', 'max:50',
-                                     Rule::unique('invoices', 'invoice_number')],
+            // ── Folio del recibo ─────────────────────────────────────
+            'receipt_number'     => ['nullable', 'string', 'max:50',
+                                     Rule::unique('receipts', 'receipt_number')],
 
             // ── Estado y fechas ──────────────────────────────────────
             'status'             => ['required', Rule::in([
-                                         Invoice::STATUS_DRAFT,
-                                         Invoice::STATUS_SENT,
-                                         Invoice::STATUS_PROCESS,
-                                         Invoice::STATUS_PAID,
-                                         Invoice::STATUS_OVERDUE,
-                                         Invoice::STATUS_CANCELLED,
+                                         Receipt::STATUS_DRAFT,
+                                         Receipt::STATUS_SENT,
+                                         Receipt::STATUS_PROCESS,
+                                         Receipt::STATUS_PAID,
+                                         Receipt::STATUS_OVERDUE,
+                                         Receipt::STATUS_CANCELLED,
                                      ])],
             'due_date'           => ['required', 'date'],
 
@@ -61,7 +61,7 @@ class StoreInvoiceRequest extends FormRequest
         return [
             'user_id.required'             => 'El receptor de la factura es obligatorio.',
             'user_id.exists'               => 'El usuario seleccionado no existe.',
-            'invoice_number.unique'        => 'Este número de factura ya existe.',
+            'receipt_number.unique'        => 'Este número de recibo ya existe.',
             'status.required'              => 'El estado de la factura es obligatorio.',
             'status.in'                    => 'El estado no es válido.',
             'due_date.required'            => 'La fecha de vencimiento es obligatoria.',

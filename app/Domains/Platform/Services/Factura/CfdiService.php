@@ -243,8 +243,8 @@ class CfdiService
     private function resolveReceipt(Invoice $si): ?Receipt
     {
         // Primero por FK directa invoice_id → receipts.id
-        if ($si->invoice_id) {
-            return Receipt::find($si->invoice_id);
+        if ($si->receipt_id) {
+            return Receipt::find($si->receipt_id);
         }
 
         // Fallback: comprobante más reciente del mismo servicio

@@ -32,7 +32,7 @@ class CreateInvoiceNotification implements ShouldQueue
 
         $this->notifyAdmins([
             'title'   => 'Comprobante Generado',
-            'message' => "Se generó el comprobante #{$receipt->invoice_number} para {$receipt->user->full_name}",
+            'message' => "Se generó el comprobante #{$receipt->receipt_number} para {$receipt->user->full_name}",
             'type'    => 'admin_receipt_generated',
             'data'    => $broadcastData,
         ]);
@@ -50,7 +50,7 @@ class CreateInvoiceNotification implements ShouldQueue
         if (in_array($event->newStatus, ['paid', 'cancelled', 'overdue'])) {
             $this->notifyAdmins([
                 'title'   => 'Estado de Comprobante Actualizado',
-                'message' => "El comprobante #{$event->invoice->invoice_number} cambió a estado: {$event->newStatus}",
+                'message' => "El comprobante #{$event->invoice->receipt_number} cambió a estado: {$event->newStatus}",
                 'type'    => 'admin_invoice_status',
                 'data'    => $event->broadcastWith(),
             ]);
