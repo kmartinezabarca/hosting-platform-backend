@@ -70,10 +70,14 @@ return [
 
     'allowed_origins' => $corsAllowedOrigins(),
 
+    // Restringido a subdominios conocidos (en lugar de un comodín total
+    // [a-z0-9-]+) para evitar que un subdominio no confiable de la zona pueda
+    // hacer peticiones CORS con credenciales. Si agregas un frontend en un
+    // subdominio nuevo, inclúyelo aquí o en CORS_ALLOWED_ORIGINS.
     'allowed_origins_patterns' => env('APP_ENV') === 'local' ? [] : [
-        '#^https://([a-z0-9-]+\.)?rokeindustries\.dev$#',
-        '#^https://([a-z0-9-]+\.)?rokeindustries\.com$#',
-        '#^https://([a-z0-9-]+\.)?roke\.pet$#',
+        '#^https://(www|app|admin|api|portal)\.rokeindustries\.dev$#',
+        '#^https://(www|app|admin|api|portal)\.rokeindustries\.com$#',
+        '#^https://(www\.)?roke\.pet$#',
     ],
 
     'allowed_headers' => ['*'],

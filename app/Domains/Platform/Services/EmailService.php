@@ -74,23 +74,24 @@ class EmailService
      */
     public function sendMaintenanceNotification($maintenanceDate, $maintenanceDuration = '2 horas', $affectedServices = 'Todos los servicios de hosting')
     {
-        $users = User::all();
-        
-        foreach ($users as $user) {
-            $this->sendServiceNotificationEmail(
-                $user,
-                'maintenance',
-                'Mantenimiento programado en nuestros servidores',
-                false,
-                null,
-                null,
-                [
-                    'maintenanceDate' => $maintenanceDate,
-                    'maintenanceDuration' => $maintenanceDuration,
-                    'affectedServices' => $affectedServices,
-                ]
-            );
-        }
+        // Procesar en lotes para no cargar todos los usuarios en memoria.
+        User::chunkById(200, function ($users) use ($maintenanceDate, $maintenanceDuration, $affectedServices) {
+            foreach ($users as $user) {
+                $this->sendServiceNotificationEmail(
+                    $user,
+                    'maintenance',
+                    'Mantenimiento programado en nuestros servidores',
+                    false,
+                    null,
+                    null,
+                    [
+                        'maintenanceDate' => $maintenanceDate,
+                        'maintenanceDuration' => $maintenanceDuration,
+                        'affectedServices' => $affectedServices,
+                    ]
+                );
+            }
+        });
     }
 
     /**
@@ -98,23 +99,24 @@ class EmailService
      */
     public function sendOutageNotification($outageStatus = 'Investigando', $outageStart = 'Hace unos minutos', $affectedServices = 'Hosting web')
     {
-        $users = User::all();
-        
-        foreach ($users as $user) {
-            $this->sendServiceNotificationEmail(
-                $user,
-                'outage',
-                'Interrupción detectada en algunos servicios',
-                false,
-                null,
-                null,
-                [
-                    'outageStatus' => $outageStatus,
-                    'outageStart' => $outageStart,
-                    'affectedServices' => $affectedServices,
-                ]
-            );
-        }
+        // Procesar en lotes para no cargar todos los usuarios en memoria.
+        User::chunkById(200, function ($users) use ($outageStatus, $outageStart, $affectedServices) {
+            foreach ($users as $user) {
+                $this->sendServiceNotificationEmail(
+                    $user,
+                    'outage',
+                    'Interrupción detectada en algunos servicios',
+                    false,
+                    null,
+                    null,
+                    [
+                        'outageStatus' => $outageStatus,
+                        'outageStart' => $outageStart,
+                        'affectedServices' => $affectedServices,
+                    ]
+                );
+            }
+        });
     }
 
     /**

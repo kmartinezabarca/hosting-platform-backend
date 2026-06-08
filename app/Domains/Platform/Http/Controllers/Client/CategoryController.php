@@ -154,7 +154,7 @@ class CategoryController extends Controller
                 ], 422);
             }
 
-            $category = Category::create($request->all());
+            $category = Category::create($validator->validated());
 
             $this->clearCategoryCache();
 
@@ -206,7 +206,7 @@ class CategoryController extends Controller
                 ], 422);
             }
 
-            $category->update($request->all());
+            $category->update($validator->validated());
 
             $this->clearCategoryCache();
 

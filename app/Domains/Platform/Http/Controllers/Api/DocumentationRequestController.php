@@ -26,7 +26,9 @@ class DocumentationRequestController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $documentationRequest = DocumentationRequest::create($request->all());
+        // Persistir solo los campos validados (evita mass-assignment desde un
+        // endpoint público: el atacante no puede inyectar columnas extra).
+        $documentationRequest = DocumentationRequest::create($validator->validated());
 
         return response()->json(['message' => 'Solicitud de documentación enviada exitosamente.', 'data' => $documentationRequest], 201);
     }

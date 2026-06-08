@@ -120,7 +120,7 @@ class ProductController extends Controller
                 ], 422);
             }
 
-            $product = Product::create($request->all());
+            $product = Product::create($validator->validated());
 
             return response()->json([
                 'success' => true,
@@ -171,7 +171,7 @@ class ProductController extends Controller
                 ], 422);
             }
 
-            $product->update($request->all());
+            $product->update($validator->validated());
 
             return response()->json([
                 'success' => true,

@@ -93,7 +93,7 @@ class BillingCycleController extends Controller
                 ], 422);
             }
 
-            $billingCycle = BillingCycle::create($request->all());
+            $billingCycle = BillingCycle::create($validator->validated());
 
             $this->clearBillingCycleCache();
 
@@ -143,7 +143,7 @@ class BillingCycleController extends Controller
                 ], 422);
             }
 
-            $billingCycle->update($request->all());
+            $billingCycle->update($validator->validated());
 
             $this->clearBillingCycleCache();
 
