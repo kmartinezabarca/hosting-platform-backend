@@ -73,5 +73,6 @@ class Kernel extends HttpKernel
         'admin'           => \App\Http\Middleware\AdminMiddleware::class,
         'role'            => \App\Http\Middleware\EnsureUserHasRole::class,
         'session.timeout' => \App\Http\Middleware\SessionTimeoutMiddleware::class,
+        'verify.n8n'      => \App\Http\Middleware\VerifyN8nToken::class,
     ];
 }

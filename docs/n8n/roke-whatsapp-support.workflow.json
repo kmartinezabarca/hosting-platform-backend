@@ -1,0 +1,232 @@
+{
+  "name": "ROKE — Soporte WhatsApp (n8n)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["messages"]
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [-360, 300],
+      "credentials": {
+        "whatsAppTriggerApi": { "id": "REEMPLAZA", "name": "WhatsApp ROKE" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// El WhatsApp Trigger puede entregar el payload en distintas formas; normalizamos.\nconst j = $input.first().json;\nconst value = j.messages ? j : (j.entry?.[0]?.changes?.[0]?.value ?? j.value ?? j);\nconst msg = (value.messages && value.messages[0]) || j.messages?.[0] || j;\nconst contact = (value.contacts && value.contacts[0]) || {};\nconst text = msg.text?.body ?? msg.body ?? '';\n// MVP: ignorar mensajes sin texto (audio/imagen/estado).\nif (!text) { return []; }\nreturn [{ json: {\n  phone: msg.from ?? value.from ?? '',\n  name: contact.profile?.name ?? '',\n  message: text,\n  wa_message_id: msg.id ?? ''\n} }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Extract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-140, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ROKE_API_BASE }}/whatsapp/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ROKE_N8N_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"phone\": $json.phone, \"name\": $json.name, \"message\": $json.message, \"wa_message_id\": $json.wa_message_id } }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.should_autorespond }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "¿Responder bot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.ROKE_API_BASE }}/knowledge",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ROKE_N8N_TOKEN }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Get Knowledge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"Eres el asistente de soporte de ROKE Industries (hosting, servidores de juego y dominios). Responde en español, claro y breve. Usa SOLO la base de conocimiento; si no sabes o el cliente pide un humano o es un tema de cobro/reembolso/acceso a cuenta, escala. Devuelve SIEMPRE JSON valido con la forma {\\\"action\\\":\\\"reply\\\"|\\\"handoff\\\",\\\"message\\\":\\\"texto\\\"}. Cliente: \" + JSON.stringify($('Inbound').item.json.customer) + \". Base de conocimiento: \" + JSON.stringify($json.data) },\n    { \"role\": \"user\", \"content\": $('Extract').item.json.message }\n  ]\n} }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $json.choices?.[0]?.message?.content ?? '{}';\nlet parsed;\ntry { parsed = JSON.parse(content); } catch (e) { parsed = { action: 'reply', message: content }; }\nreturn [{ json: {\n  action: parsed.action === 'handoff' ? 'handoff' : 'reply',\n  message: parsed.message || 'Disculpa, no te entendi bien. Te comunico con un agente.',\n  conversation_uuid: $('Inbound').item.json.conversation_uuid,\n  phone: $('Extract').item.json.phone\n} }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Parse LLM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "handoff",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "¿Escalar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1180, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ROKE_API_BASE }}/whatsapp/handoff",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ROKE_N8N_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"conversation_uuid\": $json.conversation_uuid, \"reason\": \"El bot escalo la conversacion.\", \"subject\": \"Soporte por WhatsApp\" } }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "Do Handoff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 100]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $env.WHATSAPP_PHONE_NUMBER_ID }}",
+        "recipientPhoneNumber": "={{ $('Parse LLM').item.json.phone }}",
+        "textBody": "Gracias por escribir. Te comunico con un agente de ROKE, en breve te responde una persona. 🙌"
+      },
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Enviar (handoff)",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1620, 100],
+      "credentials": {
+        "whatsAppApi": { "id": "REEMPLAZA", "name": "WhatsApp ROKE" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $env.WHATSAPP_PHONE_NUMBER_ID }}",
+        "recipientPhoneNumber": "={{ $('Parse LLM').item.json.phone }}",
+        "textBody": "={{ $('Parse LLM').item.json.message }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "name": "Enviar (respuesta)",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1400, 320],
+      "credentials": {
+        "whatsAppApi": { "id": "REEMPLAZA", "name": "WhatsApp ROKE" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ROKE_API_BASE }}/whatsapp/reply",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ROKE_N8N_TOKEN }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"conversation_uuid\": $('Parse LLM').item.json.conversation_uuid, \"body\": $('Parse LLM').item.json.message, \"sender\": \"bot\" } }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000012",
+      "name": "Log Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1620, 320]
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": { "main": [[{ "node": "Extract", "type": "main", "index": 0 }]] },
+    "Extract": { "main": [[{ "node": "Inbound", "type": "main", "index": 0 }]] },
+    "Inbound": { "main": [[{ "node": "¿Responder bot?", "type": "main", "index": 0 }]] },
+    "¿Responder bot?": { "main": [[{ "node": "Get Knowledge", "type": "main", "index": 0 }], []] },
+    "Get Knowledge": { "main": [[{ "node": "LLM", "type": "main", "index": 0 }]] },
+    "LLM": { "main": [[{ "node": "Parse LLM", "type": "main", "index": 0 }]] },
+    "Parse LLM": { "main": [[{ "node": "¿Escalar?", "type": "main", "index": 0 }]] },
+    "¿Escalar?": {
+      "main": [
+        [{ "node": "Do Handoff", "type": "main", "index": 0 }],
+        [{ "node": "Enviar (respuesta)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Do Handoff": { "main": [[{ "node": "Enviar (handoff)", "type": "main", "index": 0 }]] },
+    "Enviar (respuesta)": { "main": [[{ "node": "Log Reply", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

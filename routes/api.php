@@ -20,6 +20,7 @@ use App\Domains\Platform\Http\Controllers\Client\SystemStatusController;
 use App\Domains\Platform\Http\Controllers\Client\GameEggController;
 use App\Domains\Platform\Http\Controllers\Client\HostingController;
 use App\Domains\Platform\Http\Controllers\Common\StripeWebhookController;
+use App\Domains\Platform\Http\Controllers\Api\N8nIntegrationController;
 use App\Http\Controllers\AppVersionController;
 use Illuminate\Support\Facades\Route;
 
@@ -45,6 +46,17 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
 
 // Stripe webhook (no authentication required)
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handleWebhook']);
+
+// ── Integración n8n (soporte / WhatsApp) — auth por token compartido ──────────
+Route::prefix('integrations/n8n')
+    ->middleware(['verify.n8n', 'throttle:120,1'])
+    ->group(function () {
+        Route::get('/health',              [N8nIntegrationController::class, 'health']);
+        Route::get('/knowledge',           [N8nIntegrationController::class, 'knowledge']);
+        Route::post('/whatsapp/inbound',   [N8nIntegrationController::class, 'inbound']);
+        Route::post('/whatsapp/reply',     [N8nIntegrationController::class, 'reply']);
+        Route::post('/whatsapp/handoff',   [N8nIntegrationController::class, 'handoff']);
+    });
 
 // Catálogo de juegos disponibles — público (el usuario lo ve antes de pagar)
 Route::prefix('game-eggs')->group(function () {
