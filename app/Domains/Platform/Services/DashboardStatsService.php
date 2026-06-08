@@ -13,6 +13,9 @@ use App\Models\User;
 
 class DashboardStatsService
 {
+    /** Etiquetas de mes en español (índice = nº de mes - 1). */
+    private const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
     // ──────────────────────────────────────────────
     // Aggregated Dashboard Stats
     // ──────────────────────────────────────────────
@@ -43,6 +46,7 @@ class DashboardStatsService
             'suspended'      => User::where('status', 'suspended')->count(),
             'new_this_month' => User::whereMonth('created_at', now()->month)->whereYear('created_at', now()->year)->count(),
             'growth_rate'    => $this->growthRate(User::class, 'created_at'),
+            'history'        => $this->usersHistory(),
         ];
     }
 
@@ -66,6 +70,7 @@ class DashboardStatsService
             'yearly'      => Receipt::where('status', 'paid')->whereYear('created_at', now()->year)->sum('total'),
             'currency'    => config('billing.currency', 'MXN'),
             'growth_rate' => $this->revenueGrowthRate(),
+            'history'     => $this->revenueHistory(),
         ];
     }
 
@@ -154,6 +159,59 @@ class DashboardStatsService
         });
 
         return $activities->sortByDesc('timestamp')->take(10)->values();
+    }
+
+    // ──────────────────────────────────────────────
+    // Historical Series (real data for charts)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Ingresos pagados por mes en los últimos $months meses (incluye el actual).
+     * @return array<int, array{label: string, value: float}>
+     */
+    private function revenueHistory(int $months = 6): array
+    {
+        $series = [];
+        $cursor = now()->startOfMonth()->subMonths($months - 1);
+
+        for ($i = 0; $i < $months; $i++) {
+            $value = Receipt::where('status', 'paid')
+                ->whereMonth('created_at', $cursor->month)
+                ->whereYear('created_at', $cursor->year)
+                ->sum('total');
+
+            $series[] = [
+                'label' => self::MONTHS_ES[$cursor->month - 1],
+                'value' => (float) $value,
+            ];
+
+            $cursor->addMonth();
+        }
+
+        return $series;
+    }
+
+    /**
+     * Total acumulado de usuarios al cierre de cada mes en los últimos $months meses.
+     * @return array<int, array{label: string, value: int}>
+     */
+    private function usersHistory(int $months = 6): array
+    {
+        $series = [];
+        $cursor = now()->startOfMonth()->subMonths($months - 1);
+
+        for ($i = 0; $i < $months; $i++) {
+            $value = User::where('created_at', '<=', $cursor->copy()->endOfMonth())->count();
+
+            $series[] = [
+                'label' => self::MONTHS_ES[$cursor->month - 1],
+                'value' => $value,
+            ];
+
+            $cursor->addMonth();
+        }
+
+        return $series;
     }
 
     // ──────────────────────────────────────────────
