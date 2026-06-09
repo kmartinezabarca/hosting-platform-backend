@@ -11,13 +11,12 @@ use App\Domains\Platform\Models\TicketReply;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 
 class SupportChatController extends Controller
 {
     /**
-     * Obtiene (o crea) el "ticket de soporte activo" del usuario.
-     * Consideramos "activos" los estados distintos de resolved/closed.
+     * Obtiene el "ticket de soporte activo" del usuario.
+     * No crea tickets: el cliente debe crearlos explícitamente desde el formulario.
      */
     public function getSupportRoom(): JsonResponse
     {
@@ -30,18 +29,12 @@ class SupportChatController extends Controller
             ->first();
 
         if (!$ticket) {
-            $ticket = Ticket::create([
-                'uuid'          => (string) Str::uuid(),
-                'user_id'       => $user->id,
-                'ticket_number' => $this->generateTicketNumber(),
-                'subject'       => 'Chat de Soporte',
-                'description'   => null,
-                'priority'      => 'medium',
-                'status'        => 'open',
-                'category'      => 'general',     // ajusta si prefieres otra categoría
-                'department'    => 'technical',   // ajusta si prefieres otro depto
-                'last_reply_at' => now(),
-                'last_reply_by' => $user->id,
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'room'    => null,
+                    'channel' => null,
+                ],
             ]);
         }
 
@@ -377,11 +370,5 @@ class SupportChatController extends Controller
         }
 
         return $stored;
-    }
-
-    private function generateTicketNumber(): string
-    {
-        // Simple, único y corto. Cambia por tu generador real si ya tienes uno.
-        return 'T' . now()->format('YmdHis') . strtoupper(Str::random(4));
     }
 }

@@ -27,6 +27,7 @@ class Pet extends Model
         'primary_vet_clinic', 'scanned_count', 'last_scan_location', 'public_profile_enabled',
         'is_lost', 'lost_since', 'lost_description', 'last_seen_location',
         'emergency_contact_override', 'lost_banner_enabled',
+        'reward_amount', 'reward_currency', 'reward_notes',
         'avatar_emoji', 'ring_color', 'cover_url',
     ];
 
@@ -51,6 +52,7 @@ class Pet extends Model
         'lost_since'             => 'datetime',
         'last_seen_location'     => 'array',
         'lost_banner_enabled'    => 'boolean',
+        'reward_amount'          => 'decimal:2',
     ];
 
     protected $attributes = [

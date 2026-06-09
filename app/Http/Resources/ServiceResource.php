@@ -74,6 +74,7 @@ class ServiceResource extends JsonResource
             'game_software' => $isGameServer ? $gameSoftware : null,
             'game_version'  => $isGameServer ? $gameVersion  : null,
             'java_version'  => $isGameServer ? $javaVersion  : null,
+            'max_players'   => $isGameServer ? $this->max_players : null,
 
             // ── Datos de conexión (game servers e infra) ─────────────────
             // Solo se exponen si el servicio tiene connection_details
@@ -104,6 +105,7 @@ class ServiceResource extends JsonResource
                 'category_slug' => $this->plan->category?->slug,
                 'category'      => $this->plan->category?->name,
                 'game_type'     => $this->plan->game_type,
+                'max_players'   => $isGameServer ? $this->plan->max_players : null,
                 // Recursos del plan (límites del servidor de juego)
                 'limits'        => $isGameServer ? ($this->plan->pterodactyl_limits ?? null) : null,
                 'feature_limits'=> $isGameServer ? ($this->plan->pterodactyl_feature_limits ?? null) : null,

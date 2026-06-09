@@ -24,7 +24,7 @@ class InvoiceResourceTest extends TestCase
         $data = $resource->toArray(request());
 
         $this->assertEquals($invoice->uuid, $data['uuid']);
-        $this->assertEquals($invoice->invoice_number, $data['invoice_number']);
+        $this->assertEquals($invoice->receipt_number, $data['invoice_number']);
         $this->assertEquals($invoice->status, $data['status']);
         $this->assertEquals((float) $invoice->subtotal, $data['subtotal']);
         $this->assertEquals((float) $invoice->tax_rate, $data['tax_rate']);

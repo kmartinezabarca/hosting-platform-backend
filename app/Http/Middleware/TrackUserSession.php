@@ -26,12 +26,14 @@ class TrackUserSession
             $user = $request->user();
             $deviceToken = $request->cookie('device_token');
             $currentTokenId = null;
+            $currentTokenRemember = false;
 
             // Intentar obtener el ID del token actual de Sanctum
             if ($tokenString = $request->bearerToken()) {
                 $pat = PersonalAccessToken::findToken($tokenString);
                 if ($pat && (int) $pat->tokenable_id === (int) $user->getKey()) {
                     $currentTokenId = $pat->id;
+                    $currentTokenRemember = str_contains((string) $pat->name, ':remember');
                 }
             }
 
@@ -79,6 +81,9 @@ class TrackUserSession
             // Actualizar siempre el sanctum_token_id si lo tenemos
             if ($currentTokenId) {
                 $session->sanctum_token_id = $currentTokenId;
+                $session->meta = array_merge($session->meta ?? [], [
+                    'remember_me' => $currentTokenRemember,
+                ]);
             }
 
             // Actualización de Datos

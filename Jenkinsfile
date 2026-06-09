@@ -42,6 +42,36 @@ def notify(status, extra="") {
 }
 
 // ==========================
+// 📨 TELEGRAM NOTIFY (opt-in)
+// ==========================
+// Inerte hasta que existan las credenciales de Jenkins:
+//   telegram-bot-token  (Secret text) — token del bot de @BotFather
+//   telegram-chat-id    (Secret text) — chat/grupo destino
+def notifyTelegram(status, extra="") {
+    try {
+        withCredentials([
+            string(credentialsId: 'telegram-bot-token', variable: 'TG_TOKEN'),
+            string(credentialsId: 'telegram-chat-id',  variable: 'TG_CHAT')
+        ]) {
+            def text = "🚀 <b>API Deploy ${status}</b>\n" +
+                       "Proyecto: ${env.JOB_NAME}\n" +
+                       "Build: #${env.BUILD_NUMBER}\n" +
+                       "Env: ${params.DEPLOY_ENV ?: 'n/a'}\n" +
+                       "Commit: ${env.GIT_SHORT ?: 'N/A'}\n" +
+                       (extra ? "Extra: ${extra}" : "")
+            sh """
+                curl -s -X POST "https://api.telegram.org/bot\${TG_TOKEN}/sendMessage" \\
+                     -d chat_id="\${TG_CHAT}" \\
+                     -d parse_mode=HTML \\
+                     --data-urlencode text='${text}' >/dev/null || true
+            """
+        }
+    } catch (ignored) {
+        echo "Telegram no configurado (faltan credenciales telegram-bot-token / telegram-chat-id); se omite."
+    }
+}
+
+// ==========================
 // 🚀 PIPELINE
 // ==========================
 pipeline {
@@ -73,7 +103,11 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['none', 'development', 'production'])
+        // El PRIMER choice es el default que toma un build automático (webhook/push).
+        // Política: por defecto SIEMPRE se despliega a 'development' (dev se publica
+        // solo en cada commit). 'production' es manual y además exige confirmación
+        // (input()) y rama master. 'none' = construir/probar sin desplegar.
+        choice(name: 'DEPLOY_ENV', choices: ['development', 'none', 'production'])
         booleanParam(name: 'RUN_MIGRATIONS', defaultValue: true)
         booleanParam(name: 'RUN_TESTS', defaultValue: true)
         string(name: 'COVERAGE_MIN', defaultValue: '10', description: 'Cobertura minima de lineas para permitir deploy')
@@ -95,15 +129,23 @@ pipeline {
         }
 
         stage('Notify START') {
-            steps { script { notify("START") } }
+            steps { script { notify("START"); notifyTelegram("START") } }
         }
 
         stage('Validate Environment') {
             steps {
                 script {
                     def branch = sh(returnStdout: true, script: "git rev-parse --abbrev-ref HEAD").trim()
-                    if (params.DEPLOY_ENV == 'production' && branch != 'master' && branch != 'HEAD') {
-                        error("❌ Solo producción desde master")
+                    if (params.DEPLOY_ENV == 'production') {
+                        // 🔒 Producción SOLO la puede lanzar un humano. Si el build vino de
+                        // un trigger automático (webhook/SCM/timer) y no de un usuario, se aborta.
+                        def manual = currentBuild.getBuildCauses().any { (it._class ?: '').contains('UserIdCause') }
+                        if (!manual) {
+                            error("🚫 Producción requiere lanzamiento MANUAL por un usuario. Trigger automático abortado.")
+                        }
+                        if (branch != 'master' && branch != 'HEAD') {
+                            error("❌ Solo producción desde master")
+                        }
                     }
                 }
             }
@@ -301,6 +343,7 @@ REMOTE
         success {
             script {
                 notify("SUCCESS")
+                notifyTelegram("SUCCESS")
                 def durationSec = currentBuild.duration / 1000
                 if (durationSec > 120) {
                     notify("WARNING", "Deploy lento: ${durationSec}s")
@@ -311,6 +354,7 @@ REMOTE
         failure {
             script {
                 notify("FAILURE", "Error en ${env.STAGE_NAME}")
+                notifyTelegram("FAILURE", "Error en ${env.STAGE_NAME}")
                 def prev = currentBuild.previousBuild
                 if (prev && prev.result == "FAILURE") {
                     notify("CRITICAL", "🔥 Fallos consecutivos API")

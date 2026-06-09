@@ -27,6 +27,8 @@ class GoogleLoginController extends Controller
             'email'      => 'required|email|max:255',
             'google_id'  => 'required|string',
             'avatar_url' => 'nullable|url|max:2048',
+            'remember_me' => 'sometimes|boolean',
+            'intent' => 'sometimes|in:login,register',
         ]);
 
         try {
@@ -99,7 +101,10 @@ class GoogleLoginController extends Controller
         // (cuenta creada antes de esta feature o via Google sin haberlo puesto)
         // No bloqueamos el login — devolvemos el token pero marcamos needs_username.
         // El frontend decide si mostrar modal o redirigir.
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $ttlMinutes = $this->sessionTtlMinutes($user->role, $request->boolean('remember_me', false));
+        $token = $user->createToken(
+            $request->boolean('remember_me', false) ? 'auth_token:remember' : 'auth_token'
+        )->plainTextToken;
 
         return AuthCookie::attachAuthCookie(response()->json([
             'message'             => 'Logged in successfully',
@@ -109,7 +114,8 @@ class GoogleLoginController extends Controller
             'needs_username'      => is_null($user->username),
             'user'                => $this->userPayload($user),
             'redirect_to'         => $this->getRedirectPath($user->role),
-        ]), $token, (int) config('sanctum.expiration'));
+            'expires_in_minutes'  => $ttlMinutes,
+        ]), $token, $ttlMinutes);
     }
 
     /**
@@ -119,6 +125,13 @@ class GoogleLoginController extends Controller
      */
     private function handleNewUser(Request $request): \Illuminate\Http\JsonResponse
     {
+        if ($request->input('intent', 'login') === 'login') {
+            return response()->json([
+                'message'    => 'No existe una cuenta con este Google. Crea una cuenta para continuar.',
+                'error_code' => 'GOOGLE_ACCOUNT_NOT_FOUND',
+            ], 404);
+        }
+
         $setupToken = Str::random(48);
 
         // Guardar datos de Google en caché durante 15 minutos
@@ -196,5 +209,14 @@ class GoogleLoginController extends Controller
             'support'              => '/admin/tickets',
             default                => '/client/dashboard',
         };
+    }
+
+    private function sessionTtlMinutes(string $role, bool $rememberSession): int
+    {
+        if (in_array($role, ['super_admin', 'admin', 'support'], true)) {
+            return 480;
+        }
+
+        return $rememberSession ? (int) (config('sanctum.expiration') ?: 43200) : 360;
     }
 }

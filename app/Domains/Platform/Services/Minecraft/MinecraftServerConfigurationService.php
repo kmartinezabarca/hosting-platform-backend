@@ -417,7 +417,7 @@ class MinecraftServerConfigurationService
      */
     public function updateServerProperties(Service $service, array $payload): array
     {
-        $validated = $this->validateProperties($payload);
+        $validated = $this->validateProperties($payload, $service);
 
         $raw        = $this->pterodactyl->readServerFile($this->identifier($service), self::PROPERTY_FILE);
         $properties = $this->parseProperties($raw);
@@ -443,10 +443,13 @@ class MinecraftServerConfigurationService
     /**
      * Valida propiedades del servidor antes de escribirlas.
      */
-    public function validateProperties(array $payload): array
+    public function validateProperties(array $payload, ?Service $service = null): array
     {
+        $maxPlayers = (int) ($service?->max_players ?: 500);
+        $maxPlayers = max(1, min(500, $maxPlayers));
+
         return Validator::make($payload, [
-            'max_players'          => ['sometimes', 'integer', 'min:1', 'max:500'],
+            'max_players'          => ['sometimes', 'integer', 'min:1', "max:{$maxPlayers}"],
             'gamemode'             => ['sometimes', 'string', Rule::in(['survival', 'creative', 'adventure', 'spectator'])],
             'difficulty'           => ['sometimes', 'string', Rule::in(['peaceful', 'easy', 'normal', 'hard'])],
             'white_list'           => ['sometimes', 'boolean'],
