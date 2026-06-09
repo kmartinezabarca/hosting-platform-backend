@@ -25,6 +25,9 @@ class LostController extends Controller
             'lastSeenAddress'          => 'nullable|string|max:500',
             'emergencyContactOverride' => 'nullable|string|max:255',
             'lostBannerEnabled'        => 'nullable|boolean',
+            'rewardAmount'             => 'nullable|numeric|min:0|max:9999999.99',
+            'rewardCurrency'           => 'nullable|string|size:3',
+            'rewardNotes'              => 'nullable|string|max:255',
         ]);
 
         $lastSeen = (isset($data['lastSeenLat'], $data['lastSeenLng'])) ? [
@@ -34,6 +37,13 @@ class LostController extends Controller
             'timestamp' => now()->toISOString(),
         ] : null;
 
+        // La recompensa es opcional: si mandan un monto (incluso 0 explícito) la
+        // guardamos con su moneda; si no mandan el campo, conservamos lo previo.
+        $rewardAmount = array_key_exists('rewardAmount', $data)
+            ? ($data['rewardAmount'] !== null ? (float) $data['rewardAmount'] : null)
+            : $pet->reward_amount;
+        $rewardCurrency = strtoupper($data['rewardCurrency'] ?? $pet->reward_currency ?? 'MXN');
+
         $pet->update([
             'is_lost'                   => true,
             'lost_since'                => $pet->lost_since ?? now(),
@@ -41,6 +51,11 @@ class LostController extends Controller
             'last_seen_location'        => $lastSeen ?? $pet->last_seen_location,
             'emergency_contact_override' => $data['emergencyContactOverride'] ?? $pet->emergency_contact_override,
             'lost_banner_enabled'       => $data['lostBannerEnabled'] ?? true,
+            'reward_amount'             => $rewardAmount,
+            'reward_currency'           => $rewardCurrency,
+            'reward_notes'              => array_key_exists('rewardNotes', $data)
+                ? ($data['rewardNotes'] ?: null)
+                : $pet->reward_notes,
         ]);
 
         return response()->json(['ok' => true, 'isLost' => true]);
@@ -58,6 +73,8 @@ class LostController extends Controller
             'last_seen_location'        => null,
             'emergency_contact_override' => null,
             'lost_banner_enabled'       => true,
+            'reward_amount'             => null,
+            'reward_notes'              => null,
         ]);
 
         return response()->json(['ok' => true, 'isLost' => false]);
@@ -184,7 +201,33 @@ class LostController extends Controller
             'emergencyContact' => $emergencyContact,
             'emergencyPhone'  => $emergencyPhone,
             'ownerName'       => $owner?->display_name ?? '',
+            // Recompensa (pública) para incentivar la devolución.
+            'rewardAmount'    => $pet->reward_amount !== null ? (float) $pet->reward_amount : null,
+            'rewardCurrency'  => $pet->reward_currency ?? 'MXN',
+            'rewardNotes'     => $pet->reward_notes,
+            'rewardLabel'     => $this->rewardLabel($pet),
         ];
+    }
+
+    /** Texto listo para mostrar: "Recompensa: $2,000 MXN · a convenir". */
+    private function rewardLabel(Pet $pet): ?string
+    {
+        $hasAmount = $pet->reward_amount !== null && (float) $pet->reward_amount > 0;
+        $notes     = trim((string) $pet->reward_notes);
+
+        if (!$hasAmount && $notes === '') {
+            return null;
+        }
+
+        $parts = [];
+        if ($hasAmount) {
+            $parts[] = '$' . number_format((float) $pet->reward_amount, 2) . ' ' . ($pet->reward_currency ?? 'MXN');
+        }
+        if ($notes !== '') {
+            $parts[] = $notes;
+        }
+
+        return 'Recompensa: ' . implode(' · ', $parts);
     }
 
     private function formatScan(PetScanEvent $scan, bool $private = false): array

@@ -144,6 +144,9 @@ class PetController extends Controller
             'lostDescription'           => 'sometimes|nullable|string|max:1000',
             'emergencyContactOverride'  => 'sometimes|nullable|string|max:255',
             'lostBannerEnabled'         => 'sometimes|boolean',
+            'rewardAmount'              => 'sometimes|nullable|numeric|min:0|max:9999999.99',
+            'rewardCurrency'            => 'sometimes|nullable|string|size:3',
+            'rewardNotes'               => 'sometimes|nullable|string|max:255',
         ]);
 
         $pet->update($this->camelToSnake($data));
@@ -213,6 +216,8 @@ class PetController extends Controller
             'lostDescription' => 'lost_description',
             'emergencyContactOverride' => 'emergency_contact_override',
             'lostBannerEnabled' => 'lost_banner_enabled',
+            'rewardAmount' => 'reward_amount', 'rewardCurrency' => 'reward_currency',
+            'rewardNotes' => 'reward_notes',
         ];
         $result = [];
         foreach ($data as $key => $value) {
@@ -277,6 +282,9 @@ class PetController extends Controller
             'lastSeenLocation'          => $pet->last_seen_location,
             'emergencyContactOverride'  => $public ? null : ($pet->emergency_contact_override),
             'lostBannerEnabled'         => $pet->lost_banner_enabled,
+            'rewardAmount'              => $pet->reward_amount !== null ? (float) $pet->reward_amount : null,
+            'rewardCurrency'            => $pet->reward_currency ?? 'MXN',
+            'rewardNotes'               => $pet->reward_notes,
             'createdAt'                 => $pet->created_at,
             'updatedAt'                 => $pet->updated_at,
             'vaccines'             => $pet->relationLoaded('vaccines')
