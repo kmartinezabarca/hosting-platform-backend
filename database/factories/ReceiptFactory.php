@@ -21,7 +21,7 @@ class ReceiptFactory extends Factory
         return [
             'uuid' => (string) Str::uuid(),
             'user_id' => User::factory(),
-            'invoice_number' => config('app.receipt_prefix', 'REC-') . now()->format('Ym') . str_pad(fake()->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
+            'receipt_number' => config('app.receipt_prefix', 'REC-') . now()->format('Ym') . str_pad(fake()->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
             'status' => Receipt::STATUS_SENT,
             'subtotal' => $subtotal,
             'tax_rate' => 16.00,

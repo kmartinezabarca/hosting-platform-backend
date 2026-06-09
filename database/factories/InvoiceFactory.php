@@ -3,7 +3,8 @@
 namespace Database\Factories;
 
 use App\Domains\Platform\Models\Invoice;
-use App\Models\User;
+use App\Domains\Platform\Models\Receipt;
+use App\Domains\Platform\Models\Service;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -12,36 +13,50 @@ use Illuminate\Support\Str;
  */
 class InvoiceFactory extends Factory
 {
+    protected $model = Invoice::class;
+
     public function definition(): array
     {
-        $subtotal = fake()->randomFloat(2, 10, 500);
-
         return [
-            'uuid'           => (string) Str::uuid(),
-            'user_id'        => User::factory(),
-            'invoice_number' => 'INV-' . now()->format('Ym') . str_pad(fake()->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
-            'status'         => Invoice::STATUS_SENT,   // 'draft'|'sent'|'processing'|'paid'|'overdue'|'cancelled'|'refunded'
-            'subtotal'       => $subtotal,
-            'tax_rate'       => 16.00,
-            'tax_amount'     => round($subtotal * 0.16, 2),
-            'total'          => round($subtotal * 1.16, 2),
-            'currency'       => 'MXN',
-            'due_date'       => now()->addDays(30),
+            'uuid'                => (string) Str::uuid(),
+            'receipt_id'          => Receipt::factory(),
+            'service_id'          => Service::factory(),
+            'rfc'                 => Invoice::PUBLICO_GENERAL_RFC,
+            'name'                => Invoice::PUBLICO_GENERAL_NAME,
+            'zip'                 => Invoice::PUBLICO_GENERAL_ZIP,
+            'regimen'             => Invoice::PUBLICO_GENERAL_REGIMEN,
+            'cfdi_use_code'       => Invoice::PUBLICO_GENERAL_USO,
+            'cfdi_status'         => Invoice::CFDI_SCHEDULED,
+            'stamp_scheduled_at'  => now()->addHours(72),
+            'is_publico_general'  => true,
+            'folio'               => fake()->unique()->numberBetween(1, 999999),
         ];
     }
 
-    public function paid(): static
+    public function pendingStamp(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'status'  => Invoice::STATUS_PAID,
-            'paid_at' => now(),
+        return $this->state(fn () => [
+            'cfdi_status'        => Invoice::CFDI_PENDING_STAMP,
+            'stamp_scheduled_at' => null,
+            'is_publico_general' => false,
         ]);
     }
 
-    public function unpaid(): static
+    public function stamped(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'status' => Invoice::STATUS_SENT,   // sent = awaiting payment
+        return $this->state(fn () => [
+            'cfdi_status' => Invoice::CFDI_STAMPED,
+            'cfdi_uuid'   => (string) Str::uuid(),
+            'stamped_at'  => now(),
+            'cfdi_error'  => null,
+        ]);
+    }
+
+    public function failed(): static
+    {
+        return $this->state(fn () => [
+            'cfdi_status' => Invoice::CFDI_FAILED,
+            'cfdi_error'  => 'No se pudo timbrar el CFDI.',
         ]);
     }
 }

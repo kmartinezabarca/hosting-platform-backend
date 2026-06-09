@@ -36,11 +36,11 @@ class InvoiceServiceTest extends TestCase
         $prefix = config('app.receipt_prefix', 'REC-');
         $ym     = now()->format('Ym');
 
-        // Seed three invoices for this month
+        // Seed three receipts for this month
         Receipt::factory()->count(3)->sequence(
-            ['invoice_number' => "{$prefix}{$ym}0001"],
-            ['invoice_number' => "{$prefix}{$ym}0002"],
-            ['invoice_number' => "{$prefix}{$ym}0003"],
+            ['receipt_number' => "{$prefix}{$ym}0001"],
+            ['receipt_number' => "{$prefix}{$ym}0002"],
+            ['receipt_number' => "{$prefix}{$ym}0003"],
         )->create();
 
         $expected = "{$prefix}{$ym}0004";
@@ -54,8 +54,8 @@ class InvoiceServiceTest extends TestCase
         $currentYm  = now()->format('Ym');
         $previousYm = now()->subMonth()->format('Ym');
 
-        // Simulate invoices from the previous month only
-        Receipt::factory()->create(['invoice_number' => "{$prefix}{$previousYm}0099"]);
+        // Simulate receipts from the previous month only
+        Receipt::factory()->create(['receipt_number' => "{$prefix}{$previousYm}0099"]);
 
         // Current month should start fresh at 0001
         $expected = "{$prefix}{$currentYm}0001";
@@ -77,7 +77,7 @@ class InvoiceServiceTest extends TestCase
         $prefix = config('app.receipt_prefix', 'REC-');
         $ym     = now()->format('Ym');
 
-        Receipt::factory()->create(['invoice_number' => "{$prefix}{$ym}0009"]);
+        Receipt::factory()->create(['receipt_number' => "{$prefix}{$ym}0009"]);
 
         $next = $this->service->generateNumber();
 
@@ -89,7 +89,7 @@ class InvoiceServiceTest extends TestCase
         $prefix = config('app.receipt_prefix', 'REC-');
         $ym     = now()->format('Ym');
 
-        Receipt::factory()->create(['invoice_number' => "{$prefix}{$ym}9999"]);
+        Receipt::factory()->create(['receipt_number' => "{$prefix}{$ym}9999"]);
 
         // Should NOT pad — just append the number directly
         $next = $this->service->generateNumber();

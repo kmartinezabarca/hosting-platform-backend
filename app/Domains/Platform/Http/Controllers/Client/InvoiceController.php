@@ -70,7 +70,7 @@ class InvoiceController extends Controller
             $serie  = config('facturama.serie', 'F');
 
             $query = Invoice::whereHas('receipt', fn ($q) => $q->where('user_id', $userId))
-                ->with(['receipt:id,uuid,invoice_number,total,currency,status,paid_at,created_at',
+                ->with(['receipt:id,uuid,receipt_number,total,currency,status,paid_at,created_at',
                         'receipt.items']);
 
             $allowedCfdiStatuses = ['scheduled', 'pending_stamp', 'stamped', 'failed', 'cancelled'];
