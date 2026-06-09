@@ -67,6 +67,7 @@ class AuthController extends Controller
         $request->validate([
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            'remember_me' => ['sometimes', 'boolean'],
         ]);
 
         $user = User::where('email', $request->email)->first();
@@ -123,17 +124,16 @@ class AuthController extends Controller
         // Update last login
         $user->update(['last_login_at' => now()]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        // TTL: admin/support → 8h, client → 24h
-        $ttlMinutes = in_array($user->role, ['super_admin', 'admin', 'support']) ? 480 : 1440;
+        $rememberSession = $request->boolean('remember_me', false);
+        $ttlMinutes = $this->sessionTtlMinutes($user->role, $rememberSession);
+        $token = $user->createToken($rememberSession ? 'auth_token:remember' : 'auth_token')->plainTextToken;
 
         // Registrar inicio de sesión exitoso
         ActivityLog::record(
             'Inicio de sesión exitoso',
             'Usuario ' . $user->email . ' ha iniciado sesión.',
             'authentication',
-            ['user_id' => $user->id, 'email' => $user->email, 'status' => 'success'],
+            ['user_id' => $user->id, 'email' => $user->email, 'status' => 'success', 'remember_me' => $rememberSession],
             $user->id
         );
 
@@ -144,6 +144,7 @@ class AuthController extends Controller
             'user'           => $this->userPayload($user),
             'needs_username' => is_null($user->username),
             'redirect_to'    => $this->getRedirectPath($user->role),
+            'expires_in_minutes' => $ttlMinutes,
         ]), $token, $ttlMinutes);
     }
 
@@ -179,6 +180,15 @@ class AuthController extends Controller
             'email_verified_at'  => $user->email_verified_at?->toISOString(),
             'last_login_at'      => $user->last_login_at?->toISOString(),
         ];
+    }
+
+    private function sessionTtlMinutes(string $role, bool $rememberSession): int
+    {
+        if (in_array($role, ['super_admin', 'admin', 'support'], true)) {
+            return 480;
+        }
+
+        return $rememberSession ? (int) (config('sanctum.expiration') ?: 43200) : 360;
     }
 
     /**

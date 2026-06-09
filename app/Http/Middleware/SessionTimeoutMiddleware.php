@@ -31,7 +31,7 @@ class SessionTimeoutMiddleware
         $session = $this->resolveSession($request, $user);
 
         if ($session) {
-            $timeout = self::TIMEOUTS[$user->role] ?? self::DEFAULT_TIMEOUT;
+            $timeout = $this->timeoutFor($user->role, $session, $request);
 
             if ($session->last_activity && $session->last_activity->diffInMinutes(now()) >= $timeout) {
                 // Revocar el token activo
@@ -63,5 +63,28 @@ class SessionTimeoutMiddleware
             ->when($tokenId, fn($q) => $q->where('sanctum_token_id', $tokenId))
             ->latest('last_activity')
             ->first();
+    }
+
+    private function timeoutFor(string $role, UserSession $session, Request $request): int
+    {
+        if ($role === 'client' && $this->isRememberedSession($session, $request)) {
+            return (int) (config('sanctum.expiration') ?: 43200);
+        }
+
+        return self::TIMEOUTS[$role] ?? self::DEFAULT_TIMEOUT;
+    }
+
+    private function isRememberedSession(UserSession $session, Request $request): bool
+    {
+        if (($session->meta['remember_me'] ?? false) === true) {
+            return true;
+        }
+
+        if ($tokenString = $request->bearerToken()) {
+            $pat = PersonalAccessToken::findToken($tokenString);
+            return $pat && str_contains((string) $pat->name, ':remember');
+        }
+
+        return false;
     }
 }
