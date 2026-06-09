@@ -73,7 +73,11 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['none', 'development', 'production'])
+        // El PRIMER choice es el default que toma un build automático (webhook/push).
+        // Política: por defecto SIEMPRE se despliega a 'development' (dev se publica
+        // solo en cada commit). 'production' es manual y además exige confirmación
+        // (input()) y rama master. 'none' = construir/probar sin desplegar.
+        choice(name: 'DEPLOY_ENV', choices: ['development', 'none', 'production'])
         booleanParam(name: 'RUN_MIGRATIONS', defaultValue: true)
         booleanParam(name: 'RUN_TESTS', defaultValue: true)
         string(name: 'COVERAGE_MIN', defaultValue: '10', description: 'Cobertura minima de lineas para permitir deploy')
