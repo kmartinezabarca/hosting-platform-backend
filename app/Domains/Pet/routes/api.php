@@ -1,11 +1,14 @@
 <?php
 
 use App\Domains\Pet\Http\Controllers\AdminController;
+use App\Domains\Pet\Http\Controllers\AdoptionController;
 use App\Domains\Pet\Http\Controllers\AuthController;
 use App\Domains\Pet\Http\Controllers\BillingController;
+use App\Domains\Pet\Http\Controllers\CommunityController;
 use App\Domains\Pet\Http\Controllers\InboxController;
 use App\Domains\Pet\Http\Controllers\LostController;
 use App\Domains\Pet\Http\Controllers\MedicalRecordController;
+use App\Domains\Pet\Http\Controllers\MyAdoptionController;
 use App\Domains\Pet\Http\Controllers\OwnerController;
 use App\Domains\Pet\Http\Controllers\PasswordResetController;
 use App\Domains\Pet\Http\Controllers\PetController;
@@ -43,6 +46,23 @@ Route::get('/pets/{slug}/lost-poster',  [LostController::class, 'publicLostPoste
 // Planes (público — para la página de pricing)
 Route::get('/plans',        [PlanController::class, 'index']);
 Route::get('/plans/{slug}', [PlanController::class, 'show']);
+
+// ── Adopción (público) ────────────────────────────────────────────────────────
+Route::get('/adoptions',        [AdoptionController::class, 'index']);
+Route::get('/adoptions/{slug}', [AdoptionController::class, 'show']);
+// Solicitud de adopción e informe — relay anónimo, rate-limit estricto (5/min por IP).
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/adoptions/{slug}/request', [AdoptionController::class, 'request']);
+    Route::post('/adoptions/{slug}/report',  [AdoptionController::class, 'report']);
+});
+
+// ── Comunidad (público: ver feed y comentarios) ───────────────────────────────
+Route::get('/community/feed',                [CommunityController::class, 'feed']);
+Route::get('/community/posts/{id}/comments', [CommunityController::class, 'comments']);
+// Reportes de moderación — rate-limit estricto (5/min por IP).
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/community/posts/{id}/report', [CommunityController::class, 'report']);
+});
 
 // Portal veterinario (acceso por token, sin auth de usuario)
 Route::middleware('throttle:60,1')->group(function () {
@@ -94,6 +114,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/my-pets/{id}/scan-history',       [LostController::class, 'scanHistory']);
     Route::get('/my-pets/{id}/scan-analytics',     [LostController::class, 'scanAnalytics']);
     Route::get('/my-pets/{id}/lost-poster',        [LostController::class, 'lostPoster']);
+
+    // Adopción (gestión del publicador)
+    Route::get('/my-adoptions',                             [MyAdoptionController::class, 'index']);
+    Route::post('/my-adoptions',                            [MyAdoptionController::class, 'store']);
+    Route::put('/my-adoptions/{id}',                        [MyAdoptionController::class, 'update']);
+    Route::delete('/my-adoptions/{id}',                     [MyAdoptionController::class, 'destroy']);
+    Route::post('/my-adoptions/{id}/photo',                 [MyAdoptionController::class, 'uploadPhoto']);
+    Route::patch('/my-adoptions/{id}/status',               [MyAdoptionController::class, 'updateStatus']);
+    Route::get('/my-adoptions/{id}/requests',               [MyAdoptionController::class, 'requests']);
+    Route::patch('/my-adoptions/{id}/requests/{requestId}', [MyAdoptionController::class, 'respondRequest']);
+
+    // Comunidad (publicar e interactuar)
+    Route::post('/community/posts',                             [CommunityController::class, 'store']);
+    Route::delete('/community/posts/{id}',                      [CommunityController::class, 'destroy']);
+    Route::post('/community/posts/{id}/like',                   [CommunityController::class, 'toggleLike']);
+    Route::post('/community/posts/{id}/comments',               [CommunityController::class, 'storeComment']);
+    Route::delete('/community/posts/{id}/comments/{commentId}', [CommunityController::class, 'destroyComment']);
 
     // Vet links
     Route::get('/my-pets/{petId}/vet-links',         [VetLinkController::class, 'index']);
