@@ -3,6 +3,7 @@
 namespace App\Domains\Pet\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Domains\Pet\Events\PetScanBroadcast;
 use App\Domains\Pet\Models\ActivationEvent;
 use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\NotificationLog;
@@ -49,6 +50,42 @@ class PublicController extends Controller
 
         $shareLocation = (bool) ($data['shareLocationAllowed'] ?? false);
         $hasCoords     = $shareLocation && isset($data['lat'], $data['lng']);
+
+        // Dedup: un mismo escaneo físico puede llegar dos veces — el registro
+        // inmediato (sin ubicación, para avisar al dueño al instante) y el
+        // enriquecimiento con ubicación tras el consentimiento, o un simple refresh.
+        // Si ya hay un evento del mismo dispositivo + fuente en los últimos 2 min,
+        // solo lo enriquecemos con la ubicación: sin crear evento nuevo, sin re-contar
+        // y sin volver a notificar al dueño.
+        $recent = PetScanEvent::where('pet_id', $pet->id)
+            ->where('ip_address', $request->ip())
+            ->where('source', $data['source'])
+            ->where('scanned_at', '>=', now()->subMinutes(2))
+            ->orderByDesc('scanned_at')
+            ->first();
+
+        if ($recent) {
+            if ($hasCoords && $recent->latitude === null) {
+                $recent->update([
+                    'share_location_allowed' => true,
+                    'latitude'               => $data['lat'],
+                    'longitude'              => $data['lng'],
+                    'accuracy'               => $data['accuracy'] ?? null,
+                    'city'                   => $data['city'] ?? $recent->city,
+                    'country'                => $data['country'] ?? $recent->country,
+                ]);
+                $pet->update([
+                    'last_scan_location' => [
+                        'lat'       => round((float) $data['lat'], 2),
+                        'lng'       => round((float) $data['lng'], 2),
+                        'city'      => $data['city'] ?? null,
+                        'timestamp' => now()->toISOString(),
+                    ],
+                ]);
+            }
+
+            return response()->json(['ok' => true, 'count' => $pet->scanned_count, 'isLost' => $pet->is_lost]);
+        }
 
         // Guardar evento detallado de escaneo
         PetScanEvent::create([
@@ -241,6 +278,15 @@ class PublicController extends Controller
         } catch (\Throwable) {
             // no fatal
         }
+
+        // Tiempo real: si la app del dueño está abierta, ve el aviso al instante (Reverb).
+        try {
+            PetScanBroadcast::dispatch(
+                $pet->owner_id, 'pet_found_report', (string) $pet->id, $pet->slug, $pet->name, $title, $body, $data['city'] ?? null,
+            );
+        } catch (\Throwable) {
+            // best-effort, nunca rompe el flujo
+        }
     }
 
     private function notifyOwnerOnLostScan(Pet $pet, array $data, bool $hasCoords): void
@@ -283,22 +329,34 @@ class PublicController extends Controller
                 $payload['data'],
             );
 
-            if ($sent > 0) {
-                $log->markSent();
-                InboxNotification::createForOwner(
-                    ownerId:   $pet->owner_id,
-                    title:     $title,
-                    body:      $body,
-                    notifType: 'lost_pet_scan',
-                    url:       '/lost/' . $pet->slug,
-                    tag:       'lost-scan-' . $pet->id,
-                );
-            } else {
-                $log->markFailed('no_subscriptions', 'No active push subscriptions for owner');
-            }
+            $sent > 0 ? $log->markSent() : $log->markFailed('no_subscriptions', 'No active push subscriptions for owner');
         } catch (\Throwable $e) {
             $log->markFailed('exception', substr($e->getMessage(), 0, 500));
             // Nunca fallar el scan por un error de notificación
+        }
+
+        // El inbox SIEMPRE se crea (aunque no haya push activo) para que el dueño
+        // vea el escaneo de su mascota perdida al entrar a la app.
+        try {
+            InboxNotification::createForOwner(
+                ownerId:   $pet->owner_id,
+                title:     $title,
+                body:      $body,
+                notifType: 'lost_pet_scan',
+                url:       '/lost/' . $pet->slug,
+                tag:       'lost-scan-' . $pet->id,
+            );
+        } catch (\Throwable) {
+            // no fatal
+        }
+
+        // Tiempo real: si la app del dueño está abierta, ve el aviso al instante (Reverb).
+        try {
+            PetScanBroadcast::dispatch(
+                $pet->owner_id, 'lost_pet_scan', (string) $pet->id, $pet->slug, $pet->name, $title, $body, $data['city'] ?? null,
+            );
+        } catch (\Throwable) {
+            // best-effort, nunca rompe el flujo
         }
     }
 }

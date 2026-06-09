@@ -179,7 +179,8 @@ class LostController extends Controller
             'lastScanAt'      => $lastScan?->scanned_at?->toISOString(),
             'publicUrl'       => config('services.rokepet.frontend_url') . '/pet/' . $pet->slug,
             'slug'            => $pet->slug,
-            'contactPhone'    => $public ? $contactPhone : $contactPhone,
+            // El cartel público muestra el teléfono para que quien la encuentre pueda llamar directo.
+            'contactPhone'    => $contactPhone,
             'emergencyContact' => $emergencyContact,
             'emergencyPhone'  => $emergencyPhone,
             'ownerName'       => $owner?->display_name ?? '',

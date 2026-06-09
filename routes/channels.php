@@ -130,6 +130,12 @@ Broadcast::channel('system.maintenance', function (User $user) {
     return true; // Todos los usuarios autenticados pueden recibir notificaciones de mantenimiento
 });
 
+// Canal privado del dueño de mascota (ROKE PET) — escaneos en tiempo real vía Reverb.
+// El guard sanctum resuelve al modelo Owner dueño del token; solo autorizamos su canal.
+Broadcast::channel('rp-owner.{ownerId}', function ($user, string $ownerId) {
+    return $user instanceof \App\Domains\Pet\Models\Owner && $user->uuid === $ownerId;
+});
+
 // Canal privado por game server — recibe ping en tiempo real vía Reverb
 // El scheduler CollectGameServerPings hace broadcast en este canal cada 5 min.
 Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $serviceUuid) {
