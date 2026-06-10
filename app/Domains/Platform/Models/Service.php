@@ -115,22 +115,50 @@ class Service extends Model
         if ($value === null || $value === '') {
             return null;
         }
-        try {
-            // El cast encrypted:array ya desencripta — si llegamos aquí el valor
-            // pasó por el cast. Si no, es JSON plano: intentamos parsearlo.
-            return is_array($value) ? $value : (json_decode($value, true) ?? null);
-        } catch (\Throwable) {
-            return null;
+
+        if (is_array($value)) {
+            return $value;
         }
+
+        // Formato canónico: Crypt::encryptString(json_encode(...)).
+        try {
+            $decoded = json_decode(\Illuminate\Support\Facades\Crypt::decryptString($value), true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (\Throwable) {
+            // probar formatos legados
+        }
+
+        // Legado 1: encrypt(json_encode(...)) — payload serializado de PHP.
+        try {
+            $decrypted = decrypt($value);
+            if (is_array($decrypted)) {
+                return $decrypted;
+            }
+            $decoded = json_decode((string) $decrypted, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        } catch (\Throwable) {
+            // probar JSON plano
+        }
+
+        // Legado 2: JSON plano (filas anteriores a la encriptación).
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 
     /**
      * Mutator para connection_secrets — siempre encripta antes de guardar.
+     * Formato canónico: encryptString(json) — el mismo que usa
+     * app:re-encrypt-connection-secrets y security:rotate-app-key.
      */
     public function setConnectionSecretsAttribute(?array $value): void
     {
         $this->attributes['connection_secrets'] = $value !== null
-            ? encrypt(json_encode($value))
+            ? \Illuminate\Support\Facades\Crypt::encryptString(json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
             : null;
     }
 
