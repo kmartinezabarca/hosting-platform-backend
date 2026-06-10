@@ -241,7 +241,7 @@ class SendPetReminders extends Command
     private function ownerCanPush(string $ownerId): bool
     {
         return $this->pushAllowedCache[$ownerId] ??=
-            (bool) OwnerSubscription::where('owner_id', $ownerId)->first()?->hasFeature('push_reminders');
+            (bool) OwnerSubscription::currentForOwner($ownerId)?->hasFeature('push_reminders');
     }
 
     private function alreadySent(string $referenceId, string $referenceType, Carbon $today): bool

@@ -55,4 +55,9 @@ class PetPost extends Model
     {
         return $this->hasMany(PetPostComment::class, 'post_id')->orderBy('created_at', 'asc');
     }
+
+    public function reports(): HasMany
+    {
+        return $this->hasMany(PetPostReport::class, 'post_id');
+    }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Pet\Models\AdoptionFollowup;
 use App\Domains\Pet\Models\AdoptionListing;
 use App\Domains\Pet\Models\AdoptionReview;
+use App\Domains\Pet\Models\AdoptionReviewReport;
 use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\Owner;
 use App\Domains\Pet\Services\PushNotificationService;
@@ -83,26 +84,28 @@ class ReputationController extends Controller
     }
 
     /** GET /reputation/{ownerId} — resumen público + reseñas recientes (para badges/perfil). */
-    public function show(string $ownerId): JsonResponse
+    public function show(Request $request, string $ownerId): JsonResponse
     {
         $owner = Owner::find($ownerId);
         if (!$owner) {
             return response()->json(['error' => 'No encontrado'], 404);
         }
 
-        $reviews = AdoptionReview::where('reviewee_owner_id', $ownerId)
+        // Paginadas: el perfil siempre puede llegar a TODAS las reseñas visibles.
+        $reviewsPage = AdoptionReview::where('reviewee_owner_id', $ownerId)
+            ->where('moderation_status', '!=', 'hidden')
             ->with('reviewer')
             ->orderByDesc('created_at')
-            ->limit(20)
-            ->get()
-            ->map(fn (AdoptionReview $r) => [
-                'id'        => $r->id,
-                'role'      => $r->role,
-                'rating'    => $r->rating,
-                'comment'   => $r->comment,
-                'author'    => $r->reviewer?->display_name ?? 'Alguien',
-                'createdAt' => $r->created_at?->toISOString(),
-            ]);
+            ->paginate(10);
+
+        $reviews = collect($reviewsPage->items())->map(fn (AdoptionReview $r) => [
+            'id'        => $r->id,
+            'role'      => $r->role,
+            'rating'    => $r->rating,
+            'comment'   => $r->comment,
+            'author'    => $r->reviewer?->display_name ?? 'Alguien',
+            'createdAt' => $r->created_at?->toISOString(),
+        ]);
 
         // Galería de seguimiento: fotos que los adoptantes subieron de animales
         // que este dueño rescató. Es la prueba social más fuerte de su perfil.
@@ -123,8 +126,92 @@ class ReputationController extends Controller
         return response()->json([
             ...$this->reputation->summaryFor($owner),
             'reviews'         => $reviews,
+            'reviewsMeta'     => [
+                'total'       => $reviewsPage->total(),
+                'currentPage' => $reviewsPage->currentPage(),
+                'lastPage'    => $reviewsPage->lastPage(),
+            ],
             'followupGallery' => $gallery,
         ]);
+    }
+
+    /** POST /my-adoptions/followups/{id}/react — el rescatista reacciona al seguimiento entregado. */
+    public function reactFollowup(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'reaction' => 'required|in:heart,clap,smile,pray',
+            'note'     => 'nullable|string|max:300',
+        ]);
+
+        $followup = AdoptionFollowup::with('listing')->findOrFail($id);
+        $listing  = $followup->listing;
+
+        if (!$listing || $listing->owner_id !== $request->user()->uuid) {
+            return response()->json(['error' => 'No autorizado'], 403);
+        }
+        if ($followup->status !== 'submitted') {
+            return response()->json(['error' => 'Este seguimiento aún no fue entregado'], 422);
+        }
+
+        $followup->update([
+            'reaction'      => $data['reaction'],
+            'reaction_note' => isset($data['note']) ? trim($data['note']) ?: null : null,
+            'reacted_at'    => now(),
+        ]);
+
+        // Avisar al adoptante: su esfuerzo fue visto (refuerza que siga compartiendo).
+        $emoji = ['heart' => '❤️', 'clap' => '👏', 'smile' => '😊', 'pray' => '🙏'][$data['reaction']];
+        $title = "{$emoji} Al rescatista le encantó tu seguimiento de {$listing->name}";
+        $body  = $followup->reaction_note
+            ? '"' . Str::limit($followup->reaction_note, 120) . '"'
+            : 'Gracias por mostrar cómo está hoy.';
+        $this->bestEffortNotify($followup->adopter_owner_id, $title, $body, 'adoption_followup_reaction');
+
+        return response()->json([
+            'ok'           => true,
+            'reaction'     => $followup->reaction,
+            'reactionNote' => $followup->reaction_note,
+            'reactedAt'    => $followup->reacted_at?->toISOString(),
+        ]);
+    }
+
+    /** POST /reputation/reviews/{id}/report — reportar una reseña (moderación). */
+    public function reportReview(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'reason'  => 'required|in:spam,inappropriate,false,other',
+            'details' => 'nullable|string|max:500',
+        ]);
+
+        $review = AdoptionReview::find($id);
+        if (!$review) {
+            return response()->json(['ok' => false], 404);
+        }
+
+        // Una misma IP no infla el contador reportando en bucle la misma reseña.
+        $already = AdoptionReviewReport::where('review_id', $review->id)
+            ->where('ip_address', $request->ip())
+            ->where('resolved', false)
+            ->exists();
+        if ($already) {
+            return response()->json(['ok' => true]); // idempotente
+        }
+
+        AdoptionReviewReport::create([
+            'review_id'         => $review->id,
+            'reporter_owner_id' => optional($request->user('sanctum'))->uuid,
+            'reason'            => $data['reason'],
+            'details'           => $data['details'] ?? null,
+            'ip_address'        => $request->ip(),
+        ]);
+
+        // 3+ reportes abiertos → flagged para revisión admin (no se oculta solo).
+        $count = AdoptionReviewReport::where('review_id', $review->id)->where('resolved', false)->count();
+        if ($count >= 3 && $review->moderation_status === 'active') {
+            $review->update(['moderation_status' => 'flagged']);
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     /** GET /my-adoption-history — adopciones donde el usuario fue el adoptante. */

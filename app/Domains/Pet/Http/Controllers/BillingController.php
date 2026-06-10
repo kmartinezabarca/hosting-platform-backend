@@ -11,7 +11,7 @@ class BillingController extends Controller
 {
     public function show(Request $request): JsonResponse
     {
-        $sub = OwnerSubscription::where('owner_id', $request->user()->uuid)->first();
+        $sub = OwnerSubscription::currentForOwner($request->user()->uuid);
         return response()->json($sub ? $this->format($sub) : null);
     }
 
@@ -23,7 +23,7 @@ class BillingController extends Controller
      */
     public function banners(Request $request): JsonResponse
     {
-        $sub      = OwnerSubscription::where('owner_id', $request->user()->uuid)->first();
+        $sub      = OwnerSubscription::currentForOwner($request->user()->uuid);
         $banners  = [];
 
         if (!$sub) {

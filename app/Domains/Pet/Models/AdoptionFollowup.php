@@ -21,7 +21,8 @@ class AdoptionFollowup extends Model
 
     protected $fillable = [
         'listing_id', 'adopter_owner_id', 'requested_by_owner_id', 'status',
-        'photos', 'note', 'due_at', 'requested_at', 'submitted_at',
+        'photos', 'note', 'reaction', 'reaction_note', 'reacted_at',
+        'due_at', 'requested_at', 'submitted_at',
     ];
 
     protected $casts = [
@@ -29,6 +30,7 @@ class AdoptionFollowup extends Model
         'due_at'       => 'datetime',
         'requested_at' => 'datetime',
         'submitted_at' => 'datetime',
+        'reacted_at'   => 'datetime',
     ];
 
     protected $attributes = [

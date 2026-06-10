@@ -1,6 +1,7 @@
 <?php
 
 use App\Domains\Pet\Http\Controllers\AdminController;
+use App\Domains\Pet\Http\Controllers\AdminModerationController;
 use App\Domains\Pet\Http\Controllers\AdoptionController;
 use App\Domains\Pet\Http\Controllers\AuthController;
 use App\Domains\Pet\Http\Controllers\BillingController;
@@ -58,6 +59,10 @@ Route::middleware('throttle:5,1')->group(function () {
 
 // Reputación pública de un dueño (badge / perfil de confianza).
 Route::get('/reputation/{ownerId}', [ReputationController::class, 'show']);
+// Reporte de reseña (moderación) — público, rate-limit estricto (5/min por IP).
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/reputation/reviews/{id}/report', [ReputationController::class, 'reportReview']);
+});
 
 // ── Comunidad (público: ver feed y comentarios) ───────────────────────────────
 Route::get('/community/feed',                [CommunityController::class, 'feed']);
@@ -139,6 +144,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/adoptions/reviews',                   [ReputationController::class, 'storeReview']);
         Route::post('/my-adoptions/{id}/followups/request', [ReputationController::class, 'requestFollowup']);
         Route::post('/adoptions/followups/{id}/submit',     [ReputationController::class, 'submitFollowup']);
+        Route::post('/adoptions/followups/{id}/react',      [ReputationController::class, 'reactFollowup']);
     });
 
     // Comunidad (publicar e interactuar) — throttles por usuario contra spam.
@@ -166,8 +172,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Inbox de notificaciones push
     Route::get('/inbox',                  [InboxController::class, 'index']);
     Route::post('/inbox/read-all',        [InboxController::class, 'markAllRead']);
+    Route::post('/inbox/archive-all',     [InboxController::class, 'archiveAll']);
+    Route::delete('/inbox',               [InboxController::class, 'destroyAll']);
     Route::post('/inbox/{id}/read',       [InboxController::class, 'markRead']);
     Route::post('/inbox/{id}/archive',    [InboxController::class, 'archive']);
+    Route::post('/inbox/{id}/unarchive',  [InboxController::class, 'unarchive']);
     Route::delete('/inbox/{id}',          [InboxController::class, 'destroy']);
 
     // Vaccines
@@ -218,6 +227,18 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Admin — notificar propietario
     Route::post('/admin/owners/{ownerId}/notify-expiry', [AdminController::class, 'notifyExpiry']);
+
+    // Admin — moderación de adopciones, reseñas y comunidad
+    Route::get('/admin/adoptions',                       [AdminModerationController::class, 'adoptions']);
+    Route::get('/admin/adoptions/{id}',                  [AdminModerationController::class, 'adoptionDetail']);
+    Route::patch('/admin/adoptions/{id}/moderation',     [AdminModerationController::class, 'moderateAdoption']);
+    Route::get('/admin/reviews',                         [AdminModerationController::class, 'reviews']);
+    Route::patch('/admin/reviews/{id}/moderation',       [AdminModerationController::class, 'moderateReview']);
+    Route::get('/admin/community/posts',                 [AdminModerationController::class, 'communityPosts']);
+    Route::patch('/admin/community/posts/{id}/moderation', [AdminModerationController::class, 'moderatePost']);
+    Route::get('/admin/community/posts/{id}/comments',   [AdminModerationController::class, 'postComments']);
+    Route::delete('/admin/community/comments/{id}',      [AdminModerationController::class, 'deleteComment']);
+    Route::get('/admin/moderation-queue',                [AdminModerationController::class, 'moderationQueue']);
 
     // Admin — registro de notificaciones
     Route::get('/admin/notifications',             [AdminController::class, 'listNotifications']);

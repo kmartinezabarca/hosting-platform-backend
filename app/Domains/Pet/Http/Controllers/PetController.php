@@ -33,7 +33,7 @@ class PetController extends Controller
         // Enforcement de límite de mascotas según el plan (free=1, starter=2, pro=∞).
         // El límite vive en pet_plans.max_pets (null = ilimitado). Sin plan reconocido
         // se aplica el más restrictivo. El trial usa el límite del plan que prueba.
-        $sub   = OwnerSubscription::where('owner_id', $ownerId)->first();
+        $sub   = OwnerSubscription::currentForOwner($ownerId);
         $limit = $sub ? $sub->petLimit() : 1;
         if ($limit !== null && Pet::where('owner_id', $ownerId)->count() >= $limit) {
             return response()->json([

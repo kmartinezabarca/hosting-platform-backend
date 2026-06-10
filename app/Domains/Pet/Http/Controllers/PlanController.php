@@ -179,10 +179,15 @@ class PlanController extends Controller
         $result = [];
         foreach ($features as $feature) {
             if (is_string($feature) && trim($feature) !== '') {
-                $result[] = ['label' => trim($feature), 'included' => true];
+                $label = trim($feature);
+                $result[] = [
+                    'key'      => $this->inferFeatureKey($label),
+                    'label'    => $label,
+                    'included' => true,
+                ];
             } elseif (is_array($feature) && !empty($feature['label'])) {
                 $result[] = [
-                    'key'         => $feature['key'] ?? null,
+                    'key'         => $feature['key'] ?? $this->inferFeatureKey((string) $feature['label']),
                     'label'       => $feature['label'],
                     'description' => $feature['description'] ?? null,
                     'included'    => $feature['included'] ?? true,
@@ -190,6 +195,49 @@ class PlanController extends Controller
             }
         }
         return $result;
+    }
+
+    private function inferFeatureKey(string $label): ?string
+    {
+        $slug = Str::slug($label);
+        $known = [
+            'enlaces-veterinarios-temporales' => 'vet_links',
+            'enlaces-veterinarios'            => 'vet_links',
+            'links-veterinarios-ilimitados'   => 'vet_links',
+            'links-veterinarios'              => 'vet_links',
+            'historial-de-peso-con-graficas'  => 'weight_tracking',
+            'analitica-de-escaneos'           => 'scan_analytics',
+            'analitica-avanzada-de-escaneos'  => 'scan_analytics',
+            'historial-de-escaneos'           => 'scan_analytics',
+            'recordatorios-push-en-la-app'    => 'push_notifications',
+            'recordatorios-push'              => 'push_notifications',
+            'recordatorios-push-email'        => 'push_notifications',
+            'recordatorios-email-push'        => 'push_notifications',
+            'historial-medico-completo'       => 'medical_history_full',
+            'cartilla-e-historial-medico'     => 'medical_history_full',
+        ];
+
+        if (isset($known[$slug])) {
+            return $known[$slug];
+        }
+
+        if (Str::contains($slug, ['veterinario', 'vet-link', 'vet-links'])) {
+            return 'vet_links';
+        }
+        if (Str::contains($slug, 'peso')) {
+            return 'weight_tracking';
+        }
+        if (Str::contains($slug, ['escaneo', 'scan', 'analitica'])) {
+            return 'scan_analytics';
+        }
+        if (Str::contains($slug, 'push')) {
+            return 'push_notifications';
+        }
+        if (Str::contains($slug, ['historial-medico', 'cartilla'])) {
+            return 'medical_history_full';
+        }
+
+        return null;
     }
 
     private function requireAdmin(Request $request): void

@@ -5,6 +5,8 @@ namespace App\Domains\Pet\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 
 class OwnerSubscription extends Model
 {
@@ -60,12 +62,44 @@ class OwnerSubscription extends Model
         return in_array($this->status, ['active', 'trialing']);
     }
 
+    public function hasUsableEntitlement(): bool
+    {
+        if ($this->status === 'active') {
+            return true;
+        }
+
+        if ($this->status === 'trialing') {
+            return $this->trial_ends_at === null || $this->trial_ends_at->isFuture();
+        }
+
+        return $this->inGracePeriod();
+    }
+
+    public function scopeForOwner(Builder $query, string $ownerId): Builder
+    {
+        return $query->where('owner_id', $ownerId);
+    }
+
+    public static function currentForOwner(string $ownerId): ?self
+    {
+        return static::query()
+            ->with('plan')
+            ->forOwner($ownerId)
+            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'trialing' THEN 1 WHEN 'past_due' THEN 2 WHEN 'incomplete' THEN 3 WHEN 'canceled' THEN 4 ELSE 5 END")
+            ->latest('updated_at')
+            ->first();
+    }
+
     /**
      * Límite de mascotas del plan actual. null = ilimitado (p. ej. Pro).
      * Si no hay plan reconocido, aplica el límite más restrictivo (1, como free).
      */
     public function petLimit(): ?int
     {
+        if (! $this->hasUsableEntitlement()) {
+            return 1;
+        }
+
         $plan = $this->plan;
         if (!$plan) {
             return 1;
@@ -80,16 +114,138 @@ class OwnerSubscription extends Model
      */
     public function hasFeature(string $key): bool
     {
-        $plan = $this->plan;
-        if (!$plan) {
+        if (! $this->hasUsableEntitlement()) {
             return false;
         }
-        foreach ((array) $plan->features as $feature) {
-            if (is_array($feature) && ($feature['key'] ?? null) === $key) {
-                return (bool) ($feature['included'] ?? true);
+
+        $requestedKey = $this->canonicalFeatureKey($key);
+        if (! $requestedKey) {
+            return false;
+        }
+
+        $plan = $this->plan;
+        foreach ((array) ($plan?->features ?? []) as $feature) {
+            $featureKey = null;
+            $included = null;
+
+            if (is_string($feature)) {
+                $featureKey = $this->inferFeatureKey($feature);
+            } elseif (is_array($feature)) {
+                $featureKey = $this->canonicalFeatureKey((string) ($feature['key'] ?? ''))
+                    ?? $this->inferFeatureKey((string) ($feature['label'] ?? ''));
+                $included = array_key_exists('included', $feature) ? (bool) $feature['included'] : null;
+            } else {
+                continue;
+            }
+
+            if ($featureKey === $requestedKey) {
+                return $included ?? $this->fallbackIncludesFeature($requestedKey);
             }
         }
-        return false;
+
+        return $this->fallbackIncludesFeature($requestedKey);
+    }
+
+    private function inferFeatureKey(string $label): ?string
+    {
+        $slug = Str::slug($label);
+        $known = [
+            'enlaces-veterinarios-temporales' => 'vet_links',
+            'enlaces-veterinarios'            => 'vet_links',
+            'links-veterinarios-ilimitados'   => 'vet_links',
+            'links-veterinarios'              => 'vet_links',
+            'historial-de-peso-con-graficas'  => 'weight_tracking',
+            'analitica-de-escaneos'           => 'scan_analytics',
+            'analitica-avanzada-de-escaneos'  => 'scan_analytics',
+            'historial-de-escaneos'           => 'scan_analytics',
+            'recordatorios-push-en-la-app'    => 'push_notifications',
+            'recordatorios-push'              => 'push_notifications',
+            'recordatorios-push-email'        => 'push_notifications',
+            'recordatorios-email-push'        => 'push_notifications',
+            'historial-medico-completo'       => 'medical_history_full',
+            'cartilla-e-historial-medico'     => 'medical_history_full',
+        ];
+
+        if (isset($known[$slug])) {
+            return $known[$slug];
+        }
+
+        if (Str::contains($slug, ['veterinario', 'vet-link', 'vet-links'])) {
+            return 'vet_links';
+        }
+        if (Str::contains($slug, 'peso')) {
+            return 'weight_tracking';
+        }
+        if (Str::contains($slug, ['escaneo', 'scan', 'analitica'])) {
+            return 'scan_analytics';
+        }
+        if (Str::contains($slug, 'push')) {
+            return 'push_notifications';
+        }
+        if (Str::contains($slug, ['historial-medico', 'cartilla'])) {
+            return 'medical_history_full';
+        }
+
+        return $this->canonicalFeatureKey($label);
+    }
+
+    private function canonicalFeatureKey(string $key): ?string
+    {
+        $slug = Str::slug($key);
+        if ($slug === '') {
+            return null;
+        }
+
+        $aliases = [
+            'vet-links'            => 'vet_links',
+            'vet-links-temporales' => 'vet_links',
+            'push-reminders'       => 'push_notifications',
+            'push-notifications'   => 'push_notifications',
+            'weight-tracking'      => 'weight_tracking',
+            'scan-analytics'       => 'scan_analytics',
+            'medical-history-full' => 'medical_history_full',
+        ];
+
+        return $aliases[$slug] ?? str_replace('-', '_', $slug);
+    }
+
+    private function fallbackIncludesFeature(string $key): bool
+    {
+        $planCode = Str::slug((string) $this->plan_code);
+        $matrix = [
+            'free' => [
+                'qr_nfc',
+                'lost_mode',
+                'email_reminders',
+                'medical_history',
+                'medical_history_full',
+            ],
+            'starter' => [
+                'qr_nfc',
+                'lost_mode',
+                'email_reminders',
+                'push_notifications',
+                'medical_history',
+                'medical_history_full',
+                'vet_links',
+                'weight_tracking',
+            ],
+            'pro' => [
+                'qr_nfc',
+                'lost_mode',
+                'email_reminders',
+                'push_notifications',
+                'medical_history',
+                'medical_history_full',
+                'vet_links',
+                'weight_tracking',
+                'scan_analytics',
+                'whatsapp_reminders',
+                'priority_support',
+            ],
+        ];
+
+        return in_array($key, $matrix[$planCode] ?? [], true);
     }
 
     /** ¿Está en periodo de gracia por un cobro fallido todavía no vencido? */

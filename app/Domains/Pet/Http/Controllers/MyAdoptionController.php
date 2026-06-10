@@ -462,13 +462,16 @@ class MyAdoptionController extends Controller
     private function formatFollowup(AdoptionFollowup $f): array
     {
         return [
-            'id'          => $f->id,
-            'status'      => $f->status,
-            'photos'      => $f->photos ?? [],
-            'note'        => $f->note,
-            'requestedAt' => $f->requested_at?->toISOString(),
-            'dueAt'       => $f->due_at?->toISOString(),
-            'submittedAt' => $f->submitted_at?->toISOString(),
+            'id'           => $f->id,
+            'status'       => $f->status,
+            'photos'       => $f->photos ?? [],
+            'note'         => $f->note,
+            'reaction'     => $f->reaction,
+            'reactionNote' => $f->reaction_note,
+            'reactedAt'    => $f->reacted_at?->toISOString(),
+            'requestedAt'  => $f->requested_at?->toISOString(),
+            'dueAt'        => $f->due_at?->toISOString(),
+            'submittedAt'  => $f->submitted_at?->toISOString(),
         ];
     }
 }

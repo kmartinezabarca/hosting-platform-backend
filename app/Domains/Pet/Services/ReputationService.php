@@ -23,13 +23,17 @@ class ReputationService
             return;
         }
 
-        // Reseñas recibidas como adoptante.
-        $asAdopter = AdoptionReview::where('reviewee_owner_id', $ownerId)->where('role', 'adopter');
+        // Reseñas recibidas como adoptante (las ocultas por moderación no cuentan).
+        $asAdopter = AdoptionReview::where('reviewee_owner_id', $ownerId)
+            ->where('role', 'adopter')
+            ->where('moderation_status', '!=', 'hidden');
         $adopterCount = (clone $asAdopter)->count();
         $adopterAvg   = $adopterCount > 0 ? round((clone $asAdopter)->avg('rating'), 2) : null;
 
         // Reseñas recibidas como rescatista.
-        $asRescuer = AdoptionReview::where('reviewee_owner_id', $ownerId)->where('role', 'rescuer');
+        $asRescuer = AdoptionReview::where('reviewee_owner_id', $ownerId)
+            ->where('role', 'rescuer')
+            ->where('moderation_status', '!=', 'hidden');
         $rescuerCount = (clone $asRescuer)->count();
         $rescuerAvg   = $rescuerCount > 0 ? round((clone $asRescuer)->avg('rating'), 2) : null;
 

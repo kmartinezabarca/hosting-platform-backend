@@ -18,7 +18,7 @@ trait GatesPlanFeatures
 {
     protected function requirePlanFeature(string $ownerId, string $featureKey): ?JsonResponse
     {
-        $sub = OwnerSubscription::where('owner_id', $ownerId)->first();
+        $sub = OwnerSubscription::currentForOwner($ownerId);
 
         if ($sub && $sub->hasFeature($featureKey)) {
             return null;
