@@ -16,7 +16,7 @@ class TransactionFactory extends Factory
         return [
             'uuid'                   => (string) Str::uuid(),
             'user_id'                => User::factory(),
-            'invoice_id'             => null,
+            'receipt_id'             => null,
             'payment_method_id'      => null,
             'transaction_id'         => 'txn_' . Str::random(16),
             'provider_transaction_id' => 'pi_test_' . Str::random(16),

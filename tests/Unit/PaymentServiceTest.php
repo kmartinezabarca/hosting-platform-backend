@@ -119,7 +119,7 @@ class PaymentServiceTest extends TestCase
 
         $this->assertDatabaseHas('transactions', [
             'user_id' => $user->id,
-            'invoice_id' => $invoice->id,
+            'receipt_id' => $invoice->id,
             'provider_transaction_id' => 'pi_test123',
             'amount' => 100.00,
             'status' => 'completed',

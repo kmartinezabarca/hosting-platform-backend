@@ -71,7 +71,7 @@ class StripeWebhookTest extends TestCase
 
         $transaction = Transaction::factory()->create([
             'user_id'               => $user->id,
-            'invoice_id'            => $invoice->id,
+            'receipt_id'            => $invoice->id,
             'provider_transaction_id' => 'pi_test_succeeded_001',
             'status'                => 'pending',
         ]);
