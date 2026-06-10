@@ -257,6 +257,12 @@ class StripeWebhookController extends Controller
                 'suspension_reason'    => null,
             ]);
 
+            // Contabilidad interna de la renovación: Receipt + Transaction +
+            // CFDI. Idempotente por provider_invoice_id (invoice.paid e
+            // invoice.payment_succeeded llegan como eventos distintos).
+            app(\App\Domains\Platform\Services\RenewalAccountingService::class)
+                ->recordRenewal($subscription, $stripeInvoice);
+
             // Reactivar/keep-active el servicio y limpiar la gracia.
             $service = $subscription->service;
             if ($service) {

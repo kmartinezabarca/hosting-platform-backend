@@ -75,6 +75,43 @@ class StripeObjectReader
     }
 
     /**
+     * PaymentIntent ID de una invoice (legacy invoice.payment_intent o Basil
+     * invoice.payments.data[0].payment.payment_intent).
+     */
+    public static function paymentIntentIdFromInvoice(object $invoice): ?string
+    {
+        $legacy = $invoice->payment_intent ?? null;
+        if (!empty($legacy)) {
+            return is_string($legacy) ? $legacy : ($legacy->id ?? null);
+        }
+
+        $basil = $invoice->payments->data[0]->payment->payment_intent ?? null;
+        if (!empty($basil)) {
+            return is_string($basil) ? $basil : ($basil->id ?? null);
+        }
+
+        return null;
+    }
+
+    /**
+     * Charge ID de una invoice (legacy invoice.charge o Basil payments[]).
+     */
+    public static function chargeIdFromInvoice(object $invoice): ?string
+    {
+        $legacy = $invoice->charge ?? null;
+        if (!empty($legacy)) {
+            return is_string($legacy) ? $legacy : ($legacy->id ?? null);
+        }
+
+        $basil = $invoice->payments->data[0]->payment->charge ?? null;
+        if (!empty($basil)) {
+            return is_string($basil) ? $basil : ($basil->id ?? null);
+        }
+
+        return null;
+    }
+
+    /**
      * current_period_start de una suscripción (raíz legacy o por ítem en Basil).
      */
     public static function subscriptionPeriodStart(object $sub): ?Carbon
