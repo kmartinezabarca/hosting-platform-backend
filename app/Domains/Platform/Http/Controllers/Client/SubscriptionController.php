@@ -57,11 +57,12 @@ class SubscriptionController extends Controller
     public function createSubscription(Request $request): JsonResponse
     {
         try {
+            // NOTA: trial_days NO se acepta del cliente — un usuario podría
+            // auto-otorgarse meses gratis. El trial lo define el plan en el catálogo.
             $validated = $request->validate([
                 'price_id'          => 'required|string',
                 'service_id'        => 'required|integer',
                 'payment_method_id' => 'required|string',
-                'trial_days'        => 'sometimes|integer|min:0|max:365',
             ]);
 
             $user = Auth::user();
@@ -112,8 +113,9 @@ class SubscriptionController extends Controller
                     'metadata' => ['user_id' => $user->id, 'service_id' => $service->id],
                 ];
 
-                if (! empty($validated['trial_days']) && $validated['trial_days'] > 0) {
-                    $subscriptionData['trial_period_days'] = $validated['trial_days'];
+                // Trial definido por el catálogo (server-side), nunca por el request.
+                if ($plan->isTrial() && (int) ($plan->trial_days ?? 0) > 0) {
+                    $subscriptionData['trial_period_days'] = (int) $plan->trial_days;
                 }
 
                 $stripeSubscription = StripeSubscription::create($subscriptionData);
