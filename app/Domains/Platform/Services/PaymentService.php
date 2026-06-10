@@ -232,6 +232,31 @@ class PaymentService
      */
     public function refundReceipt(Receipt $receipt, ?float $amount = null, ?string $reason = null): array
     {
+        // ── Guardas anti doble-reembolso ─────────────────────────────────────
+        // 1) Recibo ya marcado como reembolsado → rechazar.
+        if ($receipt->status === Receipt::STATUS_REFUNDED) {
+            throw new \RuntimeException('Esta factura ya fue reembolsada.');
+        }
+
+        // 2) Tope por monto: lo ya reembolsado (incluye reembolsos parciales y
+        //    los sincronizados por webhook) no puede excederse con esta petición.
+        $alreadyRefunded = (float) $receipt->transactions()
+            ->where('type', 'refund')
+            ->where('status', 'completed')
+            ->sum('amount');
+
+        $remaining = round((float) $receipt->total - $alreadyRefunded, 2);
+
+        if ($remaining <= 0) {
+            throw new \RuntimeException('Esta factura ya fue reembolsada en su totalidad.');
+        }
+
+        if ($amount !== null && round($amount, 2) > $remaining) {
+            throw new \RuntimeException(
+                "El monto excede lo reembolsable. Máximo disponible: {$remaining} " . strtoupper($receipt->currency ?: 'MXN') . '.'
+            );
+        }
+
         // The Stripe PaymentIntent is stored on the receipt (payment_reference);
         // fall back to the latest completed payment transaction if absent.
         $paymentIntentId = $receipt->payment_reference;
@@ -262,7 +287,16 @@ class PaymentService
             $params['amount'] = (int) round($amount * 100);
         }
 
-        $refund = \Stripe\Refund::create($params);
+        // 3) Idempotency-Key de Stripe: un doble click / retry dentro de la
+        //    ventana (~5 min) devuelve el MISMO refund en lugar de crear otro.
+        $idempotencyKey = 'refund_' . hash('sha256', implode('|', [
+            $receipt->id,
+            $paymentIntentId,
+            $params['amount'] ?? 'full',
+            (int) floor(time() / 300),
+        ]));
+
+        $refund = \Stripe\Refund::create($params, ['idempotency_key' => $idempotencyKey]);
 
         $refundedAmount = isset($refund->amount)
             ? $refund->amount / 100
@@ -287,7 +321,13 @@ class PaymentService
             'processed_at'            => now(),
         ]);
 
-        $receipt->update(['status' => Receipt::STATUS_REFUNDED]);
+        // Solo marcar el recibo como reembolsado cuando el acumulado cubre el
+        // total; un reembolso parcial deja el recibo en paid con el refund
+        // registrado en transactions.
+        $cumulativeRefunded = round($alreadyRefunded + $refundedAmount, 2);
+        if ($cumulativeRefunded >= (float) $receipt->total) {
+            $receipt->update(['status' => Receipt::STATUS_REFUNDED]);
+        }
 
         return [
             'refund'      => $refund,

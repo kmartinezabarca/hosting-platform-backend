@@ -89,6 +89,10 @@ class StripeWebhookController extends Controller
                 'customer.subscription.updated'     => $this->onSubscriptionUpdated($object),
                 'customer.subscription.deleted'     => $this->onSubscriptionDeleted($object),
                 'checkout.session.completed'        => $this->onCheckoutSessionCompleted($object),
+                'charge.refunded'                   => $this->onChargeRefunded($object),
+                'charge.dispute.created',
+                'charge.dispute.updated'            => $this->onDisputeOpenedOrUpdated($object),
+                'charge.dispute.closed'             => $this->onDisputeClosed($object),
                 default                             => Log::info("Stripe webhook ignored: {$event->type}"),
             };
         } catch (\Throwable $e) {
@@ -584,5 +588,239 @@ class StripeWebhookController extends Controller
         Log::info('Stripe: checkout.session.completed (no usado por esta plataforma)', [
             'session_id' => $session->id ?? null,
         ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Refunds y disputas (chargebacks)
+    // ──────────────────────────────────────────────
+
+    /**
+     * charge.refunded
+     *
+     * Sincroniza reembolsos hechos desde el dashboard de Stripe (o por API)
+     * hacia la contabilidad interna. Idempotente por DELTA: registra solo la
+     * diferencia entre amount_refunded del charge y lo ya registrado en
+     * transactions tipo refund del mismo receipt; un reintento del evento o
+     * un evento ya procesado produce delta 0 y no escribe nada.
+     */
+    private function onChargeRefunded(object $charge): void
+    {
+        $receipt = $this->receiptForCharge($charge);
+
+        if (! $receipt) {
+            Log::info('Stripe: charge.refunded sin receipt local (se ignora)', [
+                'charge_id'         => $charge->id ?? null,
+                'payment_intent_id' => $charge->payment_intent ?? null,
+            ]);
+            return;
+        }
+
+        DB::transaction(function () use ($charge, $receipt) {
+            $totalRefunded = round(((int) ($charge->amount_refunded ?? 0)) / 100, 2);
+
+            $alreadyRecorded = (float) Transaction::where('receipt_id', $receipt->id)
+                ->where('type', 'refund')
+                ->where('status', 'completed')
+                ->sum('amount');
+
+            $delta = round($totalRefunded - $alreadyRecorded, 2);
+
+            if ($delta <= 0) {
+                Log::info('Stripe: charge.refunded ya registrado (idempotente)', [
+                    'receipt_id' => $receipt->id,
+                    'charge_id'  => $charge->id ?? null,
+                ]);
+                return;
+            }
+
+            // El id del último refund si viene expandido; si no, referencia determinista.
+            $refundId = $charge->refunds->data[0]->id
+                ?? (($charge->id ?? 'ch_unknown') . ':refunded:' . (int) ($charge->amount_refunded ?? 0));
+
+            Transaction::create([
+                'uuid'                    => (string) \Illuminate\Support\Str::uuid(),
+                'user_id'                 => $receipt->user_id,
+                'receipt_id'              => $receipt->id,
+                'payment_method_id'       => null,
+                'transaction_id'          => 'REF-' . \Illuminate\Support\Str::upper(\Illuminate\Support\Str::random(10)),
+                'provider_transaction_id' => $refundId,
+                'type'                    => 'refund',
+                'status'                  => 'completed',
+                'amount'                  => $delta,
+                'currency'                => strtoupper((string) ($charge->currency ?? $receipt->currency ?? 'MXN')),
+                'fee_amount'              => 0,
+                'provider'                => 'stripe',
+                'provider_data'           => [
+                    'stripe' => [
+                        'charge_id'         => $charge->id ?? null,
+                        'payment_intent_id' => $charge->payment_intent ?? null,
+                        'amount_refunded'   => $totalRefunded,
+                        'source'            => 'webhook charge.refunded',
+                    ],
+                ],
+                'description'    => $totalRefunded >= (float) $receipt->total
+                    ? 'Reembolso total (sincronizado desde Stripe)'
+                    : 'Reembolso parcial (sincronizado desde Stripe)',
+                'failure_reason' => null,
+                'processed_at'   => now(),
+            ]);
+
+            // Total → refunded; parcial → sigue paid (el monto reembolsado queda
+            // registrado en transactions).
+            if ($totalRefunded >= (float) $receipt->total && $receipt->status !== Receipt::STATUS_REFUNDED) {
+                $receipt->update(['status' => Receipt::STATUS_REFUNDED]);
+            }
+
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Reembolso sincronizado desde Stripe',
+                "Se registró un reembolso de {$delta} " . strtoupper((string) ($charge->currency ?? 'MXN')) . " para el recibo #{$receipt->receipt_number}.",
+                'admin_refund_synced',
+                ['receipt_id' => $receipt->id, 'amount' => $delta],
+            );
+        });
+    }
+
+    /**
+     * charge.dispute.created / charge.dispute.updated
+     *
+     * Marca el cargo en disputa: la transacción de pago y el recibo pasan a
+     * 'disputed' hasta que la disputa se cierre. Idempotente (updates por estado).
+     */
+    private function onDisputeOpenedOrUpdated(object $dispute): void
+    {
+        $receipt = $this->receiptForCharge($dispute);
+
+        if (! $receipt) {
+            Log::warning('Stripe: disputa sin receipt local', [
+                'dispute_id' => $dispute->id ?? null,
+                'charge_id'  => $dispute->charge ?? null,
+            ]);
+            return;
+        }
+
+        DB::transaction(function () use ($dispute, $receipt) {
+            Transaction::where('receipt_id', $receipt->id)
+                ->where('type', 'payment')
+                ->where('status', '!=', 'disputed')
+                ->update(['status' => 'disputed']);
+
+            if (! in_array($receipt->status, ['disputed', Receipt::STATUS_REFUNDED], true)) {
+                $receipt->update(['status' => 'disputed']);
+            }
+
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Disputa de cargo (chargeback)',
+                "El recibo #{$receipt->receipt_number} está en disputa (estado Stripe: " . ($dispute->status ?? '?') . '). Responde la disputa en el dashboard de Stripe.',
+                'admin_charge_disputed',
+                ['receipt_id' => $receipt->id, 'dispute_id' => $dispute->id ?? null, 'dispute_status' => $dispute->status ?? null],
+                ['email' => true, 'subtitle' => 'Acción requerida', 'action_url' => '/admin/invoices', 'action_text' => 'Ver recibo'],
+            );
+        });
+    }
+
+    /**
+     * charge.dispute.closed
+     *
+     * won  → restaurar pago/recibo a su estado normal.
+     * lost → el dinero se devolvió: registrar chargeback y marcar refunded.
+     */
+    private function onDisputeClosed(object $dispute): void
+    {
+        $receipt = $this->receiptForCharge($dispute);
+
+        if (! $receipt) {
+            return;
+        }
+
+        DB::transaction(function () use ($dispute, $receipt) {
+            if (($dispute->status ?? null) === 'won') {
+                Transaction::where('receipt_id', $receipt->id)
+                    ->where('type', 'payment')
+                    ->where('status', 'disputed')
+                    ->update(['status' => 'completed']);
+
+                if ($receipt->status === 'disputed') {
+                    $receipt->update(['status' => Receipt::STATUS_PAID]);
+                }
+
+                \App\Domains\Platform\Support\AdminNotifier::notify(
+                    'Disputa ganada',
+                    "La disputa del recibo #{$receipt->receipt_number} se resolvió a favor. El cobro se mantiene.",
+                    'admin_dispute_won',
+                    ['receipt_id' => $receipt->id, 'dispute_id' => $dispute->id ?? null],
+                );
+                return;
+            }
+
+            // lost (o cualquier cierre no ganado): chargeback consumado.
+            $amount = round(((int) ($dispute->amount ?? 0)) / 100, 2) ?: (float) $receipt->total;
+
+            $exists = Transaction::where('receipt_id', $receipt->id)
+                ->where('type', 'chargeback')
+                ->where('provider_transaction_id', $dispute->id ?? '')
+                ->exists();
+
+            if (! $exists) {
+                Transaction::create([
+                    'uuid'                    => (string) \Illuminate\Support\Str::uuid(),
+                    'user_id'                 => $receipt->user_id,
+                    'receipt_id'              => $receipt->id,
+                    'payment_method_id'       => null,
+                    'transaction_id'          => 'CHB-' . \Illuminate\Support\Str::upper(\Illuminate\Support\Str::random(10)),
+                    'provider_transaction_id' => $dispute->id ?? ('dispute:' . $receipt->id),
+                    'type'                    => 'chargeback',
+                    'status'                  => 'completed',
+                    'amount'                  => $amount,
+                    'currency'                => strtoupper((string) ($dispute->currency ?? $receipt->currency ?? 'MXN')),
+                    'fee_amount'              => 0,
+                    'provider'                => 'stripe',
+                    'provider_data'           => ['stripe' => ['dispute_id' => $dispute->id ?? null, 'charge_id' => $dispute->charge ?? null]],
+                    'description'             => 'Contracargo: disputa perdida',
+                    'failure_reason'          => null,
+                    'processed_at'            => now(),
+                ]);
+            }
+
+            Transaction::where('receipt_id', $receipt->id)
+                ->where('type', 'payment')
+                ->where('status', 'disputed')
+                ->update(['status' => 'refunded']);
+
+            $receipt->update(['status' => Receipt::STATUS_REFUNDED]);
+
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Disputa perdida (contracargo)',
+                "Se perdió la disputa del recibo #{$receipt->receipt_number}: el cargo fue devuelto al cliente.",
+                'admin_dispute_lost',
+                ['receipt_id' => $receipt->id, 'dispute_id' => $dispute->id ?? null],
+                ['email' => true, 'subtitle' => 'Contracargo consumado'],
+            );
+        });
+    }
+
+    /**
+     * Resuelve el Receipt local de un charge o disputa de Stripe:
+     * por PaymentIntent (payment_reference) o por la transacción de pago.
+     */
+    private function receiptForCharge(object $chargeOrDispute): ?Receipt
+    {
+        $paymentIntentId = $chargeOrDispute->payment_intent ?? null;
+        $paymentIntentId = is_string($paymentIntentId) ? $paymentIntentId : ($paymentIntentId->id ?? null);
+
+        if ($paymentIntentId) {
+            $receipt = Receipt::where('payment_reference', $paymentIntentId)->first();
+            if ($receipt) {
+                return $receipt;
+            }
+
+            $tx = Transaction::where('provider_transaction_id', $paymentIntentId)
+                ->where('type', 'payment')
+                ->first();
+            if ($tx?->receipt_id) {
+                return Receipt::find($tx->receipt_id);
+            }
+        }
+
+        return null;
     }
 }
