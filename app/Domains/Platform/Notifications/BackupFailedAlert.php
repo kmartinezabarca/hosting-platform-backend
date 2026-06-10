@@ -54,6 +54,7 @@ class BackupFailedAlert extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'target'             => 'admin',
             'type'               => 'backup_failed_alert',
             'backup_id'          => $this->backup->uuid,
             'backup_type'        => $this->backup->type,

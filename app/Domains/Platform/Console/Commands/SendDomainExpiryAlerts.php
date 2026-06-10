@@ -67,6 +67,12 @@ class SendDomainExpiryAlerts extends Command
 
                 try {
                     $domain->user->notify(new DomainExpiryAlert($domain, $days));
+                    \App\Domains\Platform\Support\AdminNotifier::notify(
+                        'Dominio por vencer',
+                        "El dominio {$domain->domain_name} de {$domain->user->full_name} vence en ~{$days} días.",
+                        'admin_domain_expiring',
+                        ['domain' => $domain->domain_name, 'user_id' => $domain->user_id, 'days' => $days],
+                    );
                     $sent++;
 
                     Log::info('DomainExpiryAlert enviada', [

@@ -25,6 +25,8 @@ class BlogPost extends Model
         'content',
         'image',
         'read_time',
+        'likes',
+        'views',
         'is_featured',
         'is_published',
         'published_at',
@@ -62,5 +64,10 @@ class BlogPost extends Model
     public function author()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function comments()
+    {
+        return $this->hasMany(BlogComment::class, 'blog_post_id');
     }
 }

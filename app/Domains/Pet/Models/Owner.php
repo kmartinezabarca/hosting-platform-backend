@@ -17,11 +17,19 @@ class Owner extends Model
         'id', 'display_name', 'phone', 'email', 'address',
         'emergency_contact', 'emergency_phone',
         'public_email_visible', 'public_address_visible',
+        'adopter_rating_avg', 'adopter_rating_count', 'adopter_adoptions_count',
+        'adopter_followups_ratio', 'rescuer_rating_avg', 'rescuer_rating_count',
     ];
 
     protected $casts = [
-        'public_email_visible'   => 'boolean',
-        'public_address_visible' => 'boolean',
+        'public_email_visible'    => 'boolean',
+        'public_address_visible'  => 'boolean',
+        'adopter_rating_avg'      => 'float',
+        'adopter_rating_count'    => 'integer',
+        'adopter_adoptions_count' => 'integer',
+        'adopter_followups_ratio' => 'float',
+        'rescuer_rating_avg'      => 'float',
+        'rescuer_rating_count'    => 'integer',
     ];
 
     public function pets(): HasMany

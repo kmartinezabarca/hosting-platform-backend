@@ -2,9 +2,12 @@
 
 namespace App\Domains\Platform\Services\Admin;
 
+use App\Domains\Platform\Models\Backup;
 use App\Domains\Platform\Models\Receipt;
+use App\Domains\Platform\Models\ServerNode;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Models\Ticket;
+use App\Domains\Platform\Services\Coolify\CoolifyService;
 use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -14,6 +17,7 @@ class ServiceSupportOverviewService
 {
     public function __construct(
         private readonly PterodactylService $pterodactyl,
+        private readonly CoolifyService $coolify,
     ) {
     }
 
@@ -22,6 +26,7 @@ class ServiceSupportOverviewService
         $service = Service::with([
             'user',
             'plan.category',
+            'plan.pricing.billingCycle',
             'selectedEgg',
             'serverNode',
         ])->where('uuid', $uuid)->firstOrFail();
@@ -36,16 +41,109 @@ class ServiceSupportOverviewService
             ->limit(5)
             ->get();
 
-        $runtime = $this->runtimeSnapshot($service);
+        $provider = $service->plan?->provisioner ?: null;
+        $isPterodactyl = $provider === 'pterodactyl';
+        $isCoolify = $provider === 'coolify';
+
+        // Solo consultamos al proveedor que corresponde al plan.
+        $runtime = $isPterodactyl ? $this->runtimeSnapshot($service) : $this->emptyRuntime();
+        $hosting = $isCoolify ? $this->coolifySnapshot($service) : null;
+
         $billing = $this->billing($service, $receipts);
-        $support = $this->support($service, $tickets, $receipts, $runtime, $billing);
+        $support = $this->support($service, $tickets, $receipts, $runtime, $billing, $hosting);
 
         return [
-            'service' => $service->toArray(),
-            'game_server' => $this->gameServer($service, $runtime),
+            'provider' => $provider,
+            'service' => $this->servicePayload($service),
+            // game_server solo es relevante para planes Pterodactyl.
+            'game_server' => $isPterodactyl ? $this->gameServer($service, $runtime) : null,
+            'hosting' => $hosting,
             'billing' => $billing,
             'support' => $support,
         ];
+    }
+
+    private function emptyRuntime(): array
+    {
+        return [
+            'server' => null,
+            'server_error' => null,
+            'resources' => null,
+            'resources_error' => null,
+            'checked_at' => null,
+        ];
+    }
+
+    /**
+     * Estado real de la aplicación de hosting en Coolify.
+     * Consulta la API de Coolify para reflejar si la app está realmente
+     * corriendo/saludable (el deploy puede fallar aunque el alta haya tenido éxito).
+     */
+    private function coolifySnapshot(Service $service): array
+    {
+        $cd = $service->connection_details ?? [];
+        $appUuid = $cd['coolify_app_uuid'] ?? $service->external_id ?: null;
+
+        $snapshot = [
+            'app_uuid'      => $appUuid,
+            'project_uuid'  => $cd['coolify_project_uuid'] ?? null,
+            'fqdn'          => $cd['fqdn'] ?? null,
+            'domain'        => $cd['domain'] ?? $service->domain,
+            'subdomain'     => $cd['subdomain'] ?? null,
+            'panel_url'     => $cd['panel_url'] ?? config('coolify.base_url'),
+            'database'      => [
+                'type' => $cd['db_type'] ?? null,
+                'name' => $cd['db_name'] ?? null,
+                'host' => $cd['db_host'] ?? null,
+            ],
+            'status'        => 'unknown',   // running | stopped | starting | degraded | not_provisioned | unknown
+            'status_raw'    => null,
+            'health'        => null,        // healthy | unhealthy | null
+            'unreachable'   => false,
+            'last_error'    => $service->provisioning_error
+                ?? ($service->status === 'failed' ? $service->notes : null),
+            'checked_at'    => now()->toISOString(),
+        ];
+
+        if (! $appUuid) {
+            $snapshot['status'] = 'not_provisioned';
+            return $snapshot;
+        }
+
+        try {
+            $app = $this->coolify->getApplication($appUuid);
+            $raw = $app['status'] ?? null; // p.ej. "running:healthy", "exited:unhealthy"
+            $snapshot['status_raw'] = $raw;
+
+            [$runState, $health] = array_pad(explode(':', (string) $raw, 2), 2, null);
+            $snapshot['status'] = $this->normalizeCoolifyState($runState);
+            $snapshot['health'] = $health ?: null;
+        } catch (\Throwable $e) {
+            $snapshot['unreachable'] = true;
+            $snapshot['status'] = 'unknown';
+            $snapshot['last_error'] = $snapshot['last_error'] ?? $e->getMessage();
+            Log::warning('Support overview could not fetch Coolify application', [
+                'service_id' => $service->id,
+                'app_uuid'   => $appUuid,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
+        return $snapshot;
+    }
+
+    private function normalizeCoolifyState(?string $state): string
+    {
+        $state = strtolower(trim((string) $state));
+
+        return match (true) {
+            $state === 'running'                          => 'running',
+            in_array($state, ['exited', 'stopped'], true) => 'stopped',
+            in_array($state, ['restarting', 'starting'], true) => 'starting',
+            $state === 'degraded'                         => 'degraded',
+            $state === ''                                 => 'unknown',
+            default                                       => 'unknown',
+        };
     }
 
     private function runtimeSnapshot(Service $service): array
@@ -99,8 +197,24 @@ class ServiceSupportOverviewService
         $resourceValues = $resources['resources'] ?? [];
         $connection = $service->connection_details ?? [];
         $selectedEgg = $service->selectedEgg;
+        $node = $this->resolvePterodactylNode($service, $serverAttributes);
+        $nodeId = $serverAttributes['node']
+            ?? data_get($serverAttributes, 'relationships.node.attributes.id')
+            ?? $node?->pterodactyl_node_id
+            ?? $service->plan?->pterodactyl_node_id
+            ?? null;
+        $dockerImage = data_get($serverAttributes, 'container.image')
+            ?? data_get($service->configuration, 'game_server.runtime.docker_image')
+            ?? $service->plan?->pterodactyl_docker_image
+            ?? $selectedEgg?->docker_image;
         $limits = $serverAttributes['limits'] ?? $service->plan?->resolvedLimits() ?? [];
         $featureLimits = $serverAttributes['feature_limits'] ?? $service->plan?->resolvedFeatureLimits() ?? [];
+        $backupCount = Backup::where('service_id', $service->id)->count();
+        $latestBackup = Backup::where('service_id', $service->id)
+            ->orderByDesc('completed_at')
+            ->orderByDesc('created_at')
+            ->first();
+        $dnsHealth = $this->dnsHealth($connection);
 
         return array_merge($base, [
             'pterodactyl_status' => [
@@ -109,9 +223,13 @@ class ServiceSupportOverviewService
                 ),
                 'suspended' => (bool) ($serverAttributes['suspended'] ?? $resources['is_suspended'] ?? $service->status === 'suspended'),
                 'suspension_reason' => $this->suspensionReason($service, $serverAttributes),
-                'node' => $serverAttributes['node'] ?? $service->plan?->pterodactyl_node_id ?? null,
-                'node_name' => $serverAttributes['node_name'] ?? data_get($serverAttributes, 'relationships.node.attributes.name') ?? $service->serverNode?->name,
-                'node_location' => $serverAttributes['node_location'] ?? data_get($serverAttributes, 'relationships.node.attributes.location') ?? $service->serverNode?->location,
+                'node' => $nodeId,
+                'node_id' => $node?->id,
+                'node_name' => $serverAttributes['node_name'] ?? data_get($serverAttributes, 'relationships.node.attributes.name') ?? $node?->name,
+                'node_location' => $serverAttributes['node_location'] ?? data_get($serverAttributes, 'relationships.node.attributes.location') ?? $node?->location,
+                'node_hostname' => $node?->hostname,
+                'node_ip' => $node?->ip_address,
+                'node_status' => $node?->status,
                 'panel_url' => $connection['panel_url']
                     ?? (! empty($serverAttributes['identifier']) ? rtrim(config('pterodactyl.base_url'), '/') . '/server/' . $serverAttributes['identifier'] : null),
                 'limits' => $limits,
@@ -130,23 +248,23 @@ class ServiceSupportOverviewService
             'connection_health' => [
                 'frp_enabled' => (bool) ($connection['frp_enabled'] ?? false),
                 'frp_status' => $this->frpStatus($service, $runtime),
-                'dns_status' => $this->dnsStatus($connection),
-                'hostname_resolves' => null,
-                'srv_record_ok' => null,
-                'cname_record_ok' => null,
+                'dns_status' => $dnsHealth['status'],
+                'hostname_resolves' => $dnsHealth['hostname_resolves'],
+                'srv_record_ok' => $dnsHealth['srv_record_ok'],
+                'cname_record_ok' => $dnsHealth['cname_record_ok'],
                 'last_checked_at' => $runtime['checked_at'],
             ],
             'software' => [
                 'egg_name' => $selectedEgg?->egg_name,
                 'display_name' => $selectedEgg?->display_name,
-                'docker_image' => $service->plan?->pterodactyl_docker_image ?? $selectedEgg?->docker_image,
-                'java_version' => $this->javaVersion($service->plan?->pterodactyl_docker_image ?? $selectedEgg?->docker_image),
-                'installed_version' => $this->installedVersion($service),
+                'docker_image' => $dockerImage,
+                'java_version' => $this->javaVersion($dockerImage),
+                'installed_version' => $this->installedVersion($service, $serverAttributes),
             ],
             'backups' => [
-                'latest_backup_at' => null,
-                'latest_backup_status' => null,
-                'backups_used' => null,
+                'latest_backup_at' => $this->date($latestBackup?->completed_at ?? $latestBackup?->started_at ?? $latestBackup?->created_at),
+                'latest_backup_status' => $latestBackup?->status,
+                'backups_used' => $backupCount,
                 'backups_limit' => $featureLimits['backups'] ?? null,
             ],
             'provisioning' => [
@@ -189,7 +307,7 @@ class ServiceSupportOverviewService
         ];
     }
 
-    private function support(Service $service, Collection $tickets, Collection $receipts, array $runtime, array $billing): array
+    private function support(Service $service, Collection $tickets, Collection $receipts, array $runtime, array $billing, ?array $hosting = null): array
     {
         $openStatuses = ['open', 'in_progress', 'waiting_customer'];
         $events = collect()
@@ -213,7 +331,7 @@ class ServiceSupportOverviewService
                 'updated_at' => $this->date($ticket->updated_at),
             ])->values()->all(),
             'recent_events' => $events,
-            'risk_flags' => $this->riskFlags($service, $runtime, $billing),
+            'risk_flags' => $this->riskFlags($service, $runtime, $billing, $hosting),
         ];
     }
 
@@ -221,7 +339,7 @@ class ServiceSupportOverviewService
     {
         return $receipts->take(5)->map(fn (Receipt $receipt) => [
             'type' => 'payment',
-            'title' => 'invoice_' . $receipt->status,
+            'title' => $this->eventTitle('invoice_' . $receipt->status),
             'description' => $receipt->receipt_number,
             'created_at' => $this->date($receipt->paid_at ?? $receipt->created_at),
         ])->all();
@@ -231,7 +349,7 @@ class ServiceSupportOverviewService
     {
         return $tickets->map(fn (Ticket $ticket) => [
             'type' => 'ticket',
-            'title' => 'ticket_' . $ticket->status,
+            'title' => $this->eventTitle('ticket_' . $ticket->status),
             'description' => $ticket->subject,
             'created_at' => $this->date($ticket->updated_at),
         ])->all();
@@ -241,7 +359,7 @@ class ServiceSupportOverviewService
     {
         $events = [[
             'type' => $service->status === 'suspended' ? 'suspension' : 'provisioning',
-            'title' => 'service_' . $service->status,
+            'title' => $this->eventTitle('service_' . $service->status),
             'description' => $service->notes,
             'created_at' => $this->date($service->updated_at),
         ]];
@@ -249,7 +367,7 @@ class ServiceSupportOverviewService
         if ($runtime['resources']) {
             $events[] = [
                 'type' => 'power',
-                'title' => 'power_' . $this->normalizePowerState($runtime['resources']['current_state'] ?? null),
+                'title' => $this->eventTitle('power_' . $this->normalizePowerState($runtime['resources']['current_state'] ?? null)),
                 'description' => null,
                 'created_at' => $runtime['checked_at'],
             ];
@@ -258,7 +376,7 @@ class ServiceSupportOverviewService
         return $events;
     }
 
-    private function riskFlags(Service $service, array $runtime, array $billing): array
+    private function riskFlags(Service $service, array $runtime, array $billing, ?array $hosting = null): array
     {
         $flags = [];
 
@@ -266,15 +384,47 @@ class ServiceSupportOverviewService
             $flags[] = [
                 'severity' => 'critical',
                 'code' => 'provisioning_failed',
-                'message' => 'Provisioning failed for this service.',
+                'message' => 'El aprovisionamiento del servicio falló.',
             ];
+        }
+
+        // ── Alertas específicas de Coolify (hosting) ─────────────────────────
+        if ($hosting !== null) {
+            if (! empty($hosting['unreachable'])) {
+                $flags[] = [
+                    'severity' => 'warning',
+                    'code' => 'coolify_unreachable',
+                    'message' => 'No se pudo consultar el estado de la aplicación en Coolify.',
+                ];
+            } elseif ($service->status === 'active' && in_array($hosting['status'] ?? null, ['stopped', 'degraded'], true)) {
+                // El alta tuvo éxito pero la app no está corriendo (p. ej. deploy falló).
+                $flags[] = [
+                    'severity' => 'critical',
+                    'code' => 'coolify_not_running',
+                    'message' => 'La aplicación de hosting no está en ejecución en Coolify (revisa el último deploy).',
+                ];
+            } elseif (($hosting['health'] ?? null) === 'unhealthy') {
+                $flags[] = [
+                    'severity' => 'warning',
+                    'code' => 'coolify_unhealthy',
+                    'message' => 'La aplicación de hosting responde pero su healthcheck está en estado unhealthy.',
+                ];
+            }
+
+            if (empty($hosting['app_uuid'])) {
+                $flags[] = [
+                    'severity' => 'warning',
+                    'code' => 'missing_coolify_app',
+                    'message' => 'El plan es de hosting (Coolify) pero no hay una aplicación vinculada.',
+                ];
+            }
         }
 
         if ($service->status === 'suspended' || ($runtime['server']['attributes']['suspended'] ?? false)) {
             $flags[] = [
                 'severity' => 'critical',
                 'code' => 'server_suspended',
-                'message' => 'The service or Pterodactyl server is suspended.',
+                'message' => 'El servicio o el servidor de Pterodactyl está suspendido.',
             ];
         }
 
@@ -282,7 +432,7 @@ class ServiceSupportOverviewService
             $flags[] = [
                 'severity' => 'warning',
                 'code' => 'billing_overdue',
-                'message' => 'The service has overdue invoices.',
+                'message' => 'El servicio tiene facturas vencidas.',
             ];
         }
 
@@ -290,7 +440,7 @@ class ServiceSupportOverviewService
             $flags[] = [
                 'severity' => 'warning',
                 'code' => 'missing_pterodactyl_server',
-                'message' => 'The service plan expects Pterodactyl but no server is linked.',
+                'message' => 'El plan requiere Pterodactyl, pero no hay servidor vinculado.',
             ];
         }
 
@@ -298,7 +448,7 @@ class ServiceSupportOverviewService
             $flags[] = [
                 'severity' => 'warning',
                 'code' => 'pterodactyl_unreachable',
-                'message' => 'Pterodactyl data could not be refreshed.',
+                'message' => 'No se pudo actualizar la información desde Pterodactyl.',
             ];
         }
 
@@ -329,9 +479,54 @@ class ServiceSupportOverviewService
             return 'unknown';
         }
 
-        $recordIds = $connection['dns_record_ids'] ?? [];
+        $recordIds = is_array($connection['dns_record_ids'] ?? null) ? $connection['dns_record_ids'] : [];
 
         return ! empty($recordIds) ? 'healthy' : 'degraded';
+    }
+
+    private function dnsHealth(array $connection): array
+    {
+        $hostname = trim((string) ($connection['hostname'] ?? ''));
+
+        if ($hostname === '') {
+            return [
+                'status' => 'unknown',
+                'hostname_resolves' => null,
+                'srv_record_ok' => null,
+                'cname_record_ok' => null,
+            ];
+        }
+
+        $recordIds = $connection['dns_record_ids'] ?? [];
+        $hostnameResolves = $this->hostnameResolves($hostname);
+        $srvRecordOk = array_key_exists('srv', $recordIds)
+            ? $this->recordExists("_minecraft._tcp.{$hostname}", 'SRV')
+            : null;
+        $cnameRecordOk = array_key_exists('cname', $recordIds)
+            ? $this->recordExists($hostname, 'CNAME')
+            : null;
+        $knownChecks = array_filter([$hostnameResolves, $srvRecordOk, $cnameRecordOk], static fn ($value) => $value !== null);
+        $hasFailure = in_array(false, $knownChecks, true);
+        $hasSuccess = in_array(true, $knownChecks, true);
+
+        return [
+            'status' => $hasFailure ? 'degraded' : ($hasSuccess ? 'healthy' : $this->dnsStatus($connection)),
+            'hostname_resolves' => $hostnameResolves,
+            'srv_record_ok' => $srvRecordOk,
+            'cname_record_ok' => $cnameRecordOk,
+        ];
+    }
+
+    private function hostnameResolves(string $hostname): bool
+    {
+        return $this->recordExists($hostname, 'A')
+            || $this->recordExists($hostname, 'AAAA')
+            || $this->recordExists($hostname, 'CNAME');
+    }
+
+    private function recordExists(string $hostname, string $type): bool
+    {
+        return checkdnsrr($hostname, $type);
     }
 
     private function suspensionReason(Service $service, array $serverAttributes): ?string
@@ -379,6 +574,102 @@ class ServiceSupportOverviewService
         return null;
     }
 
+    private function servicePayload(Service $service): array
+    {
+        $payload = $service->toArray();
+        $payload['user'] = $this->userPayload($service);
+        $payload['plan_summary'] = $this->planSummary($service);
+
+        return $payload;
+    }
+
+    private function userPayload(Service $service): ?array
+    {
+        $user = $service->user;
+
+        if (! $user) {
+            return null;
+        }
+
+        return array_merge($user->toArray(), [
+            'full_name' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
+            'avatar_full_url' => $user->avatar_full_url ?: null,
+        ]);
+    }
+
+    private function planSummary(Service $service): array
+    {
+        $plan = $service->plan;
+        $pricing = $plan?->pricing?->first(
+            fn ($price) => ($price->billingCycle?->slug ?? null) === $service->billing_cycle
+        );
+        $price = $service->price ?? $pricing?->price ?? $plan?->base_price;
+
+        return [
+            'id' => $plan?->id,
+            'uuid' => $plan?->uuid,
+            'name' => $plan?->name,
+            'slug' => $plan?->slug,
+            'category' => $plan?->category?->name,
+            'billing_cycle' => $service->billing_cycle,
+            'currency' => 'MXN',
+            'service_price' => $price !== null ? $this->money((float) $price) : null,
+            'base_price' => $plan?->base_price !== null ? $this->money((float) $plan->base_price) : null,
+            'setup_fee' => $plan?->setup_fee !== null ? $this->money((float) $plan->setup_fee) : null,
+            'max_players' => $plan?->max_players,
+            'provisioner' => $plan?->provisioner,
+            'limits' => $plan?->resolvedLimits() ?? [],
+            'feature_limits' => $plan?->resolvedFeatureLimits() ?? [],
+        ];
+    }
+
+    private function resolvePterodactylNode(Service $service, array $serverAttributes): ?ServerNode
+    {
+        $pterodactylNodeId = $serverAttributes['node']
+            ?? data_get($serverAttributes, 'relationships.node.attributes.id')
+            ?? $service->serverNode?->pterodactyl_node_id
+            ?? $service->plan?->pterodactyl_node_id
+            ?? null;
+
+        if ($pterodactylNodeId) {
+            $node = ServerNode::pterodactyl()
+                ->where('pterodactyl_node_id', (int) $pterodactylNodeId)
+                ->first();
+
+            if ($node) {
+                return $node;
+            }
+        }
+
+        return $service->serverNode;
+    }
+
+    private function eventTitle(string $key): string
+    {
+        return [
+            'invoice_paid' => 'Factura pagada',
+            'invoice_pending' => 'Factura pendiente',
+            'invoice_overdue' => 'Factura vencida',
+            'invoice_sent' => 'Factura enviada',
+            'invoice_draft' => 'Factura en borrador',
+            'invoice_process' => 'Factura en proceso',
+            'ticket_open' => 'Ticket abierto',
+            'ticket_in_progress' => 'Ticket en progreso',
+            'ticket_waiting_customer' => 'Ticket esperando al cliente',
+            'ticket_resolved' => 'Ticket resuelto',
+            'ticket_closed' => 'Ticket cerrado',
+            'service_active' => 'Servicio activo',
+            'service_pending' => 'Servicio pendiente',
+            'service_failed' => 'Servicio con error',
+            'service_suspended' => 'Servicio suspendido',
+            'power_running' => 'Servidor encendido',
+            'power_offline' => 'Servidor apagado',
+            'power_starting' => 'Servidor iniciando',
+            'power_stopping' => 'Servidor deteniendo',
+            'power_unknown' => 'Estado de energía desconocido',
+        ][$key] ?? str_replace('_', ' ', $key);
+    }
+
     private function javaVersion(?string $dockerImage): ?string
     {
         if (! $dockerImage) {
@@ -388,9 +679,16 @@ class ServiceSupportOverviewService
         return preg_match('/java[_:-]?(\d+)/i', $dockerImage, $matches) ? $matches[1] : null;
     }
 
-    private function installedVersion(Service $service): ?string
+    private function installedVersion(Service $service, array $serverAttributes = []): ?string
     {
-        return $service->configuration['installed_version']
+        $versionKey = config('minecraft.pterodactyl.version_variable', 'MINECRAFT_VERSION');
+        $environment = data_get($serverAttributes, 'container.environment', [])
+            ?: ($serverAttributes['environment'] ?? []);
+
+        return ($environment[$versionKey] ?? null)
+            ?? data_get($service->configuration, 'game_server.runtime.version')
+            ?? data_get($service->configuration, 'game_server.version')
+            ?? $service->configuration['installed_version']
             ?? $service->configuration['minecraft_version']
             ?? $service->configuration['version']
             ?? null;

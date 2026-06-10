@@ -6,6 +6,7 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\BroadcastMessage;
+use Illuminate\Notifications\Messages\MailMessage;
 
 class ServiceNotification extends Notification
 {
@@ -15,7 +16,36 @@ class ServiceNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database', 'broadcast'];
+        $channels = ['database', 'broadcast'];
+
+        // Correo opt-in por notificación: solo se envía si quien la crea pasa
+        // '_email' => true. Así las notificaciones in-app (la mayoría) no generan
+        // correo, y solo los avisos urgentes sí. Se envía de forma síncrona para
+        // no depender de un worker de cola.
+        if (! empty($this->notificationData['_email'])) {
+            $channels[] = 'mail';
+        }
+
+        return $channels;
+    }
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        $d     = $this->notificationData;
+        $title = $d['title'] ?? 'Notificación';
+
+        return (new MailMessage)
+            ->subject($title . ' - Roke Industries')
+            ->view('emails.notification', [
+                'notifiable'   => $notifiable,
+                'title'        => $title,
+                'subtitle'     => $d['email_subtitle'] ?? 'Información de tu cuenta',
+                'intro'        => $d['message'] ?? '',
+                'details'      => $d['email_details'] ?? [],
+                'detailsTitle' => $d['email_details_title'] ?? 'Detalles',
+                'actionUrl'    => $d['action_url'] ?? null,
+                'actionText'   => $d['action_text'] ?? 'Ver detalles',
+            ]);
     }
 
     // Channel is pre-computed by the listener and passed as '_channel'.

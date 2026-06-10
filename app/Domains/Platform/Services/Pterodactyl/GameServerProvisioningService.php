@@ -258,8 +258,9 @@ class GameServerProvisioningService
                 'trace'      => $e->getTraceAsString(),
             ]);
 
-            $this->notifyAdminsFailed($service, $e->getMessage());
-
+            // El aviso al admin lo centraliza ProvisioningService::runJob, que
+            // conoce el nº de intentos y si se agotaron los reintentos, y etiqueta
+            // correctamente la notificación (target=admin, canal admin.notifications).
             throw $e;
         }
     }
@@ -511,23 +512,6 @@ class GameServerProvisioningService
             ]));
         } catch (\Throwable $e) {
             Log::warning('No se pudo notificar al usuario sobre servidor aprovisionado', [
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    private function notifyAdminsFailed(Service $service, string $error): void
-    {
-        try {
-            $admins = \App\Models\User::whereIn('role', ['admin', 'super_admin'])->get();
-            Notification::send($admins, new \App\Domains\Platform\Notifications\ServiceNotification([
-                'title'   => 'Error de aprovisionamiento',
-                'message' => "Falló el aprovisionamiento del servicio #{$service->id} ({$service->name}): {$error}",
-                'type'    => 'service.provision_failed',
-                'data'    => ['service_id' => $service->uuid, 'error' => $error],
-            ]));
-        } catch (\Throwable $e) {
-            Log::warning('No se pudo notificar a admins sobre fallo de aprovisionamiento', [
                 'error' => $e->getMessage(),
             ]);
         }

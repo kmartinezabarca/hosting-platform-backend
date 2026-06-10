@@ -25,6 +25,7 @@ class AdoptionRequestBroadcast implements ShouldBroadcastNow
         public readonly string $petName,
         public readonly string $title,
         public readonly string $body,
+        public readonly string $url = '/dashboard/adopciones',
     ) {}
 
     /** @return array<int, PrivateChannel> */
@@ -48,6 +49,7 @@ class AdoptionRequestBroadcast implements ShouldBroadcastNow
             'petName'     => $this->petName,
             'title'       => $this->title,
             'body'        => $this->body,
+            'url'         => $this->url,
             'sentAt'      => now()->toISOString(),
         ];
     }

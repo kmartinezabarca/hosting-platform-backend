@@ -154,6 +154,16 @@ class StripeWebhookController extends Controller
                     ->where('status', '!=', 'active')
                     ->update(['status' => 'active']);
             }
+
+            // Avisar al admin del cobro confirmado.
+            if ($transaction) {
+                \App\Domains\Platform\Support\AdminNotifier::notify(
+                    'Pago recibido',
+                    "Pago de {$transaction->amount} {$transaction->currency} confirmado de {$transaction->user?->full_name}.",
+                    'admin_payment_received',
+                    ['transaction_id' => $transaction->uuid, 'amount' => $transaction->amount, 'currency' => $transaction->currency],
+                );
+            }
         });
     }
 
@@ -189,6 +199,14 @@ class StripeWebhookController extends Controller
                         'data'    => ['transaction_id' => $transaction->uuid],
                     ]));
                 }
+
+                // Avisar al admin del pago rechazado.
+                \App\Domains\Platform\Support\AdminNotifier::notify(
+                    'Pago fallido',
+                    "Pago de {$transaction->amount} {$transaction->currency} de {$user?->full_name} fue rechazado: {$failureMessage}",
+                    'admin_payment_failed',
+                    ['transaction_id' => $transaction->uuid, 'reason' => $failureMessage],
+                );
             }
         });
     }
@@ -266,6 +284,14 @@ class StripeWebhookController extends Controller
                     'data'    => ['subscription_id' => $subscription->uuid],
                 ]));
             }
+
+            // Avisar al admin de la renovación cobrada.
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Renovación de suscripción cobrada',
+                "Se renovó la suscripción '{$subscription->name}' de {$user?->full_name}.",
+                'admin_subscription_renewed',
+                ['subscription_id' => $subscription->uuid],
+            );
         });
     }
 
@@ -330,6 +356,17 @@ class StripeWebhookController extends Controller
                     ],
                 ]));
             }
+
+            // Avisar al admin de la morosidad: el cliente entró en periodo de gracia.
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Renovación fallida (cliente en gracia)',
+                "Falló el cobro de la suscripción '{$subscription->name}' de {$user?->full_name}. En gracia hasta {$graceEnds->format('d/m/Y')}. Motivo: {$errorMessage}",
+                'admin_subscription_payment_failed',
+                [
+                    'subscription_id'      => $subscription->uuid,
+                    'grace_period_ends_at' => $graceEnds->toIso8601String(),
+                ],
+            );
         });
     }
 
@@ -354,6 +391,7 @@ class StripeWebhookController extends Controller
 
         $periodEnd = StripeObjectReader::subscriptionPeriodEnd($stripeSub);
         $cancelAtPeriodEnd = (bool) ($stripeSub->cancel_at_period_end ?? false);
+        $wasCancelScheduled = (bool) $subscription->cancel_at_period_end;
 
         $subscription->update([
             'status'               => $stripeSub->status,
@@ -375,6 +413,28 @@ class StripeWebhookController extends Controller
                 // No suspendemos aquí; invoice.payment_failed ya gobierna ese caso.
                 Log::info("Subscription {$stripeSub->id} past_due (servicio sin cambios en updated).");
             }
+        }
+
+        // El cliente acaba de PROGRAMAR la cancelación al fin del periodo: confirmarle.
+        if ($cancelAtPeriodEnd && ! $wasCancelScheduled) {
+            $user = $subscription->user;
+            $endsLabel = $subscription->ends_at?->format('d/m/Y') ?? 'el fin de tu periodo';
+
+            if ($user) {
+                $user->notify(new ServiceNotification([
+                    'title'   => 'Cancelación programada',
+                    'message' => "Tu suscripción '{$subscription->name}' seguirá activa hasta {$endsLabel} y no se renovará. Puedes reactivarla antes de esa fecha.",
+                    'type'    => 'subscription.cancel_scheduled',
+                    'data'    => ['subscription_id' => $subscription->uuid, 'ends_at' => $subscription->ends_at?->toIso8601String()],
+                ]));
+            }
+
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Cancelación programada',
+                "{$user?->full_name} programó cancelar '{$subscription->name}' (activa hasta {$endsLabel}).",
+                'admin_subscription_cancel_scheduled',
+                ['subscription_id' => $subscription->uuid],
+            );
         }
     }
 
@@ -417,6 +477,14 @@ class StripeWebhookController extends Controller
                     'data'    => ['subscription_id' => $subscription->uuid],
                 ]));
             }
+
+            // Avisar al admin de la baja (churn).
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                'Suscripción cancelada (baja)',
+                "Se canceló la suscripción '{$subscription->name}' de {$user?->full_name}. El servicio quedó terminado.",
+                'admin_subscription_cancelled',
+                ['subscription_id' => $subscription->uuid],
+            );
         });
     }
 

@@ -61,6 +61,7 @@ class DomainExpiryAlert extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'target'     => 'client',
             'type'       => 'domain_expiry_alert',
             'domain_id'  => $this->domain->uuid,
             'domain'     => $this->domain->domain_name,

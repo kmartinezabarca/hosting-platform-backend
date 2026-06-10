@@ -5,6 +5,7 @@ namespace App\Domains\Pet\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Domains\Pet\Events\AdoptionRequestBroadcast;
 use App\Domains\Pet\Models\AdoptionListing;
+use App\Domains\Pet\Models\Owner;
 use App\Domains\Pet\Models\AdoptionReport;
 use App\Domains\Pet\Models\AdoptionRequest;
 use App\Domains\Pet\Models\InboxNotification;
@@ -15,8 +16,8 @@ use Illuminate\Support\Str;
 
 /**
  * Adopción — lado público: explorar, ver detalle, solicitar e informar.
- * Nunca expone el contacto del publicador: el interesado deja SU contacto y
- * se avisa al publicador (push + inbox + tiempo real), igual que "encontré a mi mascota".
+ * Nunca expone el contacto del publicador: el interesado queda vinculado con
+ * su cuenta registrada y se avisa al publicador (push + inbox + tiempo real).
  */
 class AdoptionController extends Controller
 {
@@ -100,12 +101,10 @@ class AdoptionController extends Controller
         return response()->json($this->formatPublic($listing, detail: true));
     }
 
-    /** POST /adoptions/{slug}/request — solicitud de adopción (relay anónimo). */
+    /** POST /adoptions/{slug}/request — solicitud de adopción autenticada. */
     public function request(Request $request, string $slug): JsonResponse
     {
         $data = $request->validate([
-            'name'    => 'required|string|max:120',
-            'contact' => 'required|string|max:160',
             'message' => 'nullable|string|max:1000',
         ]);
 
@@ -114,17 +113,38 @@ class AdoptionController extends Controller
             return response()->json(['ok' => false], 404);
         }
 
-        $adReq = AdoptionRequest::create([
+        $user = $request->user();
+        $ownerId = $user->uuid;
+
+        if ($listing->owner_id === $ownerId) {
+            return response()->json(['ok' => false, 'error' => 'No puedes solicitar adoptar tu propia publicación.'], 422);
+        }
+
+        $owner = Owner::firstOrCreate(
+            ['id' => $ownerId],
+            [
+                'display_name' => trim("{$user->first_name} {$user->last_name}") ?: $user->email,
+                'email'        => $user->email,
+            ],
+        );
+
+        $adReq = AdoptionRequest::updateOrCreate([
             'listing_id'         => $listing->id,
-            'requester_owner_id' => optional($request->user())->uuid,
-            'requester_name'     => $data['name'],
-            'requester_contact'  => $data['contact'],
+            'requester_owner_id' => $ownerId,
+        ], [
+            'requester_name'     => $owner->display_name ?: (trim("{$user->first_name} {$user->last_name}") ?: $user->email),
+            'requester_contact'  => $owner->email ?: $user->email,
             'message'            => $data['message'] ?? null,
+            'status'             => 'pending',
             'ip_address'         => $request->ip(),
         ]);
-        $listing->increment('requests_count');
 
-        $this->notifyOwnerOnRequest($listing, $adReq);
+        if ($adReq->wasRecentlyCreated) {
+            $listing->increment('requests_count');
+            // Solo la PRIMERA solicitud notifica: reenviar el formulario actualiza
+            // el mensaje sin volver a timbrar al rescatista (anti-spam).
+            $this->notifyOwnerOnRequest($listing, $adReq);
+        }
 
         // Respuesta SIN datos del publicador.
         return response()->json(['ok' => true]);
@@ -141,6 +161,15 @@ class AdoptionController extends Controller
         $listing = AdoptionListing::where('slug', $slug)->first();
         if (!$listing) {
             return response()->json(['ok' => false], 404);
+        }
+
+        // Una misma IP no infla el contador reportando en bucle la misma publicación.
+        $alreadyReported = AdoptionReport::where('listing_id', $listing->id)
+            ->where('ip_address', $request->ip())
+            ->where('resolved', false)
+            ->exists();
+        if ($alreadyReported) {
+            return response()->json(['ok' => true]); // idempotente: no revela si contó
         }
 
         AdoptionReport::create([
@@ -170,7 +199,13 @@ class AdoptionController extends Controller
             $body .= ' "' . Str::limit($req->message, 120) . '"';
         }
 
-        $payload = ['type' => 'adoption_request', 'listingId' => $listing->id, 'listingSlug' => $listing->slug];
+        $url = '/dashboard/adopciones';
+        $payload = [
+            'type'        => 'adoption_request',
+            'listingId'   => $listing->id,
+            'listingSlug' => $listing->slug,
+            'url'         => $url,
+        ];
 
         try {
             (new PushNotificationService())->sendToOwner($listing->owner_id, $title, $body, $payload);
@@ -185,7 +220,7 @@ class AdoptionController extends Controller
                 title:     $title,
                 body:      $body,
                 notifType: 'adoption_request',
-                url:       '/adoptar/' . $listing->slug,
+                url:       $url,
                 tag:       'adoption-req-' . $listing->id,
             );
         } catch (\Throwable) {
@@ -195,7 +230,7 @@ class AdoptionController extends Controller
         // Tiempo real (Reverb): si la app del publicador está abierta, lo ve al instante.
         try {
             AdoptionRequestBroadcast::dispatch(
-                $listing->owner_id, $listing->id, $listing->slug, $listing->name, $title, $body,
+                $listing->owner_id, $listing->id, $listing->slug, $listing->name, $title, $body, $url,
             );
         } catch (\Throwable) {
             // best-effort
@@ -235,6 +270,13 @@ class AdoptionController extends Controller
             $base['lat']          = $l->lat;
             $base['lng']          = $l->lng;
             $base['viewsCount']   = $l->views_count;
+            // Reputación del rescatista (confianza para el adoptante).
+            $base['rescuer'] = $l->owner ? [
+                'ownerId'     => $l->owner->id,
+                'name'        => $l->owner->display_name ?? 'Rescatista',
+                'ratingAvg'   => $l->owner->rescuer_rating_avg,
+                'ratingCount' => $l->owner->rescuer_rating_count ?? 0,
+            ] : null;
         }
 
         return $base;

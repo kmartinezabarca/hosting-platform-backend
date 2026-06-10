@@ -71,6 +71,7 @@ class InvoiceReady extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'target' => 'client',
             'type' => 'invoice_ready',
             'invoice_id' => $this->invoice->uuid,
             'invoice_number' => $this->invoice->receipt_number,

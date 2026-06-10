@@ -118,6 +118,37 @@ class ProvisioningService
                 'error'      => $e->getMessage(),
             ]);
 
+            // Avisar al panel de administración. Si se agotaron los reintentos el
+            // servicio quedó SIN aprovisionar (pagado pero no entregado): es crítico.
+            \App\Domains\Platform\Support\AdminNotifier::notify(
+                $exhausted ? 'Aprovisionamiento fallido (sin reintentos)' : 'Aprovisionamiento con error (reintentando)',
+                $exhausted
+                    ? "El servicio '{$service->name}' de {$service->user?->full_name} NO se aprovisionó tras {$job->attempts} intentos. Requiere intervención manual. Error: {$e->getMessage()}"
+                    : "El servicio '{$service->name}' de {$service->user?->full_name} falló al aprovisionar (intento {$job->attempts}). Se reintentará automáticamente. Error: {$e->getMessage()}",
+                $exhausted ? 'admin_provisioning_failed' : 'admin_provisioning_retry',
+                [
+                    'service_id' => $service->uuid ?? $service->id,
+                    'provider'   => $job->provider,
+                    'attempt'    => $job->attempts,
+                    'exhausted'  => $exhausted,
+                ],
+                // Solo enviamos correo cuando se agotaron los reintentos (crítico).
+                $exhausted ? ['email' => true, 'action_url' => '/admin/services', 'action_text' => 'Revisar servicio', 'subtitle' => 'Acción requerida'] : [],
+            );
+
+            // Si se agotaron los reintentos, el cliente pagó pero no recibió el
+            // servicio: avisarle para que no quede a ciegas (soporte ya lo revisa).
+            if ($exhausted && $service->user) {
+                $service->user->notify(new \App\Domains\Platform\Notifications\ServiceNotification([
+                    'title'    => 'Tu servicio necesita atención',
+                    'message'  => "Hubo un problema al activar '{$service->name}'. Nuestro equipo ya fue notificado y lo resolverá a la brevedad; no necesitas hacer nada.",
+                    'type'     => 'service.provision_failed',
+                    'data'     => ['service_id' => $service->uuid ?? $service->id],
+                    'target'   => 'client',
+                    '_channel' => 'user.' . $service->user->uuid,
+                ]));
+            }
+
             return false;
         }
     }

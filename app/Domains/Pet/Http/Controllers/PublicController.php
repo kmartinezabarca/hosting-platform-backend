@@ -272,7 +272,7 @@ class PublicController extends Controller
                 title:     $title,
                 body:      $body,
                 notifType: 'pet_found_report',
-                url:       '/lost/' . $pet->slug,
+                url:       '/dashboard/' . $pet->id,
                 tag:       'found-' . $pet->id,
             );
         } catch (\Throwable) {
@@ -343,7 +343,7 @@ class PublicController extends Controller
                 title:     $title,
                 body:      $body,
                 notifType: 'lost_pet_scan',
-                url:       '/lost/' . $pet->slug,
+                url:       '/dashboard/' . $pet->id,
                 tag:       'lost-scan-' . $pet->id,
             );
         } catch (\Throwable) {

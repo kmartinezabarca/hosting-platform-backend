@@ -56,6 +56,7 @@ class HostingProvisioned extends Notification implements ShouldQueue
         $details = $this->service->connection_details ?? [];
 
         return [
+            'target' => 'client',
             'type' => 'hosting.provisioned',
             'title' => 'Hosting listo',
             'message' => "Tu servicio '{$this->service->name}' está listo.",

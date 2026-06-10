@@ -66,20 +66,25 @@ class CommunityController extends Controller
         ]);
     }
 
-    /** GET /community/posts/{id}/comments — comentarios paginados (público). */
+    /** GET /community/posts/{id}/comments — hilos paginados (público): raíz + respuestas anidadas. */
     public function comments(Request $request, string $id): JsonResponse
     {
         $post = PetPost::where('id', $id)->where('moderation_status', '!=', 'hidden')->firstOrFail();
 
+        // Se paginan solo los comentarios raíz; sus respuestas viajan anidadas
+        // (1 nivel, estilo Instagram), con autor precargado para evitar N+1.
         $comments = PetPostComment::where('post_id', $post->id)
-            ->with('owner')
+            ->whereNull('parent_id')
+            ->with(['owner', 'replies.owner'])
             ->orderBy('created_at', 'asc')
             ->paginate(30);
 
         $viewer = $request->user('sanctum');
 
         return response()->json([
-            'data' => collect($comments->items())->map(fn ($c) => $this->formatComment($c, $viewer?->uuid, $post)),
+            'data' => collect($comments->items())->map(
+                fn ($c) => $this->formatComment($c, $viewer?->uuid, $post, withReplies: true),
+            ),
             'meta' => [
                 'total'       => $comments->total(),
                 'currentPage' => $comments->currentPage(),
@@ -162,23 +167,52 @@ class CommunityController extends Controller
         return response()->json(['liked' => $liked, 'likesCount' => max(0, $post->fresh()->likes_count)]);
     }
 
-    /** POST /community/posts/{id}/comments — comentar (notifica al dueño del post). */
+    /** POST /community/posts/{id}/comments — comentar o responder (notifica a quien corresponda). */
     public function storeComment(Request $request, string $id): JsonResponse
     {
-        $data = $request->validate(['body' => 'required|string|max:1000']);
+        $data = $request->validate([
+            'body'     => 'required|string|max:1000',
+            'parentId' => 'nullable|uuid',
+        ]);
 
         $post  = PetPost::with('pet')->where('id', $id)->where('moderation_status', '!=', 'hidden')->firstOrFail();
         $owner = $request->user();
 
+        // Si es respuesta: el padre debe ser de ESTE post, y se normaliza al
+        // comentario raíz (responder a una respuesta cuelga del mismo hilo).
+        $parent = null;
+        if (!empty($data['parentId'])) {
+            $parent = PetPostComment::where('id', $data['parentId'])
+                ->where('post_id', $post->id)
+                ->first();
+            if (!$parent) {
+                return response()->json(['error' => 'El comentario al que respondes ya no existe'], 422);
+            }
+            if ($parent->parent_id) {
+                $parent = $parent->parent ?? $parent;
+            }
+        }
+
         $comment = PetPostComment::create([
-            'post_id'  => $post->id,
-            'owner_id' => $owner->uuid,
-            'body'     => trim($data['body']),
+            'post_id'   => $post->id,
+            'owner_id'  => $owner->uuid,
+            'parent_id' => $parent?->id,
+            'body'      => trim($data['body']),
         ]);
         $post->increment('comments_count');
+        if ($parent) {
+            $parent->increment('replies_count');
+        }
         $comment->setRelation('owner', $owner);
 
-        if ($post->owner_id !== $owner->uuid) {
+        // Notificaciones: al autor respondido (si no soy yo) y al dueño del post
+        // (si no soy yo y no es la misma persona que ya notificamos).
+        $notified = [];
+        if ($parent && $parent->owner_id !== $owner->uuid) {
+            $this->notifyOnReply($post, $parent, $owner->display_name ?? 'Alguien', $comment->body);
+            $notified[] = $parent->owner_id;
+        }
+        if ($post->owner_id !== $owner->uuid && !in_array($post->owner_id, $notified, true)) {
             $this->notifyOwnerOnComment($post, $owner->display_name ?? 'Alguien', $comment->body);
         }
 
@@ -196,10 +230,20 @@ class CommunityController extends Controller
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
-        $comment->delete();
-        $post->decrement('comments_count');
+        // Borrar una raíz arrastra sus respuestas (cascade): el contador del
+        // post debe bajar por todas; borrar una respuesta baja 1 y descuenta
+        // del hilo del padre.
+        $removed = 1 + ($comment->parent_id ? 0 : $comment->replies()->count());
+        if ($comment->parent_id) {
+            PetPostComment::where('id', $comment->parent_id)
+                ->where('replies_count', '>', 0)
+                ->decrement('replies_count');
+        }
 
-        return response()->json(['ok' => true]);
+        $comment->delete();
+        $post->decrement('comments_count', min($removed, max(1, $post->comments_count)));
+
+        return response()->json(['ok' => true, 'removed' => $removed]);
     }
 
     /** POST /community/posts/{id}/report — reporte de moderación (público). */
@@ -213,6 +257,15 @@ class CommunityController extends Controller
         $post = PetPost::find($id);
         if (!$post) {
             return response()->json(['ok' => false], 404);
+        }
+
+        // Una misma IP no infla el contador reportando en bucle el mismo post.
+        $alreadyReported = PetPostReport::where('post_id', $post->id)
+            ->where('ip_address', $request->ip())
+            ->where('resolved', false)
+            ->exists();
+        if ($alreadyReported) {
+            return response()->json(['ok' => true]); // idempotente: no revela si contó
         }
 
         PetPostReport::create([
@@ -256,7 +309,7 @@ class CommunityController extends Controller
                 title:     $title,
                 body:      $text,
                 notifType: 'post_comment',
-                url:       '/comunidad',
+                url:       '/dashboard/comunidad',
                 tag:       'post-comment-' . $post->id,
             );
         } catch (\Throwable) {
@@ -286,15 +339,57 @@ class CommunityController extends Controller
         ];
     }
 
-    private function formatComment(PetPostComment $c, ?string $viewerId, PetPost $post): array
+    private function formatComment(PetPostComment $c, ?string $viewerId, PetPost $post, bool $withReplies = false): array
     {
-        return [
-            'id'        => $c->id,
-            'body'      => $c->body,
-            'createdAt' => $c->created_at?->toISOString(),
-            'author'    => $c->owner?->display_name ?? 'Alguien',
-            'isMine'    => $viewerId !== null && $c->owner_id === $viewerId,
-            'canDelete' => $viewerId !== null && ($c->owner_id === $viewerId || $post->owner_id === $viewerId),
+        $out = [
+            'id'           => $c->id,
+            'parentId'     => $c->parent_id,
+            'body'         => $c->body,
+            'createdAt'    => $c->created_at?->toISOString(),
+            'author'       => $c->owner?->display_name ?? 'Alguien',
+            'isAuthor'     => $c->owner_id === $post->owner_id, // autor del post (badge "Autor")
+            'isMine'       => $viewerId !== null && $c->owner_id === $viewerId,
+            'canDelete'    => $viewerId !== null && ($c->owner_id === $viewerId || $post->owner_id === $viewerId),
+            'repliesCount' => $c->replies_count ?? 0,
         ];
+
+        if ($withReplies) {
+            $out['replies'] = $c->relationLoaded('replies')
+                ? $c->replies->map(fn (PetPostComment $r) => $this->formatComment($r, $viewerId, $post))->values()
+                : [];
+        }
+
+        return $out;
+    }
+
+    private function notifyOnReply(PetPost $post, PetPostComment $parent, string $replierName, string $body): void
+    {
+        $petName = $post->pet?->name ?? 'una mascota';
+        $title   = "💬 {$replierName} respondió a tu comentario";
+        $text    = "En la foto de {$petName}: \"" . Str::limit($body, 120) . '"';
+
+        try {
+            (new PushNotificationService())->sendToOwner(
+                $parent->owner_id,
+                $title,
+                $text,
+                ['type' => 'comment_reply', 'postId' => $post->id],
+            );
+        } catch (\Throwable) {
+            // best-effort
+        }
+
+        try {
+            InboxNotification::createForOwner(
+                ownerId:   $parent->owner_id,
+                title:     $title,
+                body:      $text,
+                notifType: 'comment_reply',
+                url:       '/dashboard/comunidad',
+                tag:       'comment-reply-' . $parent->id,
+            );
+        } catch (\Throwable) {
+            // no fatal
+        }
     }
 }

@@ -54,6 +54,16 @@ class AuthController extends Controller
             $user->id
         );
 
+        \App\Domains\Platform\Support\AdminNotifier::notify(
+            'Nuevo usuario registrado',
+            "{$user->full_name} ({$user->email}) creó una cuenta.",
+            'admin_user_registered',
+            ['user_id' => $user->uuid, 'email' => $user->email, 'method' => 'email'],
+        );
+
+        // Email de bienvenida al cliente (listener SendWelcomeEmail).
+        event(new \App\Domains\Platform\Events\UserRegistered($user));
+
         return AuthCookie::attachAuthCookie(response()->json([
             'message'      => 'Usuario registrado exitosamente.',
             'access_token' => $token,   // Para clientes móviles (Bearer)
@@ -72,7 +82,7 @@ class AuthController extends Controller
 
         $user = User::where('email', $request->email)->first();
 
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        if (! $user || empty($user->password) || ! Hash::check($request->password, $user->password)) {
             // Only log when a real account exists — user_id is NOT NULL in activity_logs
             if ($user) {
                 ActivityLog::record(

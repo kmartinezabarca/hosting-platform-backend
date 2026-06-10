@@ -10,6 +10,7 @@ use App\Domains\Platform\Http\Controllers\Client\ApiDocsController;
 use App\Domains\Platform\Http\Controllers\Client\ApiDocumentationController;
 use App\Domains\Platform\Http\Controllers\Client\BillingCycleController;
 use App\Domains\Platform\Http\Controllers\Client\BlogController;
+use App\Domains\Platform\Http\Controllers\Client\BlogCommentController;
 use App\Domains\Platform\Http\Controllers\Client\BlogSubscriptionController;
 use App\Domains\Platform\Http\Controllers\Client\CategoryController;
 use App\Domains\Platform\Http\Controllers\Client\DocumentationController;
@@ -101,6 +102,19 @@ Route::prefix('blog')->group(function () {
     Route::get('/posts/{slug}', [BlogController::class, 'show']);
     Route::get('/categories', [BlogController::class, 'categories']);
     Route::get('/categories/{categorySlug}/posts', [BlogController::class, 'postsByCategory']);
+
+    // Comentarios (lectura pública de los aprobados)
+    Route::get('/posts/{slug}/comments', [BlogCommentController::class, 'index']);
+
+    // Acciones con anti-spam / abuso (throttle)
+    Route::middleware('throttle:30,1')->group(function () {
+        Route::post('/posts/{slug}/like', [BlogController::class, 'like']);
+        Route::post('/posts/{slug}/unlike', [BlogController::class, 'unlike']);
+    });
+
+    Route::middleware('throttle:5,1')->group(function () {
+        Route::post('/posts/{slug}/comments', [BlogCommentController::class, 'store']);
+    });
 });
 
 Route::post('/blog/subscribe', [BlogSubscriptionController::class, 'subscribe']);

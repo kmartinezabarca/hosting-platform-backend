@@ -104,6 +104,12 @@ class CheckSslCertificates extends Command
                                 try {
                                     $service->user->notify(new SslExpiryAlert($cert, $daysRemaining));
                                     $cert->update(['expiry_notified_at' => now()]);
+                                    \App\Domains\Platform\Support\AdminNotifier::notify(
+                                        'Certificado SSL por vencer',
+                                        "El SSL de {$domain} (servicio '{$service->name}' de {$service->user->full_name}) vence en {$daysRemaining} días.",
+                                        'admin_ssl_expiring',
+                                        ['domain' => $domain, 'service_id' => $service->uuid ?? $service->id, 'days_remaining' => $daysRemaining],
+                                    );
                                     $alerts++;
                                 } catch (\Throwable $e) {
                                     Log::error('SslExpiryAlert falló', [

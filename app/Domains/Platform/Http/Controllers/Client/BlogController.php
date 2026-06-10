@@ -56,14 +56,58 @@ class BlogController extends Controller
     public function show(string $slug): JsonResponse
     {
         $post = BlogPost::with(['category', 'author'])
+            ->withCount(['comments' => fn ($q) => $q->where('is_approved', true)])
             ->where('slug', $slug)
             ->whereNotNull('published_at')
             ->where('published_at', '<=', now())
             ->firstOrFail();
 
+        // Conteo de vistas (no bloqueante para la respuesta).
+        $post->increment('views');
+
         return response()->json([
             'success' => true,
             'data' => new BlogPostResource($post),
+        ]);
+    }
+
+    /**
+     * Incrementa el contador de "me gusta" de un post.
+     * Sin login: la des-duplicación por usuario se maneja en el cliente
+     * (localStorage). El throttle de la ruta limita el abuso.
+     */
+    public function like(string $slug): JsonResponse
+    {
+        $post = BlogPost::where('slug', $slug)
+            ->whereNotNull('published_at')
+            ->where('published_at', '<=', now())
+            ->firstOrFail();
+
+        $post->increment('likes');
+
+        return response()->json([
+            'success' => true,
+            'data' => ['likes' => (int) $post->likes],
+        ]);
+    }
+
+    /**
+     * Decrementa el contador de "me gusta" (cuando el usuario quita su like).
+     */
+    public function unlike(string $slug): JsonResponse
+    {
+        $post = BlogPost::where('slug', $slug)
+            ->whereNotNull('published_at')
+            ->where('published_at', '<=', now())
+            ->firstOrFail();
+
+        if ($post->likes > 0) {
+            $post->decrement('likes');
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => ['likes' => (int) $post->likes],
         ]);
     }
 

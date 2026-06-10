@@ -33,8 +33,10 @@
         @foreach($bodyLines as $line)
             <p>{!! nl2br(e($line)) !!}</p>
         @endforeach
-    @elseif(!empty($message))
-        <p>{!! nl2br(e($message)) !!}</p>
+    @elseif(!empty($messageBody))
+        {{-- $message es una variable reservada en vistas de correo (el objeto
+             Illuminate\Mail\Message); usamos $messageBody para el texto. --}}
+        <p>{!! nl2br(e($messageBody)) !!}</p>
     @endif
 
     @if(!empty($details))

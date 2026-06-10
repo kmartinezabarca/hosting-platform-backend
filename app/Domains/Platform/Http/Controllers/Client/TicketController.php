@@ -183,6 +183,15 @@ public function store(Request $request): JsonResponse
         $ticket->load(['assignedTo', 'service', 'replies.user'])
                ->loadCount('replies');
 
+        // Avisar al staff (admin/support) de la nueva solicitud de soporte.
+        \App\Domains\Platform\Support\AdminNotifier::notifyStaff(
+            'Nuevo ticket de soporte',
+            "{$user->full_name} abrió el ticket #{$ticket->ticket_number} ({$ticket->department}, prioridad {$ticket->priority}): {$ticket->subject}",
+            'admin_ticket_created',
+            ['ticket_id' => $ticket->uuid ?? $ticket->id, 'ticket_number' => $ticket->ticket_number, 'priority' => $ticket->priority],
+            ['email' => true, 'action_url' => '/admin/tickets', 'action_text' => 'Atender ticket', 'subtitle' => 'Nueva solicitud de soporte'],
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Ticket creado correctamente.',

@@ -67,6 +67,7 @@ class ServiceActivated extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'target' => 'client',
             'type' => 'service_activated',
             'service_id' => $this->service->uuid,
             'service_name' => $this->service->name,

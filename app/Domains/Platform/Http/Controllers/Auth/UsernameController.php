@@ -9,8 +9,6 @@ use App\Support\AuthCookie;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 
 class UsernameController extends Controller
 {
@@ -92,7 +90,7 @@ class UsernameController extends Controller
             'email'             => $googleData['email'],
             'google_id'         => $googleData['google_id'],
             'avatar_url'        => $googleData['avatar_url'],
-            'password'          => Hash::make(Str::random(32)), // contraseña aleatoria — cuenta Google
+            'password'          => null,
             'last_login_at'     => now(),
             'email_verified_at' => now(),
             'status'            => 'active',
@@ -111,6 +109,16 @@ class UsernameController extends Controller
             ['user_id' => $user->id, 'email' => $user->email, 'username' => $user->username],
             $user->id
         );
+
+        \App\Domains\Platform\Support\AdminNotifier::notify(
+            'Nuevo usuario registrado',
+            "{$user->full_name} ({$user->email}) creó una cuenta con Google.",
+            'admin_user_registered',
+            ['user_id' => $user->uuid, 'email' => $user->email, 'method' => 'google'],
+        );
+
+        // Email de bienvenida al cliente (listener SendWelcomeEmail).
+        event(new \App\Domains\Platform\Events\UserRegistered($user));
 
         return AuthCookie::attachAuthCookie(response()->json([
             'message'      => '¡Bienvenido! Tu cuenta ha sido creada exitosamente.',

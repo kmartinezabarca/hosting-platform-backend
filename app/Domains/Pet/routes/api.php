@@ -16,6 +16,7 @@ use App\Domains\Pet\Http\Controllers\PlanController;
 use App\Domains\Pet\Http\Controllers\PublicController;
 use App\Domains\Pet\Http\Controllers\PushController;
 use App\Domains\Pet\Http\Controllers\ReminderController;
+use App\Domains\Pet\Http\Controllers\ReputationController;
 use App\Domains\Pet\Http\Controllers\StripeController;
 use App\Domains\Pet\Http\Controllers\VaccineController;
 use App\Domains\Pet\Http\Controllers\VetContactController;
@@ -50,11 +51,13 @@ Route::get('/plans/{slug}', [PlanController::class, 'show']);
 // ── Adopción (público) ────────────────────────────────────────────────────────
 Route::get('/adoptions',        [AdoptionController::class, 'index']);
 Route::get('/adoptions/{slug}', [AdoptionController::class, 'show']);
-// Solicitud de adopción e informe — relay anónimo, rate-limit estricto (5/min por IP).
+// Reporte de moderación — público, rate-limit estricto (5/min por IP).
 Route::middleware('throttle:5,1')->group(function () {
-    Route::post('/adoptions/{slug}/request', [AdoptionController::class, 'request']);
     Route::post('/adoptions/{slug}/report',  [AdoptionController::class, 'report']);
 });
+
+// Reputación pública de un dueño (badge / perfil de confianza).
+Route::get('/reputation/{ownerId}', [ReputationController::class, 'show']);
 
 // ── Comunidad (público: ver feed y comentarios) ───────────────────────────────
 Route::get('/community/feed',                [CommunityController::class, 'feed']);
@@ -108,6 +111,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/my-pets/{id}/photo', [PetController::class, 'uploadPhoto']);
     Route::post('/my-pets/{id}/cover', [PetController::class, 'uploadCover']);
 
+    // Solicitud de adopción: siempre autenticada para enlazar adoptante, seguimiento y reputación.
+    Route::middleware('throttle:5,1')->group(function () {
+        Route::post('/adoptions/{slug}/request', [AdoptionController::class, 'request']);
+    });
+
     // Mascota perdida
     Route::post('/my-pets/{id}/lost',              [LostController::class, 'markLost']);
     Route::delete('/my-pets/{id}/lost',            [LostController::class, 'markFound']);
@@ -125,11 +133,25 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/my-adoptions/{id}/requests',               [MyAdoptionController::class, 'requests']);
     Route::patch('/my-adoptions/{id}/requests/{requestId}', [MyAdoptionController::class, 'respondRequest']);
 
-    // Comunidad (publicar e interactuar)
-    Route::post('/community/posts',                             [CommunityController::class, 'store']);
+    // Reputación de adopciones (reseñas bidireccionales + seguimiento con fotos)
+    Route::get('/my-adoption-history', [ReputationController::class, 'myAdoptionHistory']);
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('/adoptions/reviews',                   [ReputationController::class, 'storeReview']);
+        Route::post('/my-adoptions/{id}/followups/request', [ReputationController::class, 'requestFollowup']);
+        Route::post('/adoptions/followups/{id}/submit',     [ReputationController::class, 'submitFollowup']);
+    });
+
+    // Comunidad (publicar e interactuar) — throttles por usuario contra spam.
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('/community/posts', [CommunityController::class, 'store']);
+    });
+    Route::middleware('throttle:30,1')->group(function () {
+        Route::post('/community/posts/{id}/comments', [CommunityController::class, 'storeComment']);
+    });
+    Route::middleware('throttle:60,1')->group(function () {
+        Route::post('/community/posts/{id}/like', [CommunityController::class, 'toggleLike']);
+    });
     Route::delete('/community/posts/{id}',                      [CommunityController::class, 'destroy']);
-    Route::post('/community/posts/{id}/like',                   [CommunityController::class, 'toggleLike']);
-    Route::post('/community/posts/{id}/comments',               [CommunityController::class, 'storeComment']);
     Route::delete('/community/posts/{id}/comments/{commentId}', [CommunityController::class, 'destroyComment']);
 
     // Vet links

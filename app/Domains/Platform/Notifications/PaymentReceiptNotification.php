@@ -68,6 +68,7 @@ class PaymentReceiptNotification extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'target'         => 'client',
             'type'           => 'payment.receipt',
             'title'          => 'Comprobante de pago generado',
             'message'        => "Tu comprobante #{$this->invoice->receipt_number} está listo. Revisa tu correo.",

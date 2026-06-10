@@ -11,7 +11,6 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -77,7 +76,7 @@ class AuthController extends Controller
 
         $user = User::where('email', $data['email'])->first();
 
-        if (!$user || !Hash::check($data['password'], $user->password)) {
+        if (!$user || empty($user->password) || !Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['Las credenciales son incorrectas.'],
             ]);
@@ -139,7 +138,7 @@ class AuthController extends Controller
                 'email'             => $data['email'],
                 'google_id'         => $data['google_id'],
                 'avatar_url'        => $data['avatar_url'] ?? null,
-                'password'          => Hash::make(Str::random(32)),
+                'password'          => null,
                 'role'              => 'client',
                 'status'            => 'active',
                 'kind'              => 'pet',

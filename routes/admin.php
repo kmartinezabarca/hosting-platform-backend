@@ -12,6 +12,7 @@ use App\Domains\Platform\Http\Controllers\Admin\NotificationController;
 use App\Domains\Platform\Http\Controllers\Admin\ChatController;
 use App\Domains\Platform\Http\Controllers\Admin\BlogCategoryController;
 use App\Domains\Platform\Http\Controllers\Admin\BlogPostController;
+use App\Domains\Platform\Http\Controllers\Admin\BlogCommentController;
 use App\Domains\Platform\Http\Controllers\Admin\BlogSubscriptionController;
 use App\Domains\Platform\Http\Controllers\Admin\DocumentationController;
 use App\Domains\Platform\Http\Controllers\Admin\ApiDocumentationController;
@@ -296,6 +297,15 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
         // Blog Posts Routes
         Route::post("blog/upload-image", [BlogPostController::class, "uploadImage"]);
         Route::apiResource("blog-posts", BlogPostController::class);
+
+        // Blog Comments Routes (moderación)
+        Route::prefix("blog-comments")->group(function () {
+            Route::get("/", [BlogCommentController::class, "index"]);
+            Route::get("/{uuid}", [BlogCommentController::class, "show"]);
+            Route::put("/{uuid}/approve", [BlogCommentController::class, "approve"]);
+            Route::put("/{uuid}/reject", [BlogCommentController::class, "reject"]);
+            Route::delete("/{uuid}", [BlogCommentController::class, "destroy"]);
+        });
 
         // ── Cotizaciones ─────────────────────────────────────────────────────────
         Route::prefix('quotations')->group(function () {

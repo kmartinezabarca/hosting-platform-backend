@@ -5,7 +5,6 @@ namespace App\Domains\Platform\Services;
 use App\Domains\Platform\Events\UserRegistered;
 use App\Domains\Platform\Events\PasswordResetRequested;
 use App\Domains\Platform\Events\PurchaseCompleted;
-use App\Domains\Platform\Events\PaymentProcessed;
 use App\Domains\Platform\Events\InvoiceGenerated;
 use App\Domains\Platform\Events\ServiceNotificationSent;
 use App\Domains\Platform\Events\AccountUpdated;
@@ -38,11 +37,28 @@ class EmailService
     }
 
     /**
-     * Send payment success email
+     * Send payment success email.
+     *
+     * Nota: el evento canónico PaymentProcessed es Transaction-based y ya gobierna
+     * las notificaciones de pago (in-app + correo vía PaymentNotification). Este
+     * helper solo envía el correo de confirmación, reutilizando el flujo de
+     * notificación de servicio que sí está implementado.
      */
     public function sendPaymentSuccessEmail(User $user, $payment = null, $subscription = null, $services = null, $invoiceUrl = null, $isRecurring = false)
     {
-        event(new PaymentProcessed($user, $payment, $subscription, $services, $invoiceUrl, $isRecurring));
+        $amount = is_object($payment) ? ($payment->amount ?? null) : null;
+
+        $this->sendServiceNotificationEmail(
+            $user,
+            'payment',
+            $amount
+                ? "Tu pago de {$amount} fue procesado exitosamente."
+                : 'Tu pago fue procesado exitosamente.',
+            (bool) $invoiceUrl,
+            $invoiceUrl,
+            $invoiceUrl ? 'Ver factura' : null,
+            ['isRecurring' => $isRecurring]
+        );
     }
 
     /**

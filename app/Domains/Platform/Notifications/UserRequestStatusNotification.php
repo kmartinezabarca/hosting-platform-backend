@@ -33,6 +33,7 @@ class UserRequestStatusNotification extends Notification implements ShouldQueue
         $approved = $this->status === 'approved';
 
         return [
+            'target'    => 'client',
             'title'     => $approved ? 'Solicitud aprobada' : 'Solicitud rechazada',
             'message'   => $this->message ?? ($approved
                 ? 'Tu solicitud ha sido aprobada.'

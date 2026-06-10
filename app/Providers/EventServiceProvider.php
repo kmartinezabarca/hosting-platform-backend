@@ -35,7 +35,6 @@ class EventServiceProvider extends ServiceProvider
         //     \App\Domains\Platform\Listeners\SendPurchaseConfirmationEmail::class,
         // ],
         \App\Domains\Platform\Events\PaymentProcessed::class => [
-            \App\Domains\Platform\Listeners\SendPaymentSuccessEmail::class,
             \App\Domains\Platform\Listeners\CreatePaymentNotification::class . '@handleProcessed',
         ],
         \App\Domains\Platform\Events\ServiceNotificationSent::class => [

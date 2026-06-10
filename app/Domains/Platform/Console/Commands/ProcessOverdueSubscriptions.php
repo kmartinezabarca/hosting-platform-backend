@@ -81,12 +81,23 @@ class ProcessOverdueSubscriptions extends Command
 
                         if ($subscription->user) {
                             $subscription->user->notify(new ServiceNotification([
-                                'title'   => 'Servicio suspendido',
-                                'message' => "Tu servicio '{$service->name}' fue suspendido por falta de pago. Actualiza tu método de pago para reactivarlo.",
-                                'type'    => 'service.suspended',
-                                'data'    => ['service_id' => $service->uuid ?? $service->id, 'subscription_id' => $subscription->uuid],
+                                'title'       => 'Servicio suspendido',
+                                'message'     => "Tu servicio '{$service->name}' fue suspendido por falta de pago. Actualiza tu método de pago para reactivarlo.",
+                                'type'        => 'service.suspended',
+                                'data'        => ['service_id' => $service->uuid ?? $service->id, 'subscription_id' => $subscription->uuid],
+                                '_email'      => true,
+                                'email_subtitle' => 'Tu servicio fue suspendido',
+                                'action_url'  => '/client/invoices',
+                                'action_text' => 'Actualizar método de pago',
                             ]));
                         }
+
+                        \App\Domains\Platform\Support\AdminNotifier::notify(
+                            'Servicio suspendido por morosidad',
+                            "Se suspendió '{$service->name}' de {$subscription->user?->full_name} tras vencer el periodo de gracia.",
+                            'admin_service_suspended_overdue',
+                            ['service_id' => $service->uuid ?? $service->id, 'subscription_id' => $subscription->uuid],
+                        );
 
                         $count++;
                     } catch (\Throwable $e) {

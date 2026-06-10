@@ -58,6 +58,7 @@ class SslExpiryAlert extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         return [
+            'target'         => 'client',
             'type'           => 'ssl_expiry_alert',
             'cert_id'        => $this->cert->uuid,
             'domain'         => $this->cert->domain,
