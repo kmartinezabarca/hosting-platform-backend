@@ -74,7 +74,18 @@ class ProvisioningService
                 'processed_at' => now(),
                 'last_error'   => null,
             ]);
-            $service->forceFill(['provisioning_status' => 'succeeded', 'provisioning_error' => null])->save();
+
+            $repairs = ['provisioning_status' => 'succeeded', 'provisioning_error' => null];
+
+            // Reparar el estado del servicio: si un paso tardío (p. ej. FRP) falló
+            // DESPUÉS de crear el servidor, provision() lo dejó en 'failed' aunque
+            // el proveedor sí tiene el recurso. Sin esto, el reintento marcaba el
+            // job como succeeded pero el servicio quedaba 'failed' para siempre.
+            if ($service->status === 'failed') {
+                $repairs['status'] = 'active';
+            }
+
+            $service->forceFill($repairs)->save();
             return true;
         }
 
