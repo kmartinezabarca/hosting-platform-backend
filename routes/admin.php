@@ -73,16 +73,13 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
         // sensibles viven en el grupo admin/super_admin).
         Route::get("/users", [AdminController::class, "getUsers"]);
 
-        // Services management
+        // Services — SOLO LECTURA para support (asiste a clientes, no muta
+        // servicios). Las mutaciones (crear/editar/borrar/estado/reprovision)
+        // viven en el grupo admin/super_admin más abajo.
         // Rutas con segmentos estáticos deben ir ANTES de /{uuid} para evitar colisiones
         Route::get("/services",                          [AdminController::class, "getServices"]);
-        Route::post("/services",                         [AdminController::class, "createService"]);
         Route::get("/services/{uuid}/support-overview",  [AdminController::class, "getServiceSupportOverview"]);
-        Route::post("/services/{uuid}/reprovision",      [AdminController::class, "reprovision"]);
         Route::get("/services/{uuid}",                   [AdminController::class, "getService"]);
-        Route::put("/services/{uuid}",                   [AdminController::class, "updateService"]);
-        Route::delete("/services/{uuid}",                [AdminController::class, "deleteService"]);
-        Route::put("/services/{uuid}/status",            [AdminController::class, "updateServiceStatus"]);
 
         // Tickets management
         // NOTE: static routes must be declared BEFORE dynamic routes ({id}). The
@@ -173,6 +170,15 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
 
         // Dashboard (incluye métricas financieras → no para support)
         Route::get("/dashboard/stats", [AdminController::class, "getDashboardStats"]);
+
+        // Services — mutaciones y acciones de aprovisionamiento (movidas fuera
+        // del scope de support: crear/editar/borrar servicios y reprovision
+        // son acciones destructivas/de facturación, no de asistencia).
+        Route::post("/services",                         [AdminController::class, "createService"]);
+        Route::post("/services/{uuid}/reprovision",      [AdminController::class, "reprovision"]);
+        Route::put("/services/{uuid}",                   [AdminController::class, "updateService"]);
+        Route::delete("/services/{uuid}",                [AdminController::class, "deleteService"]);
+        Route::put("/services/{uuid}/status",            [AdminController::class, "updateServiceStatus"]);
 
         // ── Versiones de software de servidores de juego ──────────────────────
         Route::prefix("game-versions")->group(function () {
