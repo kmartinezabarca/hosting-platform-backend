@@ -454,8 +454,10 @@ class StripeWebhookController extends Controller
                 return;
             }
 
+            // 'canceled' (una sola L) es el valor del ENUM de subscriptions.status
+            // y coincide con el estado que reporta Stripe.
             $subscription->update([
-                'status'      => 'cancelled',
+                'status'      => 'canceled',
                 'canceled_at' => now(),
                 'ends_at'     => now(),
             ]);
