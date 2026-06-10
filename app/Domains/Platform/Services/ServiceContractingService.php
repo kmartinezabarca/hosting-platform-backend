@@ -383,7 +383,8 @@ class ServiceContractingService
                     $this->createStripeSubscription(
                         $user, $plan, $result['service'],
                         $customerId, $total, $currency,
-                        $validated['billing_cycle']
+                        $validated['billing_cycle'],
+                        $usedStripePmId
                     );
                 } catch (\Throwable $e) {
                     // No relanzamos: el servicio y la factura ya están persistidos.
@@ -939,7 +940,8 @@ class ServiceContractingService
 
     private function createStripeSubscription(
         User $user, ServicePlan $plan, Service $service,
-        ?string $customerId, float $total, string $currency, string $billingCycle
+        ?string $customerId, float $total, string $currency, string $billingCycle,
+        ?string $stripePaymentMethodId = null
     ): void {
         // Resolve the Stripe Price for the selected billing cycle.
         // Priority: plan_pricing.stripe_price_id → service_plans.stripe_price_id (fallback).
@@ -958,12 +960,47 @@ class ServiceContractingService
             throw new \RuntimeException("El plan '{$plan->name}' no tiene stripe_price_id para el ciclo '{$billingCycle}'. Ejecuta: php artisan stripe:sync-plans");
         }
 
-        $stripeSub = \Stripe\Subscription::create([
+        // El primer periodo YA se cobró vía PaymentIntent en contract(). Sin un
+        // ancla, Stripe facturaría el mismo periodo otra vez de inmediato y, al
+        // quedar esa factura sin pagar (default_incomplete), la suscripción
+        // moriría como incomplete_expired a las ~23 h → sin auto-renovación.
+        // trial_end = next_due_date pospone la PRIMERA factura de Stripe al
+        // inicio del siguiente periodo (la suscripción nace 'trialing').
+        $params = [
             'customer'         => $customerId,
             'items'            => [['price' => $stripePriceId]],
             'payment_behavior' => 'default_incomplete',
+            'payment_settings' => ['save_default_payment_method' => 'on_subscription'],
             'expand'           => ['latest_invoice.payment_intent'],
-        ]);
+            'metadata'         => ['user_id' => (string) $user->id, 'service_id' => (string) $service->id],
+        ];
+
+        if ($service->next_due_date && $service->next_due_date->isFuture()) {
+            $params['trial_end'] = $service->next_due_date->timestamp;
+        }
+
+        // Asegurar que la renovación tenga con qué cobrar: el método de pago del
+        // primer cobro se adjunta al customer (si aún no lo está) y queda como
+        // default de la suscripción. Best-effort: si falla, la suscripción se
+        // crea igual y Stripe usará el default del customer si existe.
+        if ($stripePaymentMethodId && $customerId) {
+            try {
+                $pm = StripePaymentMethod::retrieve($stripePaymentMethodId);
+                if (empty($pm->customer)) {
+                    $pm->attach(['customer' => $customerId]);
+                }
+                if (empty($pm->customer) || $pm->customer === $customerId) {
+                    $params['default_payment_method'] = $stripePaymentMethodId;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('createStripeSubscription: no se pudo fijar default_payment_method (no fatal)', [
+                    'service_id' => $service->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $stripeSub = \Stripe\Subscription::create($params);
 
         Subscription::create([
             'uuid'                   => (string) Str::uuid(),
