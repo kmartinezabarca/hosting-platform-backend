@@ -24,7 +24,8 @@ return [
 
     // IP del relay/VPS donde Wings recibe conexiones externas.
     // Usada para registros A de Bedrock y como IP de display cuando no hay SRV.
-    'relay_ip' => env('PTERODACTYL_RELAY_IP', '178.156.225.26'),
+    // Sin default: cada entorno DEBE definir la suya (no apuntar a prod por accidente).
+    'relay_ip' => env('PTERODACTYL_RELAY_IP'),
 
     // Nodo por defecto para aprovisionamiento.
     // En DEV apunta al nodo 2 (Mac Mini), en PROD null = autoselect.
@@ -32,7 +33,8 @@ return [
 
     // URL interna de Wings (Tailscale/local). Pterodactyl devuelve URLs de WebSocket
     // con esta base; se reescriben a la URL pública antes de enviarse al cliente.
-    'wings_internal_url' => env('PTERODACTYL_WINGS_INTERNAL_URL', 'http://100.94.93.51:8080'),
+    // Sin default de IP: definir por entorno.
+    'wings_internal_url' => env('PTERODACTYL_WINGS_INTERNAL_URL', ''),
 
     // URL pública de Wings (dominio o IP externa accesible desde el navegador).
     'wings_public_url'   => env('PTERODACTYL_WINGS_PUBLIC_URL', 'https://mc.rokeindustries.com'),

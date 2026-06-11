@@ -114,7 +114,12 @@ class RetrofitServiceDns extends Command
                 $dnsRecordIds['srv']   = $cloudflare->createMinecraftSrv($subdomain, $port);
                 $display               = $hostname;
             } else {
-                $dnsRecordIds['a'] = $cloudflare->createARecord($subdomain, config('pterodactyl.relay_ip', $ip));
+                $relayIp = config('pterodactyl.relay_ip') ?: $ip;
+                if (! $relayIp) {
+                    $this->warn("     PTERODACTYL_RELAY_IP no configurada y el servicio no tiene IP — se omite registro A para {$hostname}");
+                    return;
+                }
+                $dnsRecordIds['a'] = $cloudflare->createARecord($subdomain, $relayIp);
                 $display           = "{$hostname}:{$port}";
             }
 
