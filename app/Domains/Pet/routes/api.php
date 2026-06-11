@@ -215,40 +215,47 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/billing/checkout',     [StripeController::class, 'createCheckoutSession']);
     Route::post('/billing/portal',       [StripeController::class, 'billingPortal']);
 
-    // Admin — estadísticas
+    // Admin — check queda FUERA del middleware: responde "¿soy admin?" para
+    // cualquier usuario autenticado (y auto-promueve a los admins de plataforma).
     Route::get('/admin/check',    [AdminController::class, 'check']);
-    Route::get('/admin/overview', [AdminController::class, 'overview']);
-    Route::get('/admin/pets',     [AdminController::class, 'pets']);
 
-    // Admin — detalle de mascota
-    Route::get('/admin/pets/{id}',                 [AdminController::class, 'getPet']);
-    Route::patch('/admin/pets/{id}/lost-status',   [AdminController::class, 'updateLostStatus']);
-    Route::get('/admin/pets/{id}/notifications',   [AdminController::class, 'getPetNotifications']);
+    // Resto del panel admin — guard a nivel de RUTA (pet.admin) además de los
+    // checks por método de los controladores (defensa en profundidad).
+    Route::middleware('pet.admin')->group(function () {
+        // Estadísticas
+        Route::get('/admin/overview', [AdminController::class, 'overview']);
+        Route::get('/admin/pets',     [AdminController::class, 'pets']);
 
-    // Admin — notificar propietario
-    Route::post('/admin/owners/{ownerId}/notify-expiry', [AdminController::class, 'notifyExpiry']);
+        // Detalle de mascota
+        Route::get('/admin/pets/{id}',                 [AdminController::class, 'getPet']);
+        Route::patch('/admin/pets/{id}/lost-status',   [AdminController::class, 'updateLostStatus']);
+        Route::get('/admin/pets/{id}/notifications',   [AdminController::class, 'getPetNotifications']);
 
-    // Admin — moderación de adopciones, reseñas y comunidad
-    Route::get('/admin/adoptions',                       [AdminModerationController::class, 'adoptions']);
-    Route::get('/admin/adoptions/{id}',                  [AdminModerationController::class, 'adoptionDetail']);
-    Route::patch('/admin/adoptions/{id}/moderation',     [AdminModerationController::class, 'moderateAdoption']);
-    Route::get('/admin/reviews',                         [AdminModerationController::class, 'reviews']);
-    Route::patch('/admin/reviews/{id}/moderation',       [AdminModerationController::class, 'moderateReview']);
-    Route::get('/admin/community/posts',                 [AdminModerationController::class, 'communityPosts']);
-    Route::patch('/admin/community/posts/{id}/moderation', [AdminModerationController::class, 'moderatePost']);
-    Route::get('/admin/community/posts/{id}/comments',   [AdminModerationController::class, 'postComments']);
-    Route::delete('/admin/community/comments/{id}',      [AdminModerationController::class, 'deleteComment']);
-    Route::get('/admin/moderation-queue',                [AdminModerationController::class, 'moderationQueue']);
+        // Notificar propietario
+        Route::post('/admin/owners/{ownerId}/notify-expiry', [AdminController::class, 'notifyExpiry']);
 
-    // Admin — registro de notificaciones
-    Route::get('/admin/notifications',             [AdminController::class, 'listNotifications']);
-    Route::get('/admin/notifications/{id}',        [AdminController::class, 'getNotification']);
-    Route::post('/admin/notifications/{id}/retry', [AdminController::class, 'retryNotification']);
+        // Moderación de adopciones, reseñas y comunidad
+        Route::get('/admin/adoptions',                       [AdminModerationController::class, 'adoptions']);
+        Route::get('/admin/adoptions/{id}',                  [AdminModerationController::class, 'adoptionDetail']);
+        Route::patch('/admin/adoptions/{id}/moderation',     [AdminModerationController::class, 'moderateAdoption']);
+        Route::get('/admin/reviews',                         [AdminModerationController::class, 'reviews']);
+        Route::patch('/admin/reviews/{id}/moderation',       [AdminModerationController::class, 'moderateReview']);
+        Route::get('/admin/community/posts',                 [AdminModerationController::class, 'communityPosts']);
+        Route::patch('/admin/community/posts/{id}/moderation', [AdminModerationController::class, 'moderatePost']);
+        Route::get('/admin/community/posts/{id}/comments',   [AdminModerationController::class, 'postComments']);
+        Route::delete('/admin/community/comments/{id}',      [AdminModerationController::class, 'deleteComment']);
+        Route::get('/admin/moderation-queue',                [AdminModerationController::class, 'moderationQueue']);
 
-    // Admin — planes
-    Route::get('/admin/plans',              [PlanController::class, 'adminIndex']);
-    Route::post('/admin/plans',             [PlanController::class, 'store']);
-    Route::put('/admin/plans/{id}',         [PlanController::class, 'update']);
-    Route::patch('/admin/plans/{id}/toggle', [PlanController::class, 'toggle']);
-    Route::delete('/admin/plans/{id}',      [PlanController::class, 'destroy']);
+        // Registro de notificaciones
+        Route::get('/admin/notifications',             [AdminController::class, 'listNotifications']);
+        Route::get('/admin/notifications/{id}',        [AdminController::class, 'getNotification']);
+        Route::post('/admin/notifications/{id}/retry', [AdminController::class, 'retryNotification']);
+
+        // Planes
+        Route::get('/admin/plans',              [PlanController::class, 'adminIndex']);
+        Route::post('/admin/plans',             [PlanController::class, 'store']);
+        Route::put('/admin/plans/{id}',         [PlanController::class, 'update']);
+        Route::patch('/admin/plans/{id}/toggle', [PlanController::class, 'toggle']);
+        Route::delete('/admin/plans/{id}',      [PlanController::class, 'destroy']);
+    });
 });
