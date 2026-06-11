@@ -3,6 +3,8 @@
 **Date:** 2026-06-10 · **Scope:** every "must fix" and hardening item from `PLATFORM_AUDIT_REPORT_2026-06-10.md`.
 **Method:** each fix implemented with regression tests, validated against the dev environment, committed in small logical commits to `develop` (backend + frontend). Nothing below is claimed without a passing test or a verified build.
 
+> **ADDENDUM (same day, second pass)** — see [§ Addendum: Final Pass](#addendum-final-pass-same-day) at the bottom. The APP_KEY rotation was **executed and verified in dev**, the Stripe webhook round-trip was **verified live** (real signed deliveries + live idempotency), all pending frontend work was committed — including the discovery and fix of a **critical entry-point bug that made the portal build ship the admin app** — and the resume-cancellation UX gap was closed. Updated overall score: **92/100**.
+
 ---
 
 ## Executive Summary
@@ -132,3 +134,42 @@ php artisan config:cache && php artisan queue:restart
 | **Overall** | — | 75 | **88** | Ready for controlled launch after the 3 manual steps |
 
 **Verdict:** no code-level critical or high-risk issues remain open. The platform is production-ready **once the APP_KEY rotation is executed and the Stripe webhook endpoints are registered and live-verified** — both are operational steps with complete runbooks in `docs/`.
+
+---
+
+## Addendum: Final Pass (same day)
+
+Second pass executing everything automatable from the remaining checklist.
+
+### Done and verified
+
+1. **APP_KEY rotation EXECUTED in dev (full drill).** New key generated, dry-run, rotation with backup, `.env` switched, post-rotation verification: SHA-256 of every decrypted plaintext identical before/after (2 `connection_secrets` + 1 `two_factor_secret`), live read through the model accessor confirmed. Sensitive artifacts (ciphertext backup, key files) deleted after verification. **Production rotation is now a rehearsed procedure** — repeat the exact same runbook there.
+2. **Stripe webhook round-trip verified LIVE.** Stripe CLI v1.42.11 installed; `stripe listen` forwarded to a local backend; `stripe trigger payment_intent.succeeded` produced **real Stripe-signed deliveries → HTTP 200 → 4 rows in `stripe_events`, all `processed`**. Live idempotency proven: `stripe events resend` of the same event was ignored (attempts stayed at 1). What remains for prod is only registering the endpoints in the dashboard (no code path is unverified anymore).
+3. **CRITICAL build bug found in the pending frontend work and fixed:** `index.html` (the input of `build:portal`) had been pointed at `main-admin.tsx`, so **`dist-portal` contained the admin panel instead of the customer portal**. It now loads the new dynamic `main.tsx` (portal builds statically resolve to `main-portal`, admin code tree-shaken out; local dev picks by path). Verified: rebuilt `dist-portal` contains `main-portal-*.js` and zero admin chunks.
+4. **All pending frontend work committed** (5 commits): pet moderation panel (adoptions/community/reviews/queue + hooks/services/types/nav), the entry-point fix, the admin UX/copy pass (shared `AccessDeniedPage`, dashboards, tickets), the support-UI/dispute/banners work, and the new resume button. Frontend tree is clean.
+5. **Resume scheduled cancellation:** "Reactivar renovación" action in the service management page (uses the existing `reactivate-cancellation` endpoint, shows the period-end date). UX gap closed.
+6. **Frontend tests:** 4 new `BillingBanners` component tests; full vitest suite **55 tests / 7 files green**. Portal + admin rebuilt clean.
+7. **CI/local test memory:** Jenkinsfile already ran PHPUnit with `memory_limit=512M`; `composer test` now does too.
+
+### Still requires the operator (cannot be done from this machine)
+
+| # | Step | Why manual | Time |
+|---|---|---|---|
+| 1 | Rotate APP_KEY **in production** (same rehearsed runbook) | prod server access; invalidates live sessions — pick the window | ~30 min |
+| 2 | Register both webhook endpoints in the **Stripe dashboard** (prod + staging) and set each `whsec_` | dashboard access | ~15 min |
+| 3 | Facturama: provide sandbox (dev.facturama.mx) or production credentials — **dev has none**, so CFDI stamping is untestable until then; then stamp one test CFDI | credentials | ~30 min |
+| 4 | One real provisioning round in staging (game server + hosting) | touches live Pterodactyl/Coolify/Cloudflare | ~1 h |
+| 5 | Prod deploy checklist: `php artisan migrate`, new env vars, queue worker + scheduler cron + Reverb alive | prod access | ~30 min |
+
+### Updated scores
+
+| Area | Previous | **Now** | Change driver |
+|---|---|---|---|
+| Backend | 92 | **93** | rotation drill validated the encryption stack end-to-end |
+| Billing | 88 | **93** | live signed webhook round-trip + live idempotency proven |
+| Integrations | 88 | **88** | staging provisioning round still pending (operator) |
+| Security | 85 | **92** | rotation executed in dev; prod repeat is rehearsed |
+| Frontend | 85 | **92** | portal-ships-admin bug fixed; all work committed; resume UX; tests |
+| **Overall** | 88 | **92** | remaining gap is purely operational (table above) |
+
+The last stretch to ~100 is: the 5 operator steps above, plus the first weeks of real production traffic (first real charge, renewal, refund) without incident.
