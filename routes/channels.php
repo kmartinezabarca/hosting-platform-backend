@@ -142,3 +142,36 @@ Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $se
     $service = \App\Domains\Platform\Models\Service::where('uuid', $serviceUuid)->first();
     return $service && (int) $service->user_id === (int) $user->id;
 });
+
+// ── Chat de soporte ROKE PET ──────────────────────────────────────────────────
+// El guard de Pet (sanctum->web) resuelve a App\Models\User; el id del dueño en
+// el dominio Pet es su `uuid` (== owners.id). Por eso aquí se autoriza por
+// uuid/AppAdmin, igual que el resto del dominio Pet (ver EnsurePetAppAdmin).
+//
+// Canal privado por conversación: lo escucha el DUEÑO propietario o un ADMIN de
+// Pet. Un dueño nunca entra a la conversación de otro, ni a las de ROKE
+// Industries (que viven en otro sistema/canal).
+Broadcast::channel('rp-chat.{conversationId}', function (User $user, string $conversationId) {
+    $conversation = \App\Domains\Pet\Models\ChatConversation::find($conversationId);
+    if (! $conversation) {
+        return false;
+    }
+
+    $isPetAdmin = \App\Domains\Pet\Models\AppAdmin::where('user_id', $user->uuid)->exists();
+
+    if ($isPetAdmin) {
+        return ['id' => $user->uuid, 'name' => $user->full_name, 'is_staff' => true];
+    }
+
+    if ($conversation->owner_id === $user->uuid) {
+        return ['id' => $user->uuid, 'name' => $user->full_name, 'is_staff' => false];
+    }
+
+    return false;
+});
+
+// Feed de administración del chat de Pet — sólo admins de Pet. Recibe mensajes
+// nuevos, escalamientos y cambios de estado para la lista en vivo.
+Broadcast::channel('rp-admin.chat', function (User $user) {
+    return \App\Domains\Pet\Models\AppAdmin::where('user_id', $user->uuid)->exists();
+});

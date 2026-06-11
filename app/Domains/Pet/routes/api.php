@@ -23,6 +23,8 @@ use App\Domains\Pet\Http\Controllers\VaccineController;
 use App\Domains\Pet\Http\Controllers\VetContactController;
 use App\Domains\Pet\Http\Controllers\VetLinkController;
 use App\Domains\Pet\Http\Controllers\WeightHistoryController;
+use App\Domains\Pet\Http\Controllers\Chat\OwnerChatController;
+use App\Domains\Pet\Http\Controllers\Chat\AdminChatController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -215,6 +217,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/billing/checkout',     [StripeController::class, 'createCheckoutSession']);
     Route::post('/billing/portal',       [StripeController::class, 'billingPortal']);
 
+    // ── Chat de soporte (lado del dueño) ──────────────────────────────────────
+    // Crear conversación y enviar mensajes con rate-limit (anti-spam). El resto
+    // (typing, read, escalar, cerrar) con límites más holgados.
+    Route::get('/chat/conversation', [OwnerChatController::class, 'current']);
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('/chat/conversation', [OwnerChatController::class, 'start']);
+    });
+    Route::get('/chat/conversations/{conversation}/messages', [OwnerChatController::class, 'messages']);
+    Route::middleware('throttle:30,1')->group(function () {
+        Route::post('/chat/conversations/{conversation}/messages', [OwnerChatController::class, 'send']);
+    });
+    Route::post('/chat/conversations/{conversation}/escalate', [OwnerChatController::class, 'escalate']);
+    Route::post('/chat/conversations/{conversation}/typing',   [OwnerChatController::class, 'typing']);
+    Route::post('/chat/conversations/{conversation}/read',     [OwnerChatController::class, 'read']);
+    Route::post('/chat/conversations/{conversation}/close',    [OwnerChatController::class, 'close']);
+
     // Admin — check queda FUERA del middleware: responde "¿soy admin?" para
     // cualquier usuario autenticado (y auto-promueve a los admins de plataforma).
     Route::get('/admin/check',    [AdminController::class, 'check']);
@@ -257,5 +275,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/admin/plans/{id}',         [PlanController::class, 'update']);
         Route::patch('/admin/plans/{id}/toggle', [PlanController::class, 'toggle']);
         Route::delete('/admin/plans/{id}',      [PlanController::class, 'destroy']);
+
+        // ── Chat de soporte (panel admin / agente) ────────────────────────────
+        Route::get('/admin/chat/stats',                            [AdminChatController::class, 'stats']);
+        Route::get('/admin/chat/conversations',                    [AdminChatController::class, 'index']);
+        Route::get('/admin/chat/conversations/{conversation}',     [AdminChatController::class, 'show']);
+        Route::get('/admin/chat/conversations/{conversation}/messages', [AdminChatController::class, 'messages']);
+        Route::post('/admin/chat/conversations/{conversation}/messages', [AdminChatController::class, 'send']);
+        Route::post('/admin/chat/conversations/{conversation}/takeover',  [AdminChatController::class, 'takeover']);
+        Route::post('/admin/chat/conversations/{conversation}/assign',    [AdminChatController::class, 'assign']);
+        Route::post('/admin/chat/conversations/{conversation}/typing',    [AdminChatController::class, 'typing']);
+        Route::post('/admin/chat/conversations/{conversation}/read',      [AdminChatController::class, 'read']);
+        Route::post('/admin/chat/conversations/{conversation}/resolve',   [AdminChatController::class, 'resolve']);
+        Route::post('/admin/chat/conversations/{conversation}/close',     [AdminChatController::class, 'close']);
     });
 });
