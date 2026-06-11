@@ -30,6 +30,11 @@ class RenewalAccountingTest extends TestCase
             'billing.tax_rate_percent'       => 16.00,
         ]);
         Notification::fake();
+
+        // El PDF del comprobante se genera post-commit con dompdf (pesado en
+        // memoria); aquí solo validamos los registros contables.
+        $this->mock(\App\Domains\Platform\Services\PaymentReceiptService::class)
+            ->shouldReceive('generate')->andReturnNull();
     }
 
     public function test_renewal_webhook_creates_receipt_transaction_and_cfdi(): void
