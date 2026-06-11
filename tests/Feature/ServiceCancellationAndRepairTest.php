@@ -104,10 +104,12 @@ class ServiceCancellationAndRepairTest extends TestCase
         $service = Service::factory()->create([
             'user_id'               => $user->id,
             'plan_id'               => $plan->id,
-            // Escenario real: el servidor SÍ se creó en Pterodactyl, pero un paso
-            // tardío falló y provision() dejó el servicio en 'failed'.
+            // Escenario real: el servidor SÍ se creó en Pterodactyl (y el proxy
+            // FRP quedó activo), pero un paso posterior falló y provision()
+            // dejó el servicio en 'failed'.
             'status'                => 'failed',
             'pterodactyl_server_id' => 4242,
+            'connection_details'    => ['server_port' => 25565, 'frp_enabled' => true],
         ]);
 
         $job = ProvisioningJob::create([

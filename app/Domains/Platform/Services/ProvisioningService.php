@@ -180,8 +180,18 @@ class ProvisioningService
     private function alreadyProvisioned(Service $service, string $provider): bool
     {
         return match ($provider) {
-            ProvisioningJob::PROVIDER_PTERODACTYL => ! empty($service->pterodactyl_server_id),
-            ProvisioningJob::PROVIDER_COOLIFY     => ! empty(($service->connection_details ?? [])['coolify_app_uuid']),
+            // Servidor creado Y proxy FRP activo: un fallo tardío de FRP no
+            // cuenta como aprovisionado — el reintento entra a provision(),
+            // que es resumible y solo repite el paso FRP.
+            ProvisioningJob::PROVIDER_PTERODACTYL => ! empty($service->pterodactyl_server_id)
+                && ! empty(($service->connection_details ?? [])['frp_enabled']),
+            // El marcador es la BANDERA de finalización, no el app uuid: el
+            // aprovisionamiento Coolify es resumible y un app creado con DB/DNS
+            // pendientes debe volver a entrar a provision() para completarse.
+            // Fallback legado: filas aprovisionadas antes de la bandera tienen
+            // app uuid + status active y se consideran completas.
+            ProvisioningJob::PROVIDER_COOLIFY => ! empty(($service->connection_details ?? [])['coolify_provisioned_at'])
+                || (! empty(($service->connection_details ?? [])['coolify_app_uuid']) && $service->status === 'active'),
             default => false,
         };
     }

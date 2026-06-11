@@ -36,6 +36,19 @@ class GameServerProvisioningService
             return; // nada que hacer
         }
 
+        // ── Resumible: el servidor YA existe en Pterodactyl ─────────────────
+        // Un fallo tardío (FRP) en un intento anterior dejó el servidor creado;
+        // NO se crea un segundo servidor: solo se completa el paso pendiente.
+        if ($service->pterodactyl_server_id) {
+            $this->ensureFrpProxy($service);
+
+            if ($service->status === 'failed') {
+                $service->update(['status' => 'active']);
+            }
+
+            return;
+        }
+
         // ── Egg seleccionado por el cliente ─────────────────────────────────
         // El egg se guardó en services.selected_egg_id al contratar.
         // Si por alguna razón no existe (eg. servicio antiguo), fallamos
@@ -137,9 +150,15 @@ class GameServerProvisioningService
             //
             $protocol = $selectedEgg->game_protocol ?? GameProtocol::JAVA;
             $subdomain    = $this->buildSubdomain($user);
-            $vpsIp        = config('pterodactyl.relay_ip', '178.156.225.26');
+            $vpsIp        = config('pterodactyl.relay_ip');
             $hostname     = null;
             $dnsRecordIds = [];
+
+            if (empty($vpsIp)) {
+                Log::warning('PTERODACTYL_RELAY_IP no configurada: se omiten registros A de DNS (el servidor funciona por IP:puerto).', [
+                    'service_id' => $service->id,
+                ]);
+            }
 
             try {
                 if ($protocol->usesSrvRecord()) {
@@ -155,7 +174,7 @@ class GameServerProvisioningService
                         (int) $allocation['attributes']['port']
                     );
                     $hostname = "{$subdomain}.rokeindustries.com";
-                } else {
+                } elseif ($vpsIp) {
                     // Bedrock: kmartinez.rokeindustries.com -> IP (Registro A)
                     // El cliente se conecta con kmartinez.rokeindustries.com:PORT
                     $dnsRecordIds['a'] = $this->cloudflare->createARecord(
@@ -201,41 +220,10 @@ class GameServerProvisioningService
                 ],
             ]);
 
-            // 8) Agregar proxy frp para el puerto del servidor
-            try {
-                $port = $allocation['attributes']['port'];
-                $proxyCreated = $this->frp->addTcpProxy(port: $port, name: $service->name);
-
-                if ($proxyCreated) {
-
-                    $service->update([
-                        'connection_details' => array_merge(
-                            $service->connection_details ?? [],
-                            [
-                                'frp_port' => $port,
-                                'frp_enabled' => true,
-                            ],
-                        ),
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                $service->update([
-                    'connection_details' => array_merge(
-                        $service->connection_details ?? [],
-                        [
-                            'frp_enabled' => false,
-                            'frp_error' => $e->getMessage(),
-                        ],
-                    ),
-                ]);
-
-                Log::error('FRP proxy provisioning failed', [
-                    'service_id' => $service->id,
-                    'error'      => $e->getMessage(),
-                ]);
-
-                throw new RuntimeException("No se pudo configurar FRP para el puerto {$port}: {$e->getMessage()}", 0, $e);
-            }
+            // 8) Agregar proxy frp para el puerto del servidor (resumible —
+            // si falla, el reintento del job entra por la rama de arriba y
+            // solo repite este paso, sin crear otro servidor).
+            $this->ensureFrpProxy($service->fresh());
 
             // 9) Notificar al cliente
             $this->notifyProvisioned($user, $service->fresh());
@@ -262,6 +250,64 @@ class GameServerProvisioningService
             // conoce el nº de intentos y si se agotaron los reintentos, y etiqueta
             // correctamente la notificación (target=admin, canal admin.notifications).
             throw $e;
+        }
+    }
+
+    /**
+     * Garantiza el proxy FRP del servidor (idempotente).
+     *
+     * El puerto sale de connection_details (server_port / frp_port). Si el
+     * proxy ya está activo no hace nada; si falla, persiste frp_enabled=false
+     * + frp_error y LANZA — el provisioning no se considera exitoso sin FRP,
+     * y el job de reintentos / el comando game-servers:reconcile-frp lo
+     * volverán a intentar.
+     */
+    public function ensureFrpProxy(Service $service): void
+    {
+        $details = $service->connection_details ?? [];
+
+        if (! empty($details['frp_enabled'])) {
+            return; // idempotente — ya activo
+        }
+
+        $port = (int) ($details['frp_port'] ?? $details['server_port'] ?? 0);
+
+        if ($port <= 0) {
+            throw new RuntimeException(
+                "El servicio #{$service->id} no tiene puerto en connection_details; no se puede configurar FRP."
+            );
+        }
+
+        try {
+            $created = $this->frp->addTcpProxy(port: $port, name: $service->name);
+
+            if (! $created) {
+                throw new RuntimeException('FRP devolvió false al crear el proxy.');
+            }
+
+            $service->update([
+                'connection_details' => array_merge($service->fresh()->connection_details ?? [], [
+                    'frp_port'    => $port,
+                    'frp_enabled' => true,
+                    'frp_error'   => null,
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            $service->update([
+                'connection_details' => array_merge($service->fresh()->connection_details ?? [], [
+                    'frp_port'    => $port,
+                    'frp_enabled' => false,
+                    'frp_error'   => $e->getMessage(),
+                ]),
+            ]);
+
+            Log::error('FRP proxy provisioning failed', [
+                'service_id' => $service->id,
+                'port'       => $port,
+                'error'      => $e->getMessage(),
+            ]);
+
+            throw new RuntimeException("No se pudo configurar FRP para el puerto {$port}: {$e->getMessage()}", 0, $e);
         }
     }
 

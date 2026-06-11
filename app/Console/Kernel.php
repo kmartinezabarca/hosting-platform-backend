@@ -66,6 +66,15 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/provisioning-pending.log'));
 
+        // Reconciliación de proxies FRP: game servers activos con servidor
+        // Pterodactyl pero sin proxy (fallos tardíos de FRP). Reintenta solo
+        // el paso FRP; notifica al admin tras 3 intentos fallidos.
+        $schedule->command('game-servers:reconcile-frp')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/frp-reconcile.log'));
+
         // Health check de sitios de hosting (Coolify): uptime + latencia REAL.
         // Coolify no expone CPU/RAM, así que medimos disponibilidad con un GET HTTP.
         $schedule->command('hosting:check-health')

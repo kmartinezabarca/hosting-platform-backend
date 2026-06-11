@@ -18,6 +18,17 @@ class HostingProvisioningService
         private readonly CloudflareService $cloudflare,
     ) {}
 
+    /**
+     * Aprovisionamiento RESUMIBLE: cada paso persiste su marcador en
+     * connection_details inmediatamente, de modo que un fallo a mitad del
+     * proceso no deja recursos huérfanos en Coolify — el reintento retoma
+     * desde el último paso completado en lugar de crear un segundo
+     * proyecto/app/base de datos.
+     *
+     * El marcador de finalización es connection_details.coolify_provisioned_at
+     * (no el app uuid): un app creado con DB pendiente NO cuenta como
+     * aprovisionado.
+     */
     public function provision(Service $service): void
     {
         $service->loadMissing(['plan', 'user']);
@@ -28,15 +39,24 @@ class HostingProvisioningService
             return;
         }
 
-        $domain       = $this->normalizeDomain($service->domain);
-        $subdomain    = $this->buildSubdomain($user);
-        $fqdn         = $domain
+        $conn = $service->connection_details ?? [];
+
+        $domain    = $this->normalizeDomain($service->domain);
+        // Reusar el subdominio ya persistido en un intento previo para no
+        // derivar uno distinto (-2, -3…) en el reintento.
+        $subdomain = $conn['subdomain'] ?? $this->buildSubdomain($user);
+        $fqdn      = $conn['fqdn'] ?? ($domain
             ? "https://{$domain}"
-            : "https://{$subdomain}.rokeindustries.com";
-        $buildPack    = $plan->provisioner_config['build_pack'] ?? 'static';
-        $dbEnabled    = (bool) ($plan->provisioner_config['db_enabled'] ?? false);
-        $dbType       = $plan->provisioner_config['db_type'] ?? 'mariadb';
-        $dnsRecordIds = [];
+            : "https://{$subdomain}.rokeindustries.com");
+        $buildPack = $plan->provisioner_config['build_pack'] ?? 'static';
+        $dbEnabled = (bool) ($plan->provisioner_config['db_enabled'] ?? false);
+        $dbType    = $plan->provisioner_config['db_type'] ?? 'mariadb';
+
+        // Estado resumible de intentos anteriores.
+        $projectUuid  = $conn['coolify_project_uuid'] ?? null;
+        $appUuid      = $conn['coolify_app_uuid'] ?? null;
+        $dbUuid       = $conn['coolify_db_uuid'] ?? null;
+        $dnsRecordIds = $conn['dns_record_ids'] ?? [];
 
         // Coolify valida el nombre: solo letras (unicode), números, espacios y
         // - _ . / @ & ( ) # , : +  → cualquier otro carácter (p. ej. "—") da 422.
@@ -44,71 +64,99 @@ class HostingProvisioningService
         $coolifyName = $this->sanitizeCoolifyName($service->name);
 
         try {
-            // 1) Crear proyecto en Coolify
-            $project = $this->coolify->createProject(
-                $coolifyName,
-                "Hosting para {$user->email}"
-            );
-            $projectUuid = $project['uuid'];
+            // 1) Proyecto — persistir el UUID INMEDIATAMENTE (fix de huérfanos).
+            if (! $projectUuid) {
+                $project     = $this->coolify->createProject(
+                    $coolifyName,
+                    "Hosting para {$user->email}"
+                );
+                $projectUuid = $project['uuid'];
 
-            // 2) Crear aplicación
-            $app = $this->coolify->createApplication([
-                'project_uuid' => $projectUuid,
-                'server_uuid'  => config('coolify.server_uuid'),
-                'name'         => $coolifyName,
-                'build_pack'   => $buildPack,
-                'fqdn'         => $fqdn,
-            ]);
-            $appUuid = $app['uuid'];
+                $this->mergeConnectionDetails($service, [
+                    'coolify_project_uuid' => $projectUuid,
+                    'subdomain'            => $subdomain,
+                    'fqdn'                 => $fqdn,
+                    'domain'               => $domain,
+                ]);
+            }
 
-            // 3) Crear base de datos si el plan lo incluye
-            $db = null;
-            if ($dbEnabled) {
-                $db = $this->coolify->createDatabase([
+            // 2) Aplicación — resumible.
+            if (! $appUuid) {
+                $app     = $this->coolify->createApplication([
+                    'project_uuid' => $projectUuid,
+                    'server_uuid'  => config('coolify.server_uuid'),
+                    'name'         => $coolifyName,
+                    'build_pack'   => $buildPack,
+                    'fqdn'         => $fqdn,
+                ]);
+                $appUuid = $app['uuid'];
+
+                $this->mergeConnectionDetails($service, ['coolify_app_uuid' => $appUuid]);
+                $service->forceFill(['external_id' => $appUuid])->save();
+            }
+
+            // 3) Base de datos — resumible.
+            if ($dbEnabled && ! $dbUuid) {
+                $db     = $this->coolify->createDatabase([
                     'project_uuid' => $projectUuid,
                     'server_uuid'  => config('coolify.server_uuid'),
                     'name'         => "db_{$subdomain}",
                     'type'         => $dbType,
                 ]);
-            }
+                $dbUuid = $db['uuid'] ?? null;
 
-            // 4) DNS en Cloudflare
-            $dnsTarget = $domain ?? "{$subdomain}.rokeindustries.com";
-            try {
-                $dnsRecordIds['a'] = $this->cloudflare->createARecord(
-                    $this->cloudflareName($dnsTarget),
-                    '100.124.151.68'
-                );
-            } catch (\Throwable $e) {
-                Log::warning('DNS Cloudflare para hosting Coolify no creado (no fatal)', [
-                    'service_id' => $service->id,
-                    'fqdn'       => $fqdn,
-                    'error'      => $e->getMessage(),
+                $this->mergeConnectionDetails($service, [
+                    'coolify_db_uuid' => $dbUuid,
+                    'db_host'         => $db['internal_db_url'] ?? null,
+                    'db_name'         => $db['_db_name'] ?? null,
+                    'db_user'         => $db['_db_user'] ?? null,
+                    'db_type'         => $db['_db_type'] ?? null,
                 ]);
+
+                $dbPassword = $db['_db_password'] ?? null;
+                if ($dbPassword !== null && $dbPassword !== '') {
+                    $service->update([
+                        'connection_secrets' => array_merge(
+                            $service->fresh()->connection_secrets ?? [],
+                            ['db_password' => $dbPassword],
+                        ),
+                    ]);
+                }
             }
 
-            // 5) Persistir connection_details
-            $service->update([
-                'external_id' => $appUuid,
-                'status'      => 'active',
-                'connection_details' => [
-                    'coolify_project_uuid' => $projectUuid,
-                    'coolify_app_uuid'     => $appUuid,
-                    'coolify_db_uuid'      => $db['uuid'] ?? null,
-                    'domain'               => $domain,
-                    'fqdn'                 => $fqdn,
-                    'subdomain'            => $subdomain,
-                    'db_host'              => $db['internal_db_url'] ?? null,
-                    'db_name'              => $db['_db_name'] ?? null,
-                    'db_user'              => $db['_db_user'] ?? null,
-                    'db_type'              => $db['_db_type'] ?? null,
-                    'dns_record_ids'       => $dnsRecordIds,
-                    'panel_url'            => config('coolify.base_url'),
-                ],
-                'connection_secrets' => array_filter([
-                    'db_password' => $db['_db_password'] ?? null,
-                ], fn ($value) => $value !== null && $value !== ''),
+            // 4) DNS en Cloudflare — best-effort, resumible.
+            if (empty($dnsRecordIds)) {
+                $dnsIp = config('coolify.hosting_dns_ip');
+
+                if (empty($dnsIp)) {
+                    Log::warning('COOLIFY_HOSTING_DNS_IP no configurada: se omite el registro A de DNS para el hosting.', [
+                        'service_id' => $service->id,
+                        'fqdn'       => $fqdn,
+                    ]);
+                } else {
+                    $dnsTarget = $domain ?? "{$subdomain}.rokeindustries.com";
+                    try {
+                        $dnsRecordIds['a'] = $this->cloudflare->createARecord(
+                            $this->cloudflareName($dnsTarget),
+                            $dnsIp,
+                        );
+                        $this->mergeConnectionDetails($service, ['dns_record_ids' => $dnsRecordIds]);
+                    } catch (\Throwable $e) {
+                        Log::warning('DNS Cloudflare para hosting Coolify no creado (no fatal)', [
+                            'service_id' => $service->id,
+                            'fqdn'       => $fqdn,
+                            'error'      => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+
+            // 5) Marcar finalización y activar.
+            $this->mergeConnectionDetails($service, [
+                'panel_url'              => config('coolify.base_url'),
+                'coolify_provisioned_at' => now()->toIso8601String(),
             ]);
+            $service->update(['status' => 'active']);
 
             // 6) Notificar
             $this->notifyProvisioned($user, $service->fresh(['plan', 'user']));
@@ -117,22 +165,34 @@ class HostingProvisioningService
                 'service_id'   => $service->id,
                 'project_uuid' => $projectUuid,
                 'app_uuid'     => $appUuid,
-                'db_uuid'      => $db['uuid'] ?? null,
+                'db_uuid'      => $dbUuid,
                 'fqdn'         => $fqdn,
                 'dns_records'  => $dnsRecordIds,
             ]);
         } catch (\Throwable $e) {
             $service->update(['status' => 'failed']);
 
-            Log::error('Aprovisionamiento Coolify fallido', [
-                'service_id' => $service->id,
-                'plan_id'    => $plan?->id,
-                'error'      => $e->getMessage(),
-                'trace'      => $e->getTraceAsString(),
+            Log::error('Aprovisionamiento Coolify fallido (estado parcial persistido para reanudar)', [
+                'service_id'   => $service->id,
+                'plan_id'      => $plan?->id,
+                'project_uuid' => $projectUuid,
+                'app_uuid'     => $appUuid,
+                'error'        => $e->getMessage(),
+                'trace'        => $e->getTraceAsString(),
             ]);
 
             throw $e;
         }
+    }
+
+    /**
+     * Mezcla claves en connection_details y persiste de inmediato, releyendo
+     * el estado actual para no pisar marcadores escritos en pasos previos.
+     */
+    private function mergeConnectionDetails(Service $service, array $changes): void
+    {
+        $current = $service->fresh()->connection_details ?? [];
+        $service->update(['connection_details' => array_merge($current, $changes)]);
     }
 
     public function suspend(Service $service): void
