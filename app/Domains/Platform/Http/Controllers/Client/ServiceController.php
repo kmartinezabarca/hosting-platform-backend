@@ -120,6 +120,19 @@ class ServiceController extends Controller
                 $claimed = true;
             } else {
                 $plan = ServicePlan::where('slug', $validated['plan_id'])->firstOrFail();
+
+                // Los planes DE PAGO exigen cotización (quote_id): la ruta sin
+                // cotización calculaba base_price × meses e ignoraba los precios
+                // por ciclo de plan_pricing (descuentos anual/semestral), pudiendo
+                // cobrar de más. La cotización es la única fuente de precios.
+                // Los planes free/trial no cobran y siguen funcionando sin quote.
+                if (! $plan->isNoCharge()) {
+                    return response()->json([
+                        'success' => false,
+                        'error'   => 'QUOTE_REQUIRED',
+                        'message' => 'Los planes de pago requieren una cotización. Genera una con POST /api/checkout/quote y envía quote_id.',
+                    ], 422);
+                }
             }
 
             ['service' => $service, 'receipt' => $receipt] = $this->contractingService->contract(
