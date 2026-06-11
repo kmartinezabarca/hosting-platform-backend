@@ -117,8 +117,12 @@ Route::prefix('blog')->group(function () {
     });
 });
 
-Route::post('/blog/subscribe', [BlogSubscriptionController::class, 'subscribe']);
-Route::post('/blog/unsubscribe/{uuid}', [BlogSubscriptionController::class, 'unsubscribe']);
+// Suscripción al blog — throttle anti-spam (endpoint público que escribe en BD
+// y dispara correo de confirmación).
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/blog/subscribe', [BlogSubscriptionController::class, 'subscribe']);
+    Route::post('/blog/unsubscribe/{uuid}', [BlogSubscriptionController::class, 'unsubscribe']);
+});
 
 // Documentation
 Route::prefix('documentation')->group(function () {
@@ -135,7 +139,9 @@ Route::prefix('system-status')->group(function () {
     Route::get('/', [SystemStatusController::class, 'index']);
 });
 
-Route::post('/documentation-requests', [DocumentationRequestController::class, 'store']);
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/documentation-requests', [DocumentationRequestController::class, 'store']);
+});
 
 // Versiones de software de servidores de Minecraft (Pterodactyl Eggs)
 Route::get('/software/{identifier}/versions', [SoftwareController::class, 'getVersions']);
