@@ -62,6 +62,7 @@ Route::prefix('v2')
         // Deployments
         Route::get('/resources/{resource}/deployments', [DeploymentController::class, 'index']);
         Route::post('/resources/{resource}/deployments', [DeploymentController::class, 'store']);
+        Route::post('/resources/{resource}/deployments/{deployment}/rollback', [DeploymentController::class, 'rollback']);
         Route::get('/deployments/{deployment}/logs', [DeploymentController::class, 'logs']);
 
         // Asistente de IA (v1: herramientas de lectura + diagnóstico)

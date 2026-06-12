@@ -3,6 +3,7 @@
 namespace Tests\Feature\Compute;
 
 use App\Domains\Platform\Compute\Enums\DeploymentStatus;
+use App\Domains\Platform\Compute\Enums\DeploymentTrigger;
 use App\Domains\Platform\Compute\Enums\ResourceStatus;
 use App\Domains\Platform\Compute\Enums\TeamRole;
 use App\Domains\Platform\Compute\Models\Environment;
@@ -193,6 +194,52 @@ class ProvisionDeployFlowTest extends TestCase
     }
 
     /** Recurso ya aprovisionado (running + provider ref), sin pasar por la API. */
+    public function test_rollback_redeploys_target_commit(): void
+    {
+        $resource = $this->provisionedResource();
+
+        // Deployment exitoso anterior con un commit conocido.
+        $target = $resource->deployments()->create([
+            'trigger'        => DeploymentTrigger::Manual,
+            'status'         => DeploymentStatus::Success,
+            'branch'         => 'main',
+            'commit_sha'     => 'abc123',
+            'commit_message' => 'release anterior',
+        ]);
+
+        $this->driver->calls = [];
+
+        $this->actingAs($this->user)->postJson(
+            "/api/v2/resources/{$resource->uuid}/deployments/{$target->uuid}/rollback",
+        )->assertStatus(202)->assertJsonPath('data.rolled_back_from', $target->uuid);
+
+        $rollback = $resource->deployments()
+            ->where('trigger', DeploymentTrigger::Rollback->value)
+            ->firstOrFail();
+
+        $this->assertSame(DeploymentStatus::Success, $rollback->status);
+        $this->assertSame('abc123', $rollback->commit_sha);
+
+        // El driver recibió el commit objetivo al desplegar → rollback real, no HEAD.
+        $deployCall = collect($this->driver->calls)->firstWhere('method', 'triggerDeploy');
+        $this->assertNotNull($deployCall);
+        $this->assertSame('abc123', $deployCall['args'][1] ?? null);
+    }
+
+    public function test_rollback_rejects_non_successful_target(): void
+    {
+        $resource = $this->provisionedResource();
+        $failed   = $resource->deployments()->create([
+            'trigger' => DeploymentTrigger::Manual,
+            'status'  => DeploymentStatus::Failed,
+            'branch'  => 'main',
+        ]);
+
+        $this->actingAs($this->user)->postJson(
+            "/api/v2/resources/{$resource->uuid}/deployments/{$failed->uuid}/rollback",
+        )->assertStatus(422);
+    }
+
     private function provisionedResource(): Resource
     {
         $resource = Resource::factory()->create([

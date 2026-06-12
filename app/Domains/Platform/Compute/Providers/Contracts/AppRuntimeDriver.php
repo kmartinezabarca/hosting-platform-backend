@@ -32,8 +32,11 @@ interface AppRuntimeDriver
 
     public function setDomain(string $appId, string $fqdn): void;
 
-    /** Dispara un build/deploy y devuelve el id externo del deployment. */
-    public function triggerDeploy(string $appId): string;
+    /**
+     * Dispara un build/deploy y devuelve el id externo del deployment.
+     * Si $commitSha viene, despliega ESE commit (rollback) en vez del HEAD.
+     */
+    public function triggerDeploy(string $appId, ?string $commitSha = null): string;
 
     /**
      * Estado de un deployment en el runtime.

@@ -114,8 +114,17 @@ class CoolifyDriver implements AppRuntimeDriver
         $this->assertOk($response, 'setDomain');
     }
 
-    public function triggerDeploy(string $appId): string
+    public function triggerDeploy(string $appId, ?string $commitSha = null): string
     {
+        // Rollback: fija el commit objetivo en la app antes de desplegar, para que
+        // Coolify construya ESE commit en lugar del HEAD del branch.
+        if ($commitSha !== null && $commitSha !== '') {
+            $this->assertOk(
+                $this->http()->patch("/api/v1/applications/{$appId}", ['git_commit_sha' => $commitSha]),
+                'pinCommit',
+            );
+        }
+
         $response = $this->http()->post('/api/v1/deploy', ['uuid' => $appId, 'force' => false]);
 
         $this->assertOk($response, 'triggerDeploy');

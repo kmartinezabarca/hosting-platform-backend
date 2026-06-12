@@ -51,7 +51,7 @@ class FakeAppRuntimeDriver implements AppRuntimeDriver
         $this->record(__FUNCTION__, func_get_args());
     }
 
-    public function triggerDeploy(string $appId): string
+    public function triggerDeploy(string $appId, ?string $commitSha = null): string
     {
         $this->record(__FUNCTION__, func_get_args());
         $this->polls = 0;

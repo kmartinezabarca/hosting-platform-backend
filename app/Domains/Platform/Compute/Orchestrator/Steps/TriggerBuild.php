@@ -43,7 +43,10 @@ class TriggerBuild implements Step
         }
 
         $providerRef = $this->driver->triggerDeploy(
-            $resource->providerRef('coolify')->external_id
+            $resource->providerRef('coolify')->external_id,
+            // En un rollback el deployment trae el commit objetivo; en un deploy
+            // normal es null → Coolify despliega el HEAD del branch.
+            $deployment->commit_sha,
         );
 
         $deployment->update([

@@ -76,6 +76,49 @@ class DeploymentController extends Controller
     }
 
     /**
+     * POST /api/v2/resources/{resource}/deployments/{deployment}/rollback → 202.
+     *
+     * Crea un nuevo deployment que re-despliega el código de un deployment
+     * exitoso anterior (fija su commit). El historial conserva ambos.
+     */
+    public function rollback(Request $request, Resource $resource, Deployment $deployment): JsonResponse
+    {
+        $this->authorize('operate', $resource);
+
+        // El deployment objetivo debe pertenecer a este recurso y haber sido exitoso.
+        abort_if($deployment->resource_id !== $resource->id, 404);
+        abort_unless(
+            $deployment->status === DeploymentStatus::Success,
+            422,
+            'Solo se puede revertir a un deployment exitoso.',
+        );
+
+        if (! in_array($resource->status, [ResourceStatus::Running, ResourceStatus::Stopped, ResourceStatus::Degraded, ResourceStatus::Failed], true)) {
+            abort(409, 'El recurso aún se está aprovisionando.');
+        }
+
+        $rollback = $resource->deployments()->create([
+            'trigger'              => DeploymentTrigger::Rollback,
+            'status'               => DeploymentStatus::Queued,
+            'branch'               => $deployment->branch,
+            'commit_sha'           => $deployment->commit_sha,
+            'commit_message'       => $deployment->commit_message,
+            'initiated_by_user_id' => $request->user()->id,
+        ]);
+
+        $orchestration = $this->orchestrator->start(DeployFlow::key(), $resource, $rollback);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'deployment'       => $this->transform($rollback),
+                'rolled_back_from' => $deployment->uuid,
+                'orchestration'    => ['uuid' => $orchestration->uuid],
+            ],
+        ], 202);
+    }
+
+    /**
      * GET /api/v2/deployments/{deployment}/logs?stream=build&after_seq=0
      */
     public function logs(Request $request, Deployment $deployment): JsonResponse
