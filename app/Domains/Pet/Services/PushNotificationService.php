@@ -52,6 +52,21 @@ class PushNotificationService
             $payload = json_encode(compact('title', 'body', 'data'));
 
             foreach ($webPushSubs as $sub) {
+                // Un endpoint que no es una URL http(s) válida rompe la generación
+                // del "audience" VAPID (p. ej. un token FCM guardado como webpush).
+                // Lo descartamos y limpiamos en vez de reventar el envío entero.
+                if (! $this->isValidWebPushEndpoint($sub->endpoint)) {
+                    $failed++;
+                    $errors[] = "Suscripción webpush inválida (endpoint malformado): {$sub->endpoint}";
+                    \Illuminate\Support\Facades\Log::warning('Push: endpoint webpush inválido, eliminado', [
+                        'owner_id'     => $ownerId,
+                        'subscription' => $sub->id,
+                        'endpoint'     => $sub->endpoint,
+                    ]);
+                    $sub->delete();
+                    continue;
+                }
+
                 $this->getWebPush()->queueNotification(
                     Subscription::create([
                         'endpoint' => $sub->endpoint,
@@ -61,16 +76,23 @@ class PushNotificationService
                 );
             }
 
-            foreach ($this->getWebPush()->flush() as $report) {
-                if ($report->isSuccess()) {
-                    $sent++;
-                } elseif ($report->isSubscriptionExpired()) {
-                    $expired++;
-                    PushSubscription::where('endpoint', $report->getEndpoint())->delete();
-                } else {
-                    $failed++;
-                    if ($reason = $report->getReason()) $errors[] = $reason;
+            try {
+                foreach ($this->getWebPush()->flush() as $report) {
+                    if ($report->isSuccess()) {
+                        $sent++;
+                    } elseif ($report->isSubscriptionExpired()) {
+                        $expired++;
+                        PushSubscription::where('endpoint', $report->getEndpoint())->delete();
+                    } else {
+                        $failed++;
+                        if ($reason = $report->getReason()) $errors[] = $reason;
+                    }
                 }
+            } catch (\Throwable $e) {
+                // Una suscripción corrupta no debe tumbar el envío completo.
+                $failed++;
+                $errors[] = $e->getMessage();
+                \Illuminate\Support\Facades\Log::warning('Push: fallo al vaciar la cola webpush: ' . $e->getMessage());
             }
         }
 
@@ -105,6 +127,18 @@ class PushNotificationService
             $total += $this->sendToOwner($ownerId, $title, $body, $data);
         }
         return $total;
+    }
+
+    /** ¿El endpoint es una URL http(s) válida apta para Web Push / VAPID? */
+    private function isValidWebPushEndpoint(?string $endpoint): bool
+    {
+        if (! $endpoint) {
+            return false;
+        }
+        $scheme = parse_url($endpoint, PHP_URL_SCHEME);
+        $host   = parse_url($endpoint, PHP_URL_HOST);
+
+        return in_array($scheme, ['http', 'https'], true) && ! empty($host);
     }
 
     // ── FCM HTTP v1 ───────────────────────────────────────────────────────────
