@@ -113,7 +113,8 @@ class ProvisionDeployFlowTest extends TestCase
 
         $deployment = $resource->deployments()->firstOrFail();
         $this->assertSame(DeploymentStatus::Failed, $deployment->status);
-        $this->assertStringContainsString('ERROR', $deployment->error_summary);
+        $this->assertStringContainsString('No se identificó una causa conocida', $deployment->error_summary);
+        $this->assertStringContainsString('Fixes sugeridos', $deployment->error_summary);
 
         $this->assertDatabaseHas('orchestrations', ['flow' => 'provision_app']);
         $this->assertNotNull($resource->orchestrations()->first()->failed_at);
