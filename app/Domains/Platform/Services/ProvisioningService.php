@@ -105,6 +105,14 @@ class ProvisioningService
             ]);
             $service->fresh()?->forceFill(['provisioning_status' => 'succeeded', 'provisioning_error' => null])->save();
 
+            // Espejo al plano de cómputo (API v2 / agente de IA). No-fatal:
+            // platform:compute:mirror-game-servers reconcilia si esto falla.
+            try {
+                \App\Domains\Platform\Compute\Jobs\MirrorServiceToCompute::dispatch($service->id);
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo encolar el espejo a cómputo', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+            }
+
             return true;
         } catch (\Throwable $e) {
             $exhausted = ($job->attempts + 0) >= $job->max_attempts; // attempts ya incrementado arriba

@@ -17,6 +17,27 @@ return [
     'max_tokens' => (int) env('ANTHROPIC_SUPPORT_MAX_TOKENS', 700),
     'timeout'    => (int) env('ANTHROPIC_TIMEOUT', 30),
 
+    // ── Agente de plataforma (plano de cómputo, blueprint doc 03) ────────────
+    'agent' => [
+        'enabled' => env('PLATFORM_AI_AGENT_ENABLED', true),
+
+        // Loop de herramientas: razonamiento sobre recursos/deploys.
+        'model'      => env('PLATFORM_AI_AGENT_MODEL', 'claude-sonnet-4-6'),
+        'max_tokens' => (int) env('PLATFORM_AI_AGENT_MAX_TOKENS', 1500),
+
+        // Tope de iteraciones del loop tool-use por mensaje del usuario.
+        'max_iterations' => (int) env('PLATFORM_AI_AGENT_MAX_ITERATIONS', 6),
+
+        // Historial enviado por turno.
+        'history_limit' => (int) env('PLATFORM_AI_AGENT_HISTORY_LIMIT', 16),
+    ],
+
+    // Clasificación/explicación de fallas de deploy (barato y rápido).
+    'diagnose' => [
+        'model'      => env('PLATFORM_AI_DIAGNOSE_MODEL', 'claude-haiku-4-5'),
+        'max_tokens' => (int) env('PLATFORM_AI_DIAGNOSE_MAX_TOKENS', 500),
+    ],
+
     'support' => [
         // Interruptor maestro de la IA. Si está apagado (o falta la llave), el
         // chat sigue funcionando: cada mensaje del cliente escala directo a un
