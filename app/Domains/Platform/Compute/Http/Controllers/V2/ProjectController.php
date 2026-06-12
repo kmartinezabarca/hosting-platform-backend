@@ -127,7 +127,7 @@ class ProjectController extends Controller
     {
         $this->authorize('view', $project);
 
-        $project->load(['team:id,uuid,name', 'environments']);
+        $project->load(['team:id,uuid,name', 'environments.resources']);
 
         return response()->json([
             'success' => true,
@@ -160,6 +160,17 @@ class ProjectController extends Controller
                 'type'        => $env->type,
                 'branch'      => $env->branch,
                 'auto_deploy' => $env->auto_deploy,
+                // Resumen de recursos para que el detalle del proyecto pinte
+                // todo con una sola llamada (sin ids de proveedor).
+                'resources'   => $env->relationLoaded('resources')
+                    ? $env->resources->map(fn ($r) => [
+                        'uuid'   => $r->uuid,
+                        'kind'   => $r->kind,
+                        'name'   => $r->name,
+                        'status' => $r->status,
+                        'url'    => isset($r->spec['fqdn']) ? 'https://' . $r->spec['fqdn'] : null,
+                    ])
+                    : [],
             ]);
         }
 
