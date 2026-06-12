@@ -51,6 +51,7 @@ Route::prefix('v2')
         // Env vars (write-only para secretos; aplican en el próximo deploy)
         Route::get('/environments/{environment}/env-vars', [EnvVarController::class, 'index']);
         Route::put('/environments/{environment}/env-vars', [EnvVarController::class, 'upsert']);
+        Route::post('/environments/{environment}/env-vars/import', [EnvVarController::class, 'import']);
         Route::delete('/environments/{environment}/env-vars/{key}', [EnvVarController::class, 'destroy'])
             ->where('key', '[A-Za-z_][A-Za-z0-9_]*');
 

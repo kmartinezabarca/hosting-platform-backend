@@ -100,6 +100,37 @@ class ProvisionDeployFlowTest extends TestCase
         $this->assertSame(['APP_LOCALE' => 'es_MX'], $syncCall['args'][1]);
     }
 
+    public function test_import_dotenv_bulk_upserts_with_secret_heuristic(): void
+    {
+        $blob = "# comentario\n"
+            . "export APP_ENV=production\n"
+            . "DB_PASSWORD=\"s3cr3t\"\n"
+            . "LINEA INVALIDA SIN IGUAL\n"
+            . "APP_URL=https://demo.test\n";
+
+        $this->actingAs($this->user)->postJson(
+            "/api/v2/environments/{$this->environment->uuid}/env-vars/import",
+            ['contents' => $blob],
+        )->assertStatus(200)->assertJsonPath('data.count', 3);
+
+        // No-secreto por heurística; valor visible y desencriptado.
+        $appEnv = $this->environment->envVars()->where('key', 'APP_ENV')->firstOrFail();
+        $this->assertFalse($appEnv->is_secret);
+        $this->assertSame('import', $appEnv->source);
+        $this->assertSame('production', $appEnv->value_encrypted);
+
+        // Secreto por heurística (PASSWORD); valor desencriptado correcto.
+        $pw = $this->environment->envVars()->where('key', 'DB_PASSWORD')->firstOrFail();
+        $this->assertTrue($pw->is_secret);
+        $this->assertSame('s3cr3t', $pw->value_encrypted);
+
+        // La línea sin '=' se ignora.
+        $this->assertDatabaseMissing('env_vars', [
+            'environment_id' => $this->environment->id,
+            'key'            => 'LINEA',
+        ]);
+    }
+
     public function test_failed_build_marks_resource_and_deployment_failed(): void
     {
         $this->driver->failDeployment = true;
