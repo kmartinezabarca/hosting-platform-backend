@@ -179,6 +179,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/ssl-check.log'));
+
+        // Barrido de ambientes preview de PR vencidos (red de seguridad por si
+        // el webhook de cierre nunca llegó).
+        $schedule->command('compute:prune-previews')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/prune-previews.log'));
     }
 
     /**

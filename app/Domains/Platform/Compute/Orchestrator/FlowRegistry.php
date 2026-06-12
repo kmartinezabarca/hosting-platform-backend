@@ -4,6 +4,7 @@ namespace App\Domains\Platform\Compute\Orchestrator;
 
 use App\Domains\Platform\Compute\Orchestrator\Flows\DeployFlow;
 use App\Domains\Platform\Compute\Orchestrator\Flows\ProvisionAppFlow;
+use App\Domains\Platform\Compute\Orchestrator\Flows\ProvisionDatabaseFlow;
 use InvalidArgumentException;
 
 class FlowRegistry
@@ -14,8 +15,9 @@ class FlowRegistry
     private static function defaults(): array
     {
         return [
-            ProvisionAppFlow::key() => ProvisionAppFlow::class,
-            DeployFlow::key()       => DeployFlow::class,
+            ProvisionAppFlow::key()      => ProvisionAppFlow::class,
+            ProvisionDatabaseFlow::key() => ProvisionDatabaseFlow::class,
+            DeployFlow::key()            => DeployFlow::class,
         ];
     }
 

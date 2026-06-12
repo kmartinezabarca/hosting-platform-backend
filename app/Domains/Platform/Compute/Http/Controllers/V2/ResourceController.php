@@ -8,15 +8,19 @@ use App\Domains\Platform\Compute\Models\Environment;
 use App\Domains\Platform\Compute\Models\Orchestration;
 use App\Domains\Platform\Compute\Models\Resource;
 use App\Domains\Platform\Compute\Orchestrator\Flows\ProvisionAppFlow;
+use App\Domains\Platform\Compute\Orchestrator\Flows\ProvisionDatabaseFlow;
 use App\Domains\Platform\Compute\Orchestrator\OrchestrationService;
+use App\Domains\Platform\Compute\Plans\PlanLimits;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ResourceController extends Controller
 {
-    public function __construct(private readonly OrchestrationService $orchestrator)
-    {
+    public function __construct(
+        private readonly OrchestrationService $orchestrator,
+        private readonly PlanLimits $planLimits,
+    ) {
     }
 
     /**
@@ -29,12 +33,22 @@ class ResourceController extends Controller
         // Crear recursos requiere rol developer+ en el equipo del proyecto.
         $this->authorize('update', $project);
 
-        if (! $project->repo_full_name) {
+        $kind        = $request->validated('kind');
+        $isDataStore = in_array($kind, ['database', 'redis'], true);
+
+        // Las apps necesitan repo para construirse; los data stores no.
+        if (! $isDataStore && ! $project->repo_full_name) {
             abort(422, 'Conecta un repositorio de GitHub al proyecto antes de crear una app.');
         }
 
+        // Enforcement de plan: conteo de recursos y tope de RAM por recurso.
+        $ramMb = (int) data_get($request->validated('spec'), 'ram_mb', 512);
+        if ($error = $this->planLimits->check($project->team, $ramMb)) {
+            abort(422, $error);
+        }
+
         $resource = $environment->resources()->create([
-            'kind'   => $request->validated('kind'),
+            'kind'   => $kind,
             'name'   => $request->validated('name'),
             'status' => ResourceStatus::Creating,
             'spec'   => array_merge(
@@ -44,7 +58,7 @@ class ResourceController extends Controller
         ]);
 
         $orchestration = $this->orchestrator->start(
-            ProvisionAppFlow::key(),
+            $isDataStore ? ProvisionDatabaseFlow::key() : ProvisionAppFlow::key(),
             $resource,
             context: ['initiated_by_user_id' => $request->user()->id],
         );
@@ -109,6 +123,18 @@ class ResourceController extends Controller
             $data['latest_deployment'] = $resource->deployments->first()
                 ? $this->deploymentSummary($resource->deployments->first())
                 : null;
+
+            // Data stores: conexión sin la contraseña (write-only, como los
+            // secretos de env). El usuario la consume vía detection bindings.
+            if ($resource->isDataStore() && ($conn = $resource->connection())) {
+                $data['connection'] = [
+                    'host'     => $conn['host'] ?? null,
+                    'port'     => $conn['port'] ?? null,
+                    'database' => $conn['database'] ?? null,
+                    'username' => $conn['username'] ?? null,
+                    'password' => null, // nunca se devuelve
+                ];
+            }
         }
 
         return $data;

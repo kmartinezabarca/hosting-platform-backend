@@ -22,6 +22,11 @@ class DiagnoseFailure implements Tool
         return 'Diagnostica un deployment fallido: clasifica la falla, explica la causa raíz y propone fixes. Úsala cuando el usuario pregunte por qué falló un deploy.';
     }
 
+    public function tier(): ToolTier
+    {
+        return ToolTier::Read;
+    }
+
     public function schema(): array
     {
         return [

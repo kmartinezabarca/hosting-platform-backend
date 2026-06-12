@@ -19,6 +19,8 @@ class Environment extends Model
         'name',
         'slug',
         'type',
+        'pr_number',
+        'pr_comment_id',
         'branch',
         'auto_deploy',
         'ephemeral',
@@ -26,10 +28,12 @@ class Environment extends Model
     ];
 
     protected $casts = [
-        'type'        => EnvironmentType::class,
-        'auto_deploy' => 'boolean',
-        'ephemeral'   => 'boolean',
-        'expires_at'  => 'datetime',
+        'type'          => EnvironmentType::class,
+        'pr_number'     => 'integer',
+        'pr_comment_id' => 'integer',
+        'auto_deploy'   => 'boolean',
+        'ephemeral'     => 'boolean',
+        'expires_at'    => 'datetime',
     ];
 
     public function project(): BelongsTo

@@ -2,28 +2,39 @@
 
 namespace App\Domains\Platform\Ai;
 
+use App\Domains\Platform\Ai\Tools\ApplyFix;
 use App\Domains\Platform\Ai\Tools\DiagnoseFailure;
 use App\Domains\Platform\Ai\Tools\GetDeploymentLogs;
 use App\Domains\Platform\Ai\Tools\GetResourceStatus;
 use App\Domains\Platform\Ai\Tools\ListDeployments;
 use App\Domains\Platform\Ai\Tools\ListProjects;
+use App\Domains\Platform\Ai\Tools\RedeployResource;
+use App\Domains\Platform\Ai\Tools\RollbackDeployment;
+use App\Domains\Platform\Ai\Tools\SetEnvVar;
 use App\Domains\Platform\Ai\Tools\Tool;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Catálogo de herramientas del agente. v1 = tier `read` exclusivamente; los
- * tiers safe_write/destructive llegan con el gate de confirmación (mes 2).
+ * Catálogo de herramientas del agente. Las de lectura (read) se auto-ejecutan;
+ * las de escritura (WriteTool, tier safe_write/destructive) se proponen y solo
+ * corren tras la confirmación del usuario — el gate vive en AgentRunner.
  */
 class ToolRegistry
 {
     /** @var class-string<Tool>[] */
     private const TOOLS = [
+        // read
         ListProjects::class,
         GetResourceStatus::class,
         ListDeployments::class,
         GetDeploymentLogs::class,
         DiagnoseFailure::class,
+        // safe_write (requieren confirmación)
+        SetEnvVar::class,
+        RedeployResource::class,
+        RollbackDeployment::class,
+        ApplyFix::class,
     ];
 
     /** Definiciones en formato `tools` de la Messages API. */
@@ -42,7 +53,7 @@ class ToolRegistry
      */
     public function execute(User $user, string $name, array $arguments): array
     {
-        $tool = collect($this->tools())->first(fn (Tool $t) => $t->name() === $name);
+        $tool = $this->find($name);
 
         if (! $tool) {
             return ['error' => "Herramienta desconocida: {$name}"];
@@ -55,6 +66,12 @@ class ToolRegistry
 
             return ['error' => 'La herramienta falló al ejecutarse.'];
         }
+    }
+
+    /** Resuelve una herramienta por su nombre público (o null si no existe). */
+    public function find(string $name): ?Tool
+    {
+        return collect($this->tools())->first(fn (Tool $t) => $t->name() === $name);
     }
 
     /** @return Tool[] */

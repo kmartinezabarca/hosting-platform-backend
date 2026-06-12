@@ -27,6 +27,12 @@ class PlatformServiceProvider extends ServiceProvider
             \App\Domains\Platform\Compute\Providers\Contracts\AppRuntimeDriver::class,
             \App\Domains\Platform\Compute\Providers\Coolify\CoolifyDriver::class,
         );
+
+        // Driver de bases de datos administradas (self-service de DB, mes 2).
+        $this->app->singleton(
+            \App\Domains\Platform\Compute\Providers\Contracts\DatabaseDriver::class,
+            \App\Domains\Platform\Compute\Providers\Coolify\CoolifyDatabaseDriver::class,
+        );
     }
 
     public function boot(): void

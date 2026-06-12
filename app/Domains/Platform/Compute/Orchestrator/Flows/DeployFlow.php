@@ -5,6 +5,7 @@ namespace App\Domains\Platform\Compute\Orchestrator\Flows;
 use App\Domains\Platform\Compute\Enums\DeploymentStatus;
 use App\Domains\Platform\Compute\Models\Orchestration;
 use App\Domains\Platform\Compute\Orchestrator\Flow;
+use App\Domains\Platform\Compute\Orchestrator\Steps\ApplyDetectionBindings;
 use App\Domains\Platform\Compute\Orchestrator\Steps\AwaitDeploymentFinished;
 use App\Domains\Platform\Compute\Orchestrator\Steps\MarkResourceRunning;
 use App\Domains\Platform\Compute\Orchestrator\Steps\RefreshGitCredentials;
@@ -27,6 +28,7 @@ class DeployFlow extends Flow
     {
         return [
             RefreshGitCredentials::class,
+            ApplyDetectionBindings::class,
             SyncEnvVars::class,
             TriggerBuild::class,
             AwaitDeploymentFinished::class,

@@ -66,12 +66,17 @@ Route::prefix('v2')
         Route::post('/resources/{resource}/deployments/{deployment}/rollback', [DeploymentController::class, 'rollback']);
         Route::get('/deployments/{deployment}/logs', [DeploymentController::class, 'logs']);
 
-        // Asistente de IA (v1: herramientas de lectura + diagnóstico)
+        // Asistente de IA (lectura + diagnóstico + acciones safe_write con gate)
         Route::post('/ai/conversations', [ConversationController::class, 'store']);
         Route::get('/ai/conversations/{conversation}', [ConversationController::class, 'show']);
         Route::post('/ai/conversations/{conversation}/messages', [ConversationController::class, 'message'])
             ->middleware('throttle:20,1'); // cada mensaje puede costar varias llamadas LLM
 
-        // Mes 2: acciones del agente (safe_write/destructive + confirmación),
-        // game servers self-service v2 — ver docs/blueprint/02-api-and-modules.md
+        // Gate de confirmación: las acciones que el agente propone solo se
+        // ejecutan cuando el usuario las confirma (o las rechaza).
+        Route::post('/ai/conversations/{conversation}/actions/{action}/confirm', [ConversationController::class, 'confirmAction']);
+        Route::post('/ai/conversations/{conversation}/actions/{action}/reject', [ConversationController::class, 'rejectAction']);
+
+        // Mes 2 pendiente: tier destructive del agente, game servers self-service
+        // v2 — ver docs/blueprint/02-api-and-modules.md
     });

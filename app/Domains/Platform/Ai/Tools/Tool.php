@@ -12,13 +12,18 @@ use App\Models\User;
  *    no en el prompt.
  * 2. El resultado jamás incluye nombres/IDs de proveedores (Coolify,
  *    Pterodactyl) ni valores de env vars.
- * 3. v1: solo herramientas tier `read` — se auto-ejecutan sin confirmación.
+ * 3. El tier (ToolTier) decide si se auto-ejecuta (`read`) o pasa por el gate
+ *    de confirmación del usuario (`safe_write`/`destructive`). Las herramientas
+ *    de escritura implementan además WriteTool.
  */
 interface Tool
 {
     public function name(): string;
 
     public function description(): string;
+
+    /** Nivel de confianza: read se auto-ejecuta; el resto requiere confirmación. */
+    public function tier(): ToolTier;
 
     /** JSON Schema de los argumentos (formato input_schema de Anthropic). */
     public function schema(): array;

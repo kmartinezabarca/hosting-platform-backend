@@ -17,6 +17,11 @@ class GetResourceStatus implements Tool
         return 'Estado detallado de un recurso (app o game server): status, url/dirección, spec, último deployment.';
     }
 
+    public function tier(): ToolTier
+    {
+        return ToolTier::Read;
+    }
+
     public function schema(): array
     {
         return [

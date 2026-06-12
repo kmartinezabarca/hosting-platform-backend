@@ -17,6 +17,11 @@ class ListProjects implements Tool
         return 'Lista los proyectos del usuario con sus ambientes y recursos (apps, bases de datos, game servers) y el estado de cada uno.';
     }
 
+    public function tier(): ToolTier
+    {
+        return ToolTier::Read;
+    }
+
     public function schema(): array
     {
         return ['type' => 'object', 'properties' => (object) [], 'required' => []];

@@ -3,6 +3,7 @@
 namespace App\Domains\Platform\Git\Http\Controllers;
 
 use App\Domains\Platform\Compute\Models\GithubInstallation;
+use App\Domains\Platform\Git\Jobs\HandlePullRequestEvent;
 use App\Domains\Platform\Git\Jobs\HandlePushEvent;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -91,11 +92,24 @@ class GithubWebhookController extends Controller
 
     private function handlePullRequest(array $payload): void
     {
-        // Semana del MVP 2 de previews (mes 2): crear/destruir ambientes pr-{n}.
-        Log::info('GitHub pull_request webhook recibido (previews aún no implementados)', [
-            'action' => $payload['action'] ?? null,
-            'repo'   => $payload['repository']['full_name'] ?? null,
-            'number' => $payload['number'] ?? null,
-        ]);
+        $installationId = (int) ($payload['installation']['id'] ?? 0);
+        $repoFullName   = $payload['repository']['full_name'] ?? null;
+        $action         = (string) ($payload['action'] ?? '');
+        $prNumber       = (int) ($payload['number'] ?? 0);
+        $head           = $payload['pull_request']['head'] ?? [];
+
+        if (! $installationId || ! $repoFullName || ! $prNumber || ($head['ref'] ?? null) === null) {
+            return;
+        }
+
+        HandlePullRequestEvent::dispatch(
+            $installationId,
+            $repoFullName,
+            $action,
+            $prNumber,
+            (string) $head['ref'],
+            $head['sha'] ?? null,
+            $payload['pull_request']['title'] ?? null,
+        );
     }
 }

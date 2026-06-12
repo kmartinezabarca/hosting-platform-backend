@@ -21,7 +21,7 @@ class DeploymentDiagnosis
     }
 
     /**
-     * @return array{taxon: string, root_cause: string, explanation: string, fixes: string[]}
+     * @return array{taxon: string, root_cause: string, explanation: string, fixes: string[], can_auto_fix: bool}
      */
     public function diagnose(Deployment $deployment): array
     {
@@ -36,6 +36,8 @@ class DeploymentDiagnosis
             'root_cause'  => $class['cause'],
             'explanation' => $explanation,
             'fixes'       => $class['fixes'],
+            // El agente usa esto para ofrecer apply_fix (que pasa por el gate).
+            'can_auto_fix' => $class['auto_fix'] !== null,
         ];
     }
 

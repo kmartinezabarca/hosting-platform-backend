@@ -51,6 +51,15 @@ class Team extends Model
         return $this->hasMany(Project::class);
     }
 
+    /** Recursos activos del equipo (vía environment → project). Excluye soft-deleted. */
+    public function activeResourceCount(): int
+    {
+        return Resource::whereHas(
+            'environment.project',
+            fn ($q) => $q->where('team_id', $this->id),
+        )->count();
+    }
+
     public function githubInstallations(): HasMany
     {
         return $this->hasMany(GithubInstallation::class);

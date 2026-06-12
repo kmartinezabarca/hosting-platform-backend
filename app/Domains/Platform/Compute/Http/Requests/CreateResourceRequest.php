@@ -17,17 +17,22 @@ class CreateResourceRequest extends FormRequest
         $limits = config('compute.limits');
 
         return [
-            // Semana 3: solo apps. database/redis (mes 2) y game_server
-            // (semana 4) se agregan cuando sus flujos existan.
-            'kind'        => ['required', Rule::in(['app', 'static_site'])],
-            'name'        => ['required', 'string', 'max:100'],
-            'spec'        => ['sometimes', 'array'],
-            'spec.ram_mb' => [
+            // app/static_site → ProvisionAppFlow; database/redis → ProvisionDatabaseFlow.
+            // game_server (semana 4) se agrega cuando su flujo exista.
+            'kind'         => ['required', Rule::in(['app', 'static_site', 'database', 'redis'])],
+            'name'         => ['required', 'string', 'max:100'],
+            // Engine obligatorio para kind=database; redis lo implica el propio kind.
+            'spec'         => ['sometimes', 'array'],
+            'spec.engine'  => [
+                Rule::requiredIf(fn () => $this->input('kind') === 'database'),
+                'in:mysql,postgres',
+            ],
+            'spec.ram_mb'  => [
                 'sometimes', 'integer',
                 'min:' . $limits['ram_mb_min'],
                 'max:' . $limits['ram_mb_max'],
             ],
-            'spec.cpu'    => ['sometimes', 'numeric', 'min:0.25', 'max:4'],
+            'spec.cpu'     => ['sometimes', 'numeric', 'min:0.25', 'max:4'],
         ];
     }
 }

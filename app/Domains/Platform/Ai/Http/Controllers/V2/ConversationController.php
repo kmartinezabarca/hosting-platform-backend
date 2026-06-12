@@ -3,7 +3,9 @@
 namespace App\Domains\Platform\Ai\Http\Controllers\V2;
 
 use App\Domains\Platform\Ai\AgentRunner;
+use App\Domains\Platform\Ai\Models\AiAction;
 use App\Domains\Platform\Ai\Models\AiConversation;
+use App\Domains\Platform\Ai\ToolRegistry;
 use App\Domains\Platform\Compute\Models\Project;
 use App\Domains\Platform\Compute\Models\Resource;
 use App\Http\Controllers\Controller;
@@ -72,8 +74,77 @@ class ConversationController extends Controller
                 'tool_calls' => collect($reply->tool_calls ?? [])
                     ->map(fn ($t) => ['tool' => $t['tool'], 'ok' => $t['ok']])
                     ->values(),
+                // Acciones que el agente propuso en este turno: el panel las
+                // renderiza con botones confirmar/rechazar.
+                'actions'    => AiAction::where('message_id', $reply->id)
+                    ->where('status', 'proposed')
+                    ->get()
+                    ->map(fn (AiAction $a) => $this->transformAction($a))
+                    ->values(),
             ],
         ]);
+    }
+
+    /**
+     * POST /api/v2/ai/conversations/{conversation}/actions/{action}/confirm
+     *
+     * Ejecuta una acción propuesta. La autorización se re-verifica dentro de la
+     * herramienta (policy operate) — defensa en profundidad sobre la propuesta.
+     */
+    public function confirmAction(Request $request, AiConversation $conversation, AiAction $action, ToolRegistry $tools): JsonResponse
+    {
+        $this->guardAction($request, $conversation, $action);
+
+        $result = $tools->execute($request->user(), $action->tool, $action->arguments);
+
+        $failed = isset($result['error']);
+
+        $action->update([
+            'status'       => $failed ? 'failed' : 'executed',
+            'confirmed_at' => now(),
+            'executed_at'  => now(),
+            'result'       => $result,
+        ]);
+
+        return response()->json([
+            'success' => ! $failed,
+            'data'    => $this->transformAction($action->fresh()),
+            'result'  => $result,
+        ], $failed ? 422 : 200);
+    }
+
+    /**
+     * POST /api/v2/ai/conversations/{conversation}/actions/{action}/reject
+     */
+    public function rejectAction(Request $request, AiConversation $conversation, AiAction $action): JsonResponse
+    {
+        $this->guardAction($request, $conversation, $action);
+
+        $action->update(['status' => 'rejected']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->transformAction($action->fresh()),
+        ]);
+    }
+
+    /** Dueño de la conversación + acción pendiente que le pertenece. */
+    private function guardAction(Request $request, AiConversation $conversation, AiAction $action): void
+    {
+        abort_unless((int) $conversation->user_id === (int) $request->user()->id, 403);
+        abort_if((int) $action->conversation_id !== (int) $conversation->id, 404);
+        abort_unless($action->isPending(), 409, 'Esta acción ya fue resuelta.');
+    }
+
+    private function transformAction(AiAction $action): array
+    {
+        return [
+            'uuid'    => $action->uuid,
+            'tool'    => $action->tool,
+            'risk'    => $action->risk,
+            'summary' => $action->summary,
+            'status'  => $action->status,
+        ];
     }
 
     /**
@@ -94,6 +165,12 @@ class ConversationController extends Controller
                     'tool_calls' => collect($m->tool_calls ?? [])->map(fn ($t) => $t['tool'])->values(),
                     'created_at' => $m->created_at,
                 ]),
+                // Acciones aún pendientes de confirmar en toda la conversación.
+                'pending_actions' => AiAction::where('conversation_id', $conversation->id)
+                    ->where('status', 'proposed')
+                    ->get()
+                    ->map(fn (AiAction $a) => $this->transformAction($a))
+                    ->values(),
             ],
         ]);
     }

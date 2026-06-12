@@ -17,6 +17,11 @@ class ListDeployments implements Tool
         return 'Historial de deployments de un recurso: estado, rama, commit, duración y resumen de error si falló.';
     }
 
+    public function tier(): ToolTier
+    {
+        return ToolTier::Read;
+    }
+
     public function schema(): array
     {
         return [

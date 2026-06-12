@@ -10,12 +10,19 @@ namespace App\Domains\Platform\Ai\Troubleshooting;
  */
 class FailureClassifier
 {
-    /** @var array<string, array{patterns: string[], cause: string, fixes: string[]}> */
+    /**
+     * @var array<string, array{patterns: string[], cause: string, fixes: string[], auto_fix?: string}>
+     *
+     * `auto_fix` (opcional) = código de remediación determinista que ApplyFix
+     * sabe ejecutar end-to-end sin pedir datos al usuario. Solo se marca en
+     * fallas con un fix de altísima confianza y sin riesgo de pérdida de datos.
+     */
     private const TAXONOMY = [
         'missing_app_key' => [
             'patterns' => ['/No application encryption key has been specified/i'],
             'cause'    => 'Falta APP_KEY en las variables de entorno.',
             'fixes'    => ['Genera una APP_KEY y agrégala en las variables del ambiente.'],
+            'auto_fix' => 'generate_app_key',
         ],
         'missing_env_var' => [
             'patterns' => ['/Undefined environment variable/i', '/env(?:ironment)? variable .{1,60} (?:is )?(?:not set|missing|undefined)/i'],
@@ -112,22 +119,28 @@ class FailureClassifier
     ];
 
     /**
-     * @return array{taxon: string, cause: string, fixes: string[]}
+     * @return array{taxon: string, cause: string, fixes: string[], auto_fix: ?string}
      */
     public function classify(string $logs): array
     {
         foreach (self::TAXONOMY as $taxon => $def) {
             foreach ($def['patterns'] as $pattern) {
                 if (preg_match($pattern, $logs)) {
-                    return ['taxon' => $taxon, 'cause' => $def['cause'], 'fixes' => $def['fixes']];
+                    return [
+                        'taxon'    => $taxon,
+                        'cause'    => $def['cause'],
+                        'fixes'    => $def['fixes'],
+                        'auto_fix' => $def['auto_fix'] ?? null,
+                    ];
                 }
             }
         }
 
         return [
-            'taxon' => 'unknown',
-            'cause' => 'No se identificó una causa conocida en los logs.',
-            'fixes' => ['Revisa el final del log de build para ver el error exacto.'],
+            'taxon'    => 'unknown',
+            'cause'    => 'No se identificó una causa conocida en los logs.',
+            'fixes'    => ['Revisa el final del log de build para ver el error exacto.'],
+            'auto_fix' => null,
         ];
     }
 

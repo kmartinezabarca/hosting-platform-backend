@@ -20,6 +20,11 @@ class GetDeploymentLogs implements Tool
         return 'Cola de los logs de build de un deployment (los últimos ~6000 caracteres). Útil para diagnosticar fallas.';
     }
 
+    public function tier(): ToolTier
+    {
+        return ToolTier::Read;
+    }
+
     public function schema(): array
     {
         return [

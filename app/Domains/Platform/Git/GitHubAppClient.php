@@ -220,6 +220,29 @@ class GitHubAppClient
             ->all();
     }
 
+    /**
+     * Crea un comentario en un PR (los PR son issues para la API de comments)
+     * y devuelve su id, para poder actualizarlo después in-place.
+     */
+    public function createIssueComment(int $installationId, string $repoFullName, int $issueNumber, string $body): int
+    {
+        $response = $this->installationHttp($installationId)
+            ->post("/repos/{$repoFullName}/issues/{$issueNumber}/comments", ['body' => $body]);
+
+        $this->assertOk($response, 'createIssueComment');
+
+        return (int) $response->json('id');
+    }
+
+    /** Actualiza un comentario existente (preview redeploy / teardown). */
+    public function updateIssueComment(int $installationId, string $repoFullName, int $commentId, string $body): void
+    {
+        $response = $this->installationHttp($installationId)
+            ->patch("/repos/{$repoFullName}/issues/comments/{$commentId}", ['body' => $body]);
+
+        $this->assertOk($response, 'updateIssueComment');
+    }
+
     // ── Helpers HTTP ──────────────────────────────────────────────────────
 
     private function appHttp(): PendingRequest

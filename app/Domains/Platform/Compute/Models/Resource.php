@@ -30,6 +30,7 @@ class Resource extends Model
         'name',
         'status',
         'spec',
+        'connection_encrypted',
         'service_id',
         'health',
     ];
@@ -38,7 +39,14 @@ class Resource extends Model
         'kind'   => ResourceKind::class,
         'status' => ResourceStatus::class,
         'spec'   => 'array',
+        // Conexión de recursos de base de datos: cifrada en reposo, jamás
+        // serializada (incluye la contraseña). Null para apps.
+        'connection_encrypted' => 'encrypted:array',
         'health' => 'array',
+    ];
+
+    protected $hidden = [
+        'connection_encrypted',
     ];
 
     public function environment(): BelongsTo
@@ -81,5 +89,22 @@ class Resource extends Model
     public function providerRef(string $provider): ?ResourceProviderRef
     {
         return $this->providerRefs->firstWhere('provider', $provider);
+    }
+
+    /** ¿Es un recurso de datos (base de datos relacional o Redis)? */
+    public function isDataStore(): bool
+    {
+        return in_array($this->kind, [ResourceKind::Database, ResourceKind::Redis], true);
+    }
+
+    /**
+     * Conexión interna del data store (host/port/database/username/password),
+     * o null si aún no está aprovisionado. La lee el resolutor de bindings.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function connection(): ?array
+    {
+        return $this->connection_encrypted;
     }
 }

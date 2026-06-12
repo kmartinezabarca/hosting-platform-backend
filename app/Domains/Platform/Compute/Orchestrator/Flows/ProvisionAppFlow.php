@@ -5,6 +5,7 @@ namespace App\Domains\Platform\Compute\Orchestrator\Flows;
 use App\Domains\Platform\Compute\Enums\ResourceStatus;
 use App\Domains\Platform\Compute\Models\Orchestration;
 use App\Domains\Platform\Compute\Orchestrator\Flow;
+use App\Domains\Platform\Compute\Orchestrator\Steps\ApplyDetectionBindings;
 use App\Domains\Platform\Compute\Orchestrator\Steps\AttachDefaultDomain;
 use App\Domains\Platform\Compute\Orchestrator\Steps\AwaitDeploymentFinished;
 use App\Domains\Platform\Compute\Orchestrator\Steps\CreateCoolifyApp;
@@ -27,6 +28,7 @@ class ProvisionAppFlow extends Flow
     {
         return [
             CreateCoolifyApp::class,
+            ApplyDetectionBindings::class,
             SyncEnvVars::class,
             AttachDefaultDomain::class,
             TriggerBuild::class,
