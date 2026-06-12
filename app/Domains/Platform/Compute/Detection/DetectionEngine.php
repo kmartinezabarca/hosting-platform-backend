@@ -8,6 +8,7 @@ use App\Domains\Platform\Compute\Detection\Detectors\LaravelDetector;
 use App\Domains\Platform\Compute\Detection\Detectors\NextJsDetector;
 use App\Domains\Platform\Compute\Detection\Detectors\NodeDetector;
 use App\Domains\Platform\Compute\Detection\Detectors\StaticSiteDetector;
+use App\Domains\Platform\Compute\Detection\Detectors\WordPressDetector;
 
 /**
  * Motor de detección de frameworks (blueprint doc 04 §2).
@@ -25,6 +26,7 @@ class DetectionEngine
     /** @var class-string<Detector>[] */
     private const DETECTORS = [
         ComposeDetector::class,
+        WordPressDetector::class,
         LaravelDetector::class,
         NextJsDetector::class,
         NodeDetector::class,

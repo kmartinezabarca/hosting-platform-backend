@@ -85,6 +85,7 @@ class ApplyDetectionBindings implements Step
     {
         return match ($kind) {
             'laravel_key' => 'base64:' . base64_encode(random_bytes(32)),
+            'wp_salt'     => bin2hex(random_bytes(32)), // 64 chars, como los salts de WP
             default       => bin2hex(random_bytes(16)),
         };
     }

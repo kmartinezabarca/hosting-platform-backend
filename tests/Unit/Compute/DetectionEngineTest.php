@@ -161,4 +161,76 @@ class DetectionEngineTest extends TestCase
 
         $this->assertStringContainsString('lockfiles', implode(' ', $result['warnings']));
     }
+
+    // ── WordPress (mes 3) ──────────────────────────────────────────────────
+
+    public function test_detects_classic_wordpress(): void
+    {
+        $result = $this->engine->detect(new ArrayRepoFiles([
+            'wp-config.php' => "<?php define('DB_NAME', 'wp');",
+            'wp-load.php'   => '<?php',
+            'index.php'     => '<?php',
+        ]));
+
+        $this->assertSame('wordpress', $result['framework']);
+        $this->assertSame('app', $result['kind']);
+        $this->assertSame('php', $result['language']);
+        $this->assertSame('mysql', $result['needs']['database']);
+        // Clásico: sin binds engañosos, pero avisa que wp-config fija credenciales.
+        $this->assertSame([], $result['env_template']);
+        $this->assertStringContainsString('wp-config', implode(' ', $result['warnings']));
+    }
+
+    public function test_detects_wordpress_from_wp_content_dir(): void
+    {
+        $result = $this->engine->detect(new ArrayRepoFiles([
+            'wp-content/themes/mi-tema/style.css' => '/* Theme */',
+            'index.php'                           => '<?php',
+        ]));
+
+        $this->assertSame('wordpress', $result['framework']);
+    }
+
+    public function test_detects_bedrock_wordpress_with_env_bindings(): void
+    {
+        $result = $this->engine->detect(new ArrayRepoFiles([
+            'composer.json' => json_encode([
+                'require' => ['php' => '^8.2', 'roots/wordpress' => '^6.5'],
+            ]),
+            'web/index.php'         => '<?php',
+            'config/application.php' => '<?php',
+        ]));
+
+        $this->assertSame('wordpress', $result['framework']);
+        $this->assertSame('8.2', $result['runtime_version']);
+        $this->assertSame('web', $result['run']['root']); // docroot Bedrock
+
+        $binds = collect($result['env_template'])->keyBy('key');
+        $this->assertSame('database.password', $binds['DB_PASSWORD']['bind']);
+        $this->assertSame('production', $binds['WP_ENV']['value']);
+        // Los 8 salts de WordPress se generan.
+        $this->assertSame('wp_salt', $binds['AUTH_KEY']['generate']);
+        $this->assertCount(8, collect($result['env_template'])->where('generate', 'wp_salt'));
+    }
+
+    public function test_wordpress_beats_generic_node_for_theme_repo(): void
+    {
+        // Un WP clásico con package.json para compilar el tema → gana WordPress.
+        $result = $this->engine->detect(new ArrayRepoFiles([
+            'wp-settings.php' => '<?php',
+            'package.json'    => json_encode(['scripts' => ['start' => 'node x.js', 'build' => 'webpack']]),
+        ]));
+
+        $this->assertSame('wordpress', $result['framework']);
+    }
+
+    public function test_compose_beats_wordpress(): void
+    {
+        $result = $this->engine->detect(new ArrayRepoFiles([
+            'docker-compose.yml' => 'services: {}',
+            'wp-config.php'      => '<?php',
+        ]));
+
+        $this->assertSame('compose', $result['framework']);
+    }
 }
