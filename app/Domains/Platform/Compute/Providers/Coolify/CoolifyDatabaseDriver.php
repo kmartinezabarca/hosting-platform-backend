@@ -7,6 +7,7 @@ use App\Domains\Platform\Compute\Providers\Contracts\DatabaseDriver;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -81,20 +82,80 @@ class CoolifyDatabaseDriver implements DatabaseDriver
         $this->assertOk($response, 'connectionInfo');
 
         $db = $response->json();
+        if (! is_array($db)) {
+            $this->failConnection($externalId, 'la respuesta no es un objeto JSON', []);
+        }
 
         // Coolify expone los campos con prefijo por engine; tolerar variantes.
-        $get = fn (array $keys, $default = null) => collect($keys)
+        $first = fn (array $keys) => collect($keys)
             ->map(fn ($k) => $db[$k] ?? null)
-            ->first(fn ($v) => $v !== null && $v !== '') ?? $default;
+            ->first(fn ($v) => $v !== null && $v !== '');
+
+        $engine   = $this->engineFromResponse($db);
+        $host     = $first(['internal_db_host', 'internal_db_url', 'hostname']);
+        $password = $first(['mysql_password', 'postgres_password', 'redis_password', 'password']);
+        $database = $first(['mysql_database', 'postgres_db', 'database']);
+        $username = $first(['mysql_user', 'postgres_user', 'username']);
+
+        // Campos que SIEMPRE deben venir. Si faltan, fallamos ruidoso: NUNCA
+        // adivinamos host/credenciales (un dato inventado rompería la app en
+        // silencio). Redis no tiene base ni usuario, así que no se exigen.
+        $required = ['host' => $host, 'password' => $password];
+        if ($engine !== 'redis') {
+            $required['database'] = $database;
+            $required['username'] = $username;
+        }
+
+        $missing = array_keys(array_filter($required, fn ($v) => $v === null));
+        if ($missing !== []) {
+            $this->failConnection($externalId, 'faltan campos de conexión: ' . implode(', ', $missing), array_keys($db));
+        }
 
         return [
-            // Host interno = uuid del servicio en la red del proyecto.
-            'host'     => (string) $get(['internal_db_host', 'hostname'], $externalId),
-            'port'     => (int) $get(['public_port', 'mysql_port', 'postgres_port', 'redis_port'], $this->defaultPort($db)),
-            'database' => (string) $get(['mysql_database', 'postgres_db', 'database'], ''),
-            'username' => (string) $get(['mysql_user', 'postgres_user', 'username'], ''),
-            'password' => (string) $get(['mysql_password', 'postgres_password', 'redis_password', 'password'], ''),
+            'host'     => (string) $host,
+            'port'     => (int) ($first(['public_port', 'mysql_port', 'postgres_port', 'redis_port']) ?? $this->defaultPortForEngine($engine)),
+            'database' => (string) ($database ?? ''),
+            'username' => (string) ($username ?? ''),
+            'password' => (string) $password,
         ];
+    }
+
+    /**
+     * Aborta la lectura de conexión con contexto claro. Loguea SOLO las claves
+     * presentes (no los valores) para no filtrar la contraseña al log.
+     *
+     * @param  string[]  $keysPresent
+     */
+    private function failConnection(string $externalId, string $reason, array $keysPresent): never
+    {
+        Log::error('Coolify connectionInfo con shape inesperado', [
+            'database' => $externalId,
+            'reason'   => $reason,
+            'keys'     => $keysPresent, // claves, NUNCA valores (evita filtrar secretos)
+        ]);
+
+        throw new RuntimeException(
+            "No se pudo leer la conexión de la base de datos {$externalId}: {$reason}. "
+            . 'Claves recibidas de Coolify: ' . (implode(', ', $keysPresent) ?: '(ninguna)') . '.'
+        );
+    }
+
+    private function engineFromResponse(array $db): string
+    {
+        return match (true) {
+            isset($db['postgres_db']) || isset($db['postgres_user']) || isset($db['postgres_password']) => 'postgres',
+            isset($db['redis_password']) => 'redis',
+            default => 'mysql',
+        };
+    }
+
+    private function defaultPortForEngine(string $engine): int
+    {
+        return match ($engine) {
+            'postgres' => 5432,
+            'redis'    => 6379,
+            default    => 3306,
+        };
     }
 
     public function startDatabase(string $externalId): void
@@ -109,15 +170,6 @@ class CoolifyDatabaseDriver implements DatabaseDriver
         if ($response->status() !== 404) { // ya borrada = idempotente
             $this->assertOk($response, 'deleteDatabase');
         }
-    }
-
-    private function defaultPort(array $db): int
-    {
-        return match (true) {
-            isset($db['postgres_db'], $db['postgres_user']) => 5432,
-            isset($db['redis_password'])                    => 6379,
-            default                                          => 3306,
-        };
     }
 
     private function http(): PendingRequest
