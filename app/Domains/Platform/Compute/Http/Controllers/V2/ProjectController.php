@@ -158,6 +158,7 @@ class ProjectController extends Controller
                 'name'        => $env->name,
                 'slug'        => $env->slug,
                 'type'        => $env->type,
+                'pr_number'   => $env->pr_number,
                 'branch'      => $env->branch,
                 'auto_deploy' => $env->auto_deploy,
                 // Resumen de recursos para que el detalle del proyecto pinte
