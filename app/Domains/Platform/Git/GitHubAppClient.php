@@ -57,14 +57,49 @@ class GitHubAppClient
 
     private function privateKey(): \OpenSSLAsymmetricKey
     {
-        $pem = base64_decode((string) config('github.private_key_base64'), true);
+        $configured = trim((string) config('github.private_key_base64'));
+
+        if ($configured === '') {
+            throw new RuntimeException('Llave privada de la GitHub App ausente (GITHUB_APP_PRIVATE_KEY_BASE64).');
+        }
+
+        $pem = $this->resolvePem($configured);
         $key = $pem ? openssl_pkey_get_private($pem) : false;
 
         if ($key === false) {
-            throw new RuntimeException('GITHUB_APP_PRIVATE_KEY_BASE64 inválida o ausente.');
+            throw new RuntimeException(
+                'Llave privada de la GitHub App inválida. Acepta: ruta a un .pem (absoluta o '
+                . 'relativa a la raíz del proyecto), el PEM en crudo, o el PEM en base64.'
+            );
         }
 
         return $key;
+    }
+
+    /**
+     * Resuelve la llave privada desde el valor configurado. Soporta tres formas
+     * para no atar al operador a una sola: ruta a archivo .pem, PEM en crudo o
+     * base64 del PEM. Devuelve el PEM listo para openssl, o null si no resuelve.
+     */
+    private function resolvePem(string $value): ?string
+    {
+        // 1) PEM en crudo directamente en el env.
+        if (str_contains($value, '-----BEGIN')) {
+            return $value;
+        }
+
+        // 2) Ruta a un archivo .pem (absoluta, relativa al CWD, o a la raíz).
+        $path = is_file($value) ? $value : (is_file(base_path($value)) ? base_path($value) : null);
+        if ($path !== null) {
+            $contents = trim((string) file_get_contents($path));
+
+            return str_contains($contents, '-----BEGIN')
+                ? $contents
+                : (base64_decode($contents, true) ?: null);
+        }
+
+        // 3) base64 del PEM en el env.
+        return base64_decode($value, true) ?: null;
     }
 
     /**
