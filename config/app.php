@@ -177,6 +177,7 @@ return [
         App\Providers\BroadcastServiceProvider::class,
         App\Providers\PrometheusServiceProvider::class,
         App\Providers\EventServiceProvider::class,
+        App\Providers\HorizonServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
 
         // Dominios (frontera explícita: rutas, comandos, contratos, factories)

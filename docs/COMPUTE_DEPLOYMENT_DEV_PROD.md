@@ -74,6 +74,11 @@ GITHUB_WEBHOOK_SECRET=...
 ANTHROPIC_API_KEY=sk-ant-...
 PLATFORM_AI_AGENT_ENABLED=true
 
+# Observabilidad (mes 2)
+SENTRY_LARAVEL_DSN=https://...ingest.sentry.io/...   # errores backend (vacío = no-op)
+SENTRY_TRACES_SAMPLE_RATE=0.2                          # muestreo de performance
+# Horizon requiere Redis: QUEUE_CONNECTION=redis + REDIS_* configurado
+
 # Reverb (broadcast)
 BROADCAST_DRIVER=reverb
 REVERB_APP_ID=...
@@ -99,17 +104,28 @@ REVERB_SCHEME=https # en prod
    php artisan config:cache route:cache event:cache
    ```
 2. **Workers de cola** (proceso persistente — systemd o Supervisor):
-   ```ini
-   # /etc/supervisor/conf.d/roke-worker.conf
-   [program:roke-worker]
-   command=php /var/www/api/artisan queue:work --queue=provisioning,deployments,ai,default --tries=1 --max-time=3600
-   numprocs=2
-   autostart=true
-   autorestart=true
-   stopwaitsecs=60
-   ```
-   > Las colas que importan para cómputo: `provisioning` (provisión), `deployments`
-   > (deploy/polling de build), `ai` (diagnóstico + agente). No uses `sync`.
+   - **PROD (Redis): usa Horizon** — gestiona los workers y da dashboard:
+     ```ini
+     # /etc/supervisor/conf.d/roke-horizon.conf
+     [program:roke-horizon]
+     command=php /var/www/api/artisan horizon
+     autostart=true
+     autorestart=true
+     stopwaitsecs=3600   ; deja terminar el job en curso (horizon:terminate al desplegar)
+     ```
+     Tras cada deploy: `php artisan horizon:terminate` (recarga el código nuevo).
+     Dashboard admin-gated en `/horizon` (gate `viewHorizon` → `User::isAdmin()`).
+     Las colas ya están configuradas en `config/horizon.php`:
+     `provisioning, deployments, ai, default`.
+   - **DEV (sin Redis): `queue:work` con `database`**:
+     ```ini
+     [program:roke-worker]
+     command=php /var/www/api/artisan queue:work --queue=provisioning,deployments,ai,default --tries=1 --max-time=3600
+     numprocs=2
+     autostart=true
+     autorestart=true
+     ```
+   > Colas de cómputo: `provisioning`, `deployments`, `ai`. Nunca uses `sync`.
 3. **Scheduler** (cron del sistema):
    ```cron
    * * * * * cd /var/www/api && php artisan schedule:run >> /dev/null 2>&1
@@ -211,7 +227,8 @@ Crear **un registro wildcard por ambiente**:
 - [ ] `*.apps.rokeindustries.com` (o el dominio elegido) en Cloudflare.
 - [ ] GitHub App con webhook → API prod pública; `.pem` colocado en el server.
 - [ ] `ANTHROPIC_API_KEY` presente (agente + diagnóstico elocuente).
-- [ ] (Mes 2) **Horizon** para colas y **Sentry** (Laravel SDK) para errores.
+- [ ] **Horizon** corriendo (Supervisor) + Redis activo; dashboard `/horizon` (admin).
+- [ ] **Sentry**: `SENTRY_LARAVEL_DSN` configurado; `horizon:terminate` en el deploy.
 
 ---
 

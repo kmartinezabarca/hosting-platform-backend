@@ -32,6 +32,13 @@ class Handler extends ExceptionHandler
      */
     public function register(): void
     {
+        // Reporta excepciones a Sentry cuando hay DSN configurado (sin DSN es no-op).
+        $this->reportable(function (Throwable $e) {
+            if (app()->bound('sentry')) {
+                app('sentry')->captureException($e);
+            }
+        });
+
         $this->renderable(function (\Illuminate\Auth\AuthenticationException $e, $request) {
             if ($request->is('api/*') || $request->is('broadcasting/auth')) {
                 return response()->json(['message' => 'Unauthenticated.'], 401);
