@@ -18,6 +18,17 @@ use Illuminate\Support\Str;
  */
 class PlatformServiceProvider extends ServiceProvider
 {
+    public function register(): void
+    {
+        // Driver del runtime de apps (plano de cómputo). Los pasos del
+        // orquestador dependen del contrato; los tests lo sustituyen por
+        // un fake en el contenedor.
+        $this->app->singleton(
+            \App\Domains\Platform\Compute\Providers\Contracts\AppRuntimeDriver::class,
+            \App\Domains\Platform\Compute\Providers\Coolify\CoolifyDriver::class,
+        );
+    }
+
     public function boot(): void
     {
         // Los modelos viven en App\Domains\Platform\Models\* (no en App\Models\), así

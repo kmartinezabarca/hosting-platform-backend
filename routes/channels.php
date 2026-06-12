@@ -136,6 +136,23 @@ Broadcast::channel('rp-owner.{ownerId}', function ($user, string $ownerId) {
     return $user instanceof \App\Domains\Pet\Models\Owner && $user->uuid === $ownerId;
 });
 
+// ── Plano de cómputo ──────────────────────────────────────────────────────────
+// Canal por proyecto: estados de deployments/recursos en vivo. Autoriza por
+// membresía del equipo dueño.
+Broadcast::channel('project.{uuid}', function (User $user, string $uuid) {
+    $project = \App\Domains\Platform\Compute\Models\Project::where('uuid', $uuid)->first();
+
+    return $project !== null && $project->team->hasMember($user);
+});
+
+// Canal por deployment: chunks de log de build en vivo.
+Broadcast::channel('deployment.{uuid}', function (User $user, string $uuid) {
+    $deployment = \App\Domains\Platform\Compute\Models\Deployment::where('uuid', $uuid)->first();
+
+    return $deployment !== null
+        && ($deployment->resource->team()?->hasMember($user) ?? false);
+});
+
 // Canal privado por game server — recibe ping en tiempo real vía Reverb
 // El scheduler CollectGameServerPings hace broadcast en este canal cada 5 min.
 Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $serviceUuid) {
