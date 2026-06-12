@@ -7,9 +7,10 @@ return [
     |--------------------------------------------------------------------------
     */
 
-    // Zona wildcard para subdominios gratuitos de apps: {project}-{env}-{hash}.roke.app
-    // El registro *.roke.app apunta al edge (Traefik de Coolify) en Cloudflare.
-    'app_domain' => env('COMPUTE_APP_DOMAIN', 'roke.app'),
+    // Zona wildcard para subdominios de apps: {project}-{env}-{hash}.apps.rokeindustries.dev
+    // El registro *.apps.rokeindustries.dev apunta al edge (Traefik de Coolify).
+    // Cada ambiente puede sobreescribirlo con COMPUTE_APP_DOMAIN.
+    'app_domain' => env('COMPUTE_APP_DOMAIN', 'apps.rokeindustries.dev'),
 
     // Intervalo de re-encolado cuando un paso queda pendiente (polling de builds).
     'deploy_poll_seconds' => (int) env('COMPUTE_DEPLOY_POLL_SECONDS', 8),
