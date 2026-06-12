@@ -2,6 +2,7 @@
 
 use App\Domains\Platform\Ai\Http\Controllers\V2\ConversationController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\DeploymentController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\EnvVarController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\TeamController;
@@ -46,6 +47,12 @@ Route::prefix('v2')
         Route::get('/github/installations', [GithubController::class, 'installations']);
         Route::get('/github/installations/{installation}/repos', [GithubController::class, 'repos']);
         Route::get('/github/installations/{installation}/branches', [GithubController::class, 'branches']);
+
+        // Env vars (write-only para secretos; aplican en el próximo deploy)
+        Route::get('/environments/{environment}/env-vars', [EnvVarController::class, 'index']);
+        Route::put('/environments/{environment}/env-vars', [EnvVarController::class, 'upsert']);
+        Route::delete('/environments/{environment}/env-vars/{key}', [EnvVarController::class, 'destroy'])
+            ->where('key', '[A-Za-z_][A-Za-z0-9_]*');
 
         // Resources (apps) — operaciones largas responden 202 + orchestration
         Route::post('/environments/{environment}/resources', [ResourceController::class, 'store']);
