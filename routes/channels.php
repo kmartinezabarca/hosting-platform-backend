@@ -131,9 +131,12 @@ Broadcast::channel('system.maintenance', function (User $user) {
 });
 
 // Canal privado del dueño de mascota (ROKE PET) — escaneos en tiempo real vía Reverb.
-// El guard sanctum resuelve al modelo Owner dueño del token; solo autorizamos su canal.
+// El token Sanctum de ROKE Pet pertenece a App\Models\User; el dueño Pet vive
+// en owners.id == users.uuid. Se mantiene compatibilidad por si algún flujo
+// futuro autenticara directamente un Owner.
 Broadcast::channel('rp-owner.{ownerId}', function ($user, string $ownerId) {
-    return $user instanceof \App\Domains\Pet\Models\Owner && $user->uuid === $ownerId;
+    $userUuid = $user->uuid ?? $user->id ?? null;
+    return $userUuid === $ownerId;
 });
 
 // ── Plano de cómputo ──────────────────────────────────────────────────────────
@@ -168,20 +171,28 @@ Broadcast::channel('game-server.{serviceUuid}', function (User $user, string $se
 // Canal privado por conversación: lo escucha el DUEÑO propietario o un ADMIN de
 // Pet. Un dueño nunca entra a la conversación de otro, ni a las de ROKE
 // Industries (que viven en otro sistema/canal).
-Broadcast::channel('rp-chat.{conversationId}', function (User $user, string $conversationId) {
+Broadcast::channel('rp-chat.{conversationId}', function ($user, string $conversationId) {
     $conversation = \App\Domains\Pet\Models\ChatConversation::find($conversationId);
     if (! $conversation) {
         return false;
     }
 
-    $isPetAdmin = \App\Domains\Pet\Models\AppAdmin::where('user_id', $user->uuid)->exists();
-
-    if ($isPetAdmin) {
-        return ['id' => $user->uuid, 'name' => $user->full_name, 'is_staff' => true];
+    $userUuid = $user->uuid ?? null;
+    if (! $userUuid) {
+        return false;
     }
 
-    if ($conversation->owner_id === $user->uuid) {
-        return ['id' => $user->uuid, 'name' => $user->full_name, 'is_staff' => false];
+    $displayName = $user->full_name ?? trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+    $displayName = $displayName !== '' ? $displayName : ($user->email ?? 'Usuario');
+
+    $isPetAdmin = \App\Domains\Pet\Models\AppAdmin::where('user_id', $userUuid)->exists();
+
+    if ($isPetAdmin) {
+        return ['id' => $userUuid, 'name' => $displayName, 'is_staff' => true];
+    }
+
+    if ($conversation->owner_id === $userUuid) {
+        return ['id' => $userUuid, 'name' => $displayName, 'is_staff' => false];
     }
 
     return false;
@@ -189,6 +200,7 @@ Broadcast::channel('rp-chat.{conversationId}', function (User $user, string $con
 
 // Feed de administración del chat de Pet — sólo admins de Pet. Recibe mensajes
 // nuevos, escalamientos y cambios de estado para la lista en vivo.
-Broadcast::channel('rp-admin.chat', function (User $user) {
-    return \App\Domains\Pet\Models\AppAdmin::where('user_id', $user->uuid)->exists();
+Broadcast::channel('rp-admin.chat', function ($user) {
+    $userUuid = $user->uuid ?? null;
+    return $userUuid && \App\Domains\Pet\Models\AppAdmin::where('user_id', $userUuid)->exists();
 });

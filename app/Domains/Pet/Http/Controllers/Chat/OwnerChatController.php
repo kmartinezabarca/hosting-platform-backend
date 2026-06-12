@@ -46,8 +46,10 @@ class OwnerChatController extends Controller
     public function start(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'message' => 'nullable|string|max:2000',
-            'subject' => 'nullable|string|max:180',
+            'message'       => 'required_without:attachments|nullable|string|max:2000',
+            'subject'       => 'nullable|string|max:180',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:20480|mimes:jpg,jpeg,png,webp,gif,pdf,txt,zip',
         ]);
 
         $owner = $request->user();
@@ -64,15 +66,24 @@ class OwnerChatController extends Controller
             'ai_status'  => 'enabled',
         ]);
 
-        if (! empty($validated['message'])) {
+        $attachments = $this->chat->storeAttachments($conversation, $request->file('attachments', []));
+        $body = trim((string) ($validated['message'] ?? ''));
+
+        if ($body !== '' || ! empty($attachments)) {
             $this->chat->postMessage($conversation, [
                 'sender_type' => ChatMessage::SENDER_OWNER,
                 'sender_id'   => $owner->uuid,
                 'sender_name' => $owner->full_name,
-                'body'        => $validated['message'],
+                'body'        => $body,
+                'message_type' => ! empty($attachments) ? ChatMessage::TYPE_ATTACHMENT : ChatMessage::TYPE_TEXT,
+                'metadata'    => ! empty($attachments) ? ['attachments' => $attachments] : null,
             ]);
 
-            GenerateAiReplyJob::dispatchSync($conversation->id);
+            if (empty($attachments)) {
+                GenerateAiReplyJob::dispatchSync($conversation->id);
+            } else {
+                $this->chat->escalate($conversation->refresh(), 'attachment_requires_human');
+            }
         }
 
         return response()->json([
@@ -90,6 +101,9 @@ class OwnerChatController extends Controller
         $this->markIncomingRead($conv, $request);
 
         $messages = $conv->messages()->paginate(50);
+        $messages->getCollection()->transform(
+            fn (ChatMessage $message) => $message->toBroadcastArray()
+        );
 
         return response()->json(['success' => true, 'data' => $messages]);
     }
@@ -97,7 +111,11 @@ class OwnerChatController extends Controller
     /** POST /chat/conversations/{conversation}/messages */
     public function send(Request $request, string $conversation): JsonResponse
     {
-        $validated = $request->validate(['message' => 'required|string|max:2000']);
+        $validated = $request->validate([
+            'message'       => 'required_without:attachments|nullable|string|max:2000',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:20480|mimes:jpg,jpeg,png,webp,gif,pdf,txt,zip',
+        ]);
         $conv  = $this->ownedOrFail($request, $conversation);
         $owner = $request->user();
 
@@ -105,16 +123,23 @@ class OwnerChatController extends Controller
             return response()->json(['success' => false, 'message' => 'La conversación está cerrada.'], 422);
         }
 
+        $attachments = $this->chat->storeAttachments($conv, $request->file('attachments', []));
+        $body = trim((string) ($validated['message'] ?? ''));
+
         $message = $this->chat->postMessage($conv, [
             'sender_type' => ChatMessage::SENDER_OWNER,
             'sender_id'   => $owner->uuid,
             'sender_name' => $owner->full_name,
-            'body'        => $validated['message'],
+            'body'        => $body,
+            'message_type' => ! empty($attachments) ? ChatMessage::TYPE_ATTACHMENT : ChatMessage::TYPE_TEXT,
+            'metadata'    => ! empty($attachments) ? ['attachments' => $attachments] : null,
         ]);
 
         // La IA sólo auto-responde si la conversación sigue en modo IA.
-        if ($conv->refresh()->aiShouldAutoReply()) {
+        if (empty($attachments) && $conv->refresh()->aiShouldAutoReply()) {
             GenerateAiReplyJob::dispatchSync($conv->id);
+        } elseif (! empty($attachments) && $conv->refresh()->aiShouldAutoReply()) {
+            $this->chat->escalate($conv, 'attachment_requires_human');
         }
 
         return response()->json(['success' => true, 'data' => $message->toBroadcastArray()], 201);

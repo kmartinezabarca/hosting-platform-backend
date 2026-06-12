@@ -96,6 +96,9 @@ class AdminChatController extends Controller
         $this->markOwnerRead($conv);
 
         $messages = $conv->messages()->paginate(50);
+        $messages->getCollection()->transform(
+            fn (ChatMessage $message) => $message->toBroadcastArray()
+        );
 
         return response()->json(['success' => true, 'data' => $messages]);
     }
@@ -103,18 +106,27 @@ class AdminChatController extends Controller
     /** POST /admin/chat/conversations/{conversation}/messages — responder (toma la conversación). */
     public function send(Request $request, string $conversation): JsonResponse
     {
-        $validated = $request->validate(['message' => 'required|string|max:2000']);
+        $validated = $request->validate([
+            'message'       => 'required_without:attachments|nullable|string|max:2000',
+            'attachments'   => 'nullable|array|max:5',
+            'attachments.*' => 'file|max:20480|mimes:jpg,jpeg,png,webp,gif,pdf,txt,zip',
+        ]);
         $conv  = ChatConversation::findOrFail($conversation);
         $agent = $request->user();
 
         // Responder = tomar la conversación: la IA se desactiva.
         $this->chat->agentTakeover($conv, $agent->uuid, $agent->full_name);
 
+        $attachments = $this->chat->storeAttachments($conv, $request->file('attachments', []));
+        $body = trim((string) ($validated['message'] ?? ''));
+
         $message = $this->chat->postMessage($conv->refresh(), [
             'sender_type' => ChatMessage::SENDER_AGENT,
             'sender_id'   => $agent->uuid,
             'sender_name' => $agent->full_name,
-            'body'        => $validated['message'],
+            'body'        => $body,
+            'message_type' => ! empty($attachments) ? ChatMessage::TYPE_ATTACHMENT : ChatMessage::TYPE_TEXT,
+            'metadata'    => ! empty($attachments) ? ['attachments' => $attachments] : null,
         ]);
 
         return response()->json(['success' => true, 'data' => $message->toBroadcastArray()], 201);

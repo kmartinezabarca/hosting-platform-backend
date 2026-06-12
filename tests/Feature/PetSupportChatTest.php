@@ -3,6 +3,10 @@
 namespace Tests\Feature;
 
 use App\Domains\Pet\Jobs\GenerateAiReplyJob;
+use App\Domains\Pet\Events\ChatAgentJoined;
+use App\Domains\Pet\Events\ChatMessageRead;
+use App\Domains\Pet\Events\ChatMessageSent;
+use App\Domains\Pet\Events\ChatUserTyping;
 use App\Domains\Pet\Models\AppAdmin;
 use App\Domains\Pet\Models\ChatConversation;
 use App\Domains\Pet\Models\ChatMessage;
@@ -12,6 +16,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -210,5 +215,88 @@ class PetSupportChatTest extends TestCase
             ->getJson('/api/rp/admin/chat/conversations')
             ->assertOk()
             ->assertJsonPath('success', true);
+    }
+
+    /** Un agente respondiendo desde admin emite eventos para el hilo del dueño. */
+    public function test_admin_reply_dispatches_realtime_events_for_owner_thread(): void
+    {
+        Event::fake([ChatAgentJoined::class, ChatMessageSent::class]);
+
+        $owner = User::factory()->create();
+        $this->owner($owner);
+        $admin = User::factory()->create();
+        AppAdmin::firstOrCreate(['user_id' => $admin->uuid]);
+        $conv = $this->conversationFor($owner->uuid, [
+            'status'    => ChatConversation::STATUS_WAITING_AGENT,
+            'ai_status' => 'escalated',
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson("/api/rp/admin/chat/conversations/{$conv->id}/messages", ['message' => 'Hola, ya estoy contigo.'])
+            ->assertCreated()
+            ->assertJsonPath('data.sender_type', ChatMessage::SENDER_AGENT);
+
+        Event::assertDispatched(ChatAgentJoined::class, fn (ChatAgentJoined $event) =>
+            $event->conversation->id === $conv->id
+        );
+        Event::assertDispatched(ChatMessageSent::class, fn (ChatMessageSent $event) =>
+            $event->conversation->id === $conv->id
+                && $event->message->sender_type === ChatMessage::SENDER_AGENT
+                && $event->message->body === 'Hola, ya estoy contigo.'
+        );
+    }
+
+    /** Las señales de escritura del admin viajan por Reverb al hilo compartido. */
+    public function test_admin_typing_dispatches_realtime_event(): void
+    {
+        Event::fake([ChatUserTyping::class]);
+
+        $owner = User::factory()->create();
+        $this->owner($owner);
+        $admin = User::factory()->create();
+        AppAdmin::firstOrCreate(['user_id' => $admin->uuid]);
+        $conv = $this->conversationFor($owner->uuid);
+
+        $this->actingAs($admin)
+            ->postJson("/api/rp/admin/chat/conversations/{$conv->id}/typing", ['is_typing' => true])
+            ->assertOk();
+
+        Event::assertDispatched(ChatUserTyping::class, fn (ChatUserTyping $event) =>
+            $event->conversation->id === $conv->id
+                && $event->senderType === ChatMessage::SENDER_AGENT
+                && $event->isTyping === true
+        );
+    }
+
+    /** Cuando el dueño lee la respuesta del agente, el recibo se emite en vivo. */
+    public function test_owner_read_dispatches_realtime_receipt_for_agent_messages(): void
+    {
+        $owner = User::factory()->create();
+        $this->owner($owner);
+        $conv = $this->conversationFor($owner->uuid, [
+            'status'           => ChatConversation::STATUS_HUMAN_ACTIVE,
+            'ai_enabled'       => false,
+            'unread_for_owner' => 1,
+        ]);
+        $message = ChatMessage::create([
+            'conversation_id' => $conv->id,
+            'sender_type'     => ChatMessage::SENDER_AGENT,
+            'sender_name'     => 'Soporte',
+            'body'            => 'Respuesta humana',
+            'message_type'    => ChatMessage::TYPE_TEXT,
+            'delivered_at'    => now(),
+        ]);
+
+        Event::fake([ChatMessageRead::class]);
+
+        $this->actingAs($owner)
+            ->postJson("/api/rp/chat/conversations/{$conv->id}/read")
+            ->assertOk();
+
+        Event::assertDispatched(ChatMessageRead::class, fn (ChatMessageRead $event) =>
+            $event->conversation->id === $conv->id
+                && $event->reader === 'owner'
+                && in_array($message->id, $event->messageIds, true)
+        );
     }
 }

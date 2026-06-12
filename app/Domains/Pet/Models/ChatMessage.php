@@ -57,6 +57,8 @@ class ChatMessage extends Model
     /** Forma serializable que consume el frontend (idéntica en API y broadcast). */
     public function toBroadcastArray(): array
     {
+        $metadata = $this->metadata ?? [];
+
         return [
             'id'              => $this->id,
             'conversation_id' => $this->conversation_id,
@@ -67,6 +69,8 @@ class ChatMessage extends Model
             'message_type'    => $this->message_type,
             'ai_confidence'   => $this->ai_confidence,
             'ai_sources'      => $this->ai_sources,
+            'metadata'        => $metadata ?: null,
+            'attachments'     => $metadata['attachments'] ?? [],
             'delivered_at'    => $this->delivered_at?->toISOString(),
             'read_at'         => $this->read_at?->toISOString(),
             'created_at'      => $this->created_at?->toISOString(),

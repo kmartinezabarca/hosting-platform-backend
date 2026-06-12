@@ -8,6 +8,8 @@ use App\Domains\Pet\Events\ChatConversationResolved;
 use App\Domains\Pet\Events\ChatMessageSent;
 use App\Domains\Pet\Models\ChatConversation;
 use App\Domains\Pet\Models\ChatMessage;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Operaciones de dominio del chat que comparten controladores y job de IA, para
@@ -42,6 +44,35 @@ class ChatService
         }
 
         return $message;
+    }
+
+    /**
+     * @param  UploadedFile[]  $files
+     * @return array<int, array<string, mixed>>
+     */
+    public function storeAttachments(ChatConversation $conversation, array $files): array
+    {
+        $stored = [];
+
+        foreach ($files as $file) {
+            if (! $file instanceof UploadedFile || ! $file->isValid()) {
+                continue;
+            }
+
+            $path = $file->store('pet-chat-attachments/' . $conversation->id, 'public');
+            $mime = $file->getClientMimeType();
+
+            $stored[] = [
+                'path' => $path,
+                'url'  => Storage::disk('public')->url($path),
+                'name' => $file->getClientOriginalName(),
+                'mime' => $mime,
+                'size' => $file->getSize(),
+                'type' => str_starts_with((string) $mime, 'image/') ? 'image' : 'file',
+            ];
+        }
+
+        return $stored;
     }
 
     /** Mensaje de sistema (avisos visibles en la conversación). */
