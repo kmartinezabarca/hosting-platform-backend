@@ -85,4 +85,37 @@ return [
             ],
         ],
     ],
+
+    // Presets de servidores de juego (mes 3 — "más juegos"). Las specs son datos
+    // reales del juego (puerto por defecto, RAM recomendada); el egg/nest de
+    // Pterodactyl viene de env (sin configurar => el preset no es aprovisionable
+    // aún, `available=false`). El flujo de provisión (ProvisionGameServerFlow)
+    // se conecta después; este catálogo ya alimenta el selector del wizard.
+    'game_presets' => [
+        'minecraft' => [
+            'name' => 'Minecraft (Java)', 'default_port' => 25565,
+            'min_ram_mb' => 2048, 'recommended_ram_mb' => 4096, 'max_players' => 20,
+            'egg_id' => env('COMPUTE_GAME_MINECRAFT_EGG'), 'nest_id' => env('COMPUTE_GAME_MINECRAFT_NEST'),
+        ],
+        'fivem' => [
+            'name' => 'FiveM (GTA V)', 'default_port' => 30120,
+            'min_ram_mb' => 2048, 'recommended_ram_mb' => 4096, 'max_players' => 48,
+            'egg_id' => env('COMPUTE_GAME_FIVEM_EGG'), 'nest_id' => env('COMPUTE_GAME_FIVEM_NEST'),
+        ],
+        'rust' => [
+            'name' => 'Rust', 'default_port' => 28015,
+            'min_ram_mb' => 4096, 'recommended_ram_mb' => 8192, 'max_players' => 100,
+            'egg_id' => env('COMPUTE_GAME_RUST_EGG'), 'nest_id' => env('COMPUTE_GAME_RUST_NEST'),
+        ],
+        'palworld' => [
+            'name' => 'Palworld', 'default_port' => 8211,
+            'min_ram_mb' => 8192, 'recommended_ram_mb' => 16384, 'max_players' => 32,
+            'egg_id' => env('COMPUTE_GAME_PALWORLD_EGG'), 'nest_id' => env('COMPUTE_GAME_PALWORLD_NEST'),
+        ],
+        'valheim' => [
+            'name' => 'Valheim', 'default_port' => 2456,
+            'min_ram_mb' => 2048, 'recommended_ram_mb' => 4096, 'max_players' => 10,
+            'egg_id' => env('COMPUTE_GAME_VALHEIM_EGG'), 'nest_id' => env('COMPUTE_GAME_VALHEIM_NEST'),
+        ],
+    ],
 ];

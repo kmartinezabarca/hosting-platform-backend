@@ -3,6 +3,7 @@
 use App\Domains\Platform\Ai\Http\Controllers\V2\ConversationController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\DeploymentController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\EnvVarController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\GamePresetController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\PlanController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
@@ -39,6 +40,9 @@ Route::prefix('v2')
 
         // Catálogo de planes de cómputo (precios mensual/anual + ahorro).
         Route::get('/plans', [PlanController::class, 'index']);
+
+        // Catálogo de presets de servidores de juego (specs + disponibilidad).
+        Route::get('/game-presets', [GamePresetController::class, 'index']);
 
         // Importador asistido de HestiaCP — solo planifica (mes 3).
         Route::post('/migrations/hestia/plan', [HestiaMigrationController::class, 'plan']);
