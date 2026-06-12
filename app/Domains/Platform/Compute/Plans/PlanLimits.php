@@ -15,13 +15,14 @@ class PlanLimits
     /**
      * Límites efectivos del equipo (cae a `free` si el tier no está configurado).
      *
-     * @return array{max_resources: int, ram_mb_max: int}
+     * @return array{max_resources: int, ram_mb_max: int, max_members: int}
      */
     public function forTeam(Team $team): array
     {
-        $plans = config('compute.plans', []);
-        $tier  = $team->plan_tier?->value ?? 'free';
-        $limit = $plans[$tier] ?? $plans['free'] ?? ['max_resources' => 1, 'ram_mb_max' => 512];
+        $plans   = config('compute.plans', []);
+        $tier    = $team->plan_tier?->value ?? 'free';
+        $default = ['max_resources' => 1, 'ram_mb_max' => 512, 'max_members' => 1];
+        $limit   = ($plans[$tier] ?? $plans['free'] ?? $default) + $default;
 
         // El tope de RAM del plan nunca puede exceder la cota absoluta de spec.
         $limit['ram_mb_max'] = min($limit['ram_mb_max'], (int) config('compute.limits.ram_mb_max', 4096));
@@ -32,7 +33,7 @@ class PlanLimits
     /**
      * Snapshot de uso vs. cupo, para exponer en la API (p.ej. "2/2 recursos").
      *
-     * @return array{plan: string, resources_used: int, max_resources: int, ram_mb_max: int}
+     * @return array{plan: string, resources_used: int, max_resources: int, ram_mb_max: int, members_used: int, max_members: int}
      */
     public function usage(Team $team): array
     {
@@ -43,7 +44,28 @@ class PlanLimits
             'resources_used' => $team->activeResourceCount(),
             'max_resources'  => $limit['max_resources'],
             'ram_mb_max'     => $limit['ram_mb_max'],
+            'members_used'   => $team->members()->count(),
+            'max_members'    => $limit['max_members'],
         ];
+    }
+
+    /**
+     * Valida que el equipo pueda sumar un miembro más.
+     *
+     * @return string|null Mensaje de error (422) o null si está permitido.
+     */
+    public function checkCanAddMember(Team $team): ?string
+    {
+        $limit = $this->forTeam($team);
+        $tier  = $team->plan_tier?->value ?? 'free';
+
+        if ($team->members()->count() >= $limit['max_members']) {
+            return $limit['max_members'] <= 1
+                ? "Tu plan «{$tier}» no incluye miembros de equipo. Mejora tu plan para invitar colaboradores."
+                : "Alcanzaste el límite de {$limit['max_members']} miembros de tu plan «{$tier}».";
+        }
+
+        return null;
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Domains\Platform\Compute\Http\Controllers\V2\EnvVarController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\TeamController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\TeamMemberController;
 use App\Domains\Platform\Git\Http\Controllers\GithubWebhookController;
 use App\Domains\Platform\Git\Http\Controllers\V2\GithubController;
 use Illuminate\Support\Facades\Route;
@@ -33,6 +34,12 @@ Route::prefix('v2')
 
         // Teams
         Route::get('/teams', [TeamController::class, 'index']);
+
+        // Miembros del equipo (gestionar requiere rol admin+)
+        Route::get('/teams/{team}/members', [TeamMemberController::class, 'index']);
+        Route::post('/teams/{team}/members', [TeamMemberController::class, 'store']);
+        Route::patch('/teams/{team}/members/{member}', [TeamMemberController::class, 'update']);
+        Route::delete('/teams/{team}/members/{member}', [TeamMemberController::class, 'destroy']);
 
         // Projects
         Route::get('/projects', [ProjectController::class, 'index']);

@@ -41,11 +41,13 @@ return [
     // sin migración. `max_resources` = recursos activos por equipo (apps + data
     // stores + game servers); `ram_mb_max` = tope de RAM por recurso. El
     // enforcement vive en Compute\Plans\PlanLimits y corre al crear recursos.
+    // `max_members` incluye al owner. free/starter = solo (1); los planes de
+    // equipo habilitan colaboradores (blueprint: "teams >1 member" llega aquí).
     'plans' => [
-        'free'    => ['max_resources' => 2,   'ram_mb_max' => 512],
-        'starter' => ['max_resources' => 5,   'ram_mb_max' => 1024],
-        'pro'     => ['max_resources' => 15,  'ram_mb_max' => 2048],
-        'team'    => ['max_resources' => 40,  'ram_mb_max' => 4096],
-        'agency'  => ['max_resources' => 150, 'ram_mb_max' => 4096],
+        'free'    => ['max_resources' => 2,   'ram_mb_max' => 512,  'max_members' => 1],
+        'starter' => ['max_resources' => 5,   'ram_mb_max' => 1024, 'max_members' => 1],
+        'pro'     => ['max_resources' => 15,  'ram_mb_max' => 2048, 'max_members' => 3],
+        'team'    => ['max_resources' => 40,  'ram_mb_max' => 4096, 'max_members' => 10],
+        'agency'  => ['max_resources' => 150, 'ram_mb_max' => 4096, 'max_members' => 25],
     ],
 ];
