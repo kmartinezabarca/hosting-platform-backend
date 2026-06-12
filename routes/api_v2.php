@@ -3,6 +3,7 @@
 use App\Domains\Platform\Ai\Http\Controllers\V2\ConversationController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\DeploymentController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\EnvVarController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\PlanController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\TeamController;
@@ -34,6 +35,9 @@ Route::prefix('v2')
 
         // Teams
         Route::get('/teams', [TeamController::class, 'index']);
+
+        // Catálogo de planes de cómputo (precios mensual/anual + ahorro).
+        Route::get('/plans', [PlanController::class, 'index']);
 
         // Miembros del equipo (gestionar requiere rol admin+)
         Route::get('/teams/{team}/members', [TeamMemberController::class, 'index']);

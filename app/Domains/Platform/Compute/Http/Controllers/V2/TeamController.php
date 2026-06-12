@@ -27,8 +27,9 @@ class TeamController extends Controller
                 'uuid'           => $team->uuid,
                 'name'           => $team->name,
                 'slug'           => $team->slug,
-                'plan_tier'      => $team->plan_tier,
-                'is_personal'    => $team->is_personal,
+                'plan_tier'        => $team->plan_tier,
+                'billing_interval' => $team->billing_interval,
+                'is_personal'      => $team->is_personal,
                 'projects_count' => $team->projects_count,
                 'role'           => $team->roleFor($request->user())?->value,
                 // Uso vs. cupo del plan, para que la UI muestre "2/2 recursos".

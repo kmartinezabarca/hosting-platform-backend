@@ -50,4 +50,39 @@ return [
         'team'    => ['max_resources' => 40,  'ram_mb_max' => 4096, 'max_members' => 10],
         'agency'  => ['max_resources' => 150, 'ram_mb_max' => 4096, 'max_members' => 25],
     ],
+
+    // Catálogo de precios de los planes (mes 3 — annual billing). Los montos y
+    // los stripe_price_id viven en env para NO hornear precios en el repo: un
+    // tier sin precio configurado se expone como "sin precio" (price null), no
+    // como gratis. El plan 'free' es realmente $0. Resolución y cálculo del
+    // ahorro anual en Compute\Plans\PlanCatalog.
+    'billing' => [
+        'currency' => env('COMPUTE_BILLING_CURRENCY', 'MXN'),
+
+        // amount = precio del periodo (mensual, o el cobro anual completo) en la
+        // moneda anterior; viene de env como string|null y PlanCatalog lo castea
+        // a float|null. null = no configurado (NO es gratis). 'free' sí es $0.
+        'pricing' => [
+            'free' => [
+                'monthly' => ['amount' => 0, 'stripe_price_id' => null],
+                'annual'  => ['amount' => 0, 'stripe_price_id' => null],
+            ],
+            'starter' => [
+                'monthly' => ['amount' => env('COMPUTE_PRICE_STARTER_MONTHLY'), 'stripe_price_id' => env('COMPUTE_STRIPE_STARTER_MONTHLY')],
+                'annual'  => ['amount' => env('COMPUTE_PRICE_STARTER_ANNUAL'),  'stripe_price_id' => env('COMPUTE_STRIPE_STARTER_ANNUAL')],
+            ],
+            'pro' => [
+                'monthly' => ['amount' => env('COMPUTE_PRICE_PRO_MONTHLY'), 'stripe_price_id' => env('COMPUTE_STRIPE_PRO_MONTHLY')],
+                'annual'  => ['amount' => env('COMPUTE_PRICE_PRO_ANNUAL'),  'stripe_price_id' => env('COMPUTE_STRIPE_PRO_ANNUAL')],
+            ],
+            'team' => [
+                'monthly' => ['amount' => env('COMPUTE_PRICE_TEAM_MONTHLY'), 'stripe_price_id' => env('COMPUTE_STRIPE_TEAM_MONTHLY')],
+                'annual'  => ['amount' => env('COMPUTE_PRICE_TEAM_ANNUAL'),  'stripe_price_id' => env('COMPUTE_STRIPE_TEAM_ANNUAL')],
+            ],
+            'agency' => [
+                'monthly' => ['amount' => env('COMPUTE_PRICE_AGENCY_MONTHLY'), 'stripe_price_id' => env('COMPUTE_STRIPE_AGENCY_MONTHLY')],
+                'annual'  => ['amount' => env('COMPUTE_PRICE_AGENCY_ANNUAL'),  'stripe_price_id' => env('COMPUTE_STRIPE_AGENCY_ANNUAL')],
+            ],
+        ],
+    ],
 ];

@@ -2,6 +2,7 @@
 
 namespace App\Domains\Platform\Compute\Models;
 
+use App\Domains\Platform\Compute\Enums\BillingInterval;
 use App\Domains\Platform\Compute\Enums\PlanTier;
 use App\Domains\Platform\Compute\Enums\TeamRole;
 use App\Models\User;
@@ -26,12 +27,14 @@ class Team extends Model
         'slug',
         'owner_user_id',
         'plan_tier',
+        'billing_interval',
         'is_personal',
     ];
 
     protected $casts = [
-        'plan_tier'   => PlanTier::class,
-        'is_personal' => 'boolean',
+        'plan_tier'        => PlanTier::class,
+        'billing_interval' => BillingInterval::class,
+        'is_personal'      => 'boolean',
     ];
 
     public function owner(): BelongsTo
