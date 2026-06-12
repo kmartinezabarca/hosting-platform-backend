@@ -22,6 +22,18 @@ class FailureClassifier
             'cause'    => 'Falta una variable de entorno requerida por la aplicación.',
             'fixes'    => ['Revisa las variables del ambiente y agrega la que falta.'],
         ],
+        'git_auth_failed' => [
+            'patterns' => [
+                '/could not read Username/i',
+                '/Authentication failed for/i',
+                '/fatal: could not read from remote repository/i',
+                '/Repository not found/i',
+                '/remote: (Invalid username or password|Repository not found)/i',
+                '/Permission denied \(publickey\)/i',
+            ],
+            'cause'    => 'No se pudo clonar el repositorio (credenciales o permisos de GitHub).',
+            'fixes'    => ['Revisa que la GitHub App siga instalada en el repo y con acceso; reconecta el repositorio.'],
+        ],
         'composer_dep_conflict' => [
             'patterns' => ['/Your requirements could not be resolved to an installable set of packages/i', '/composer\.json requires .{1,80} -> (?:satisfiable|found)/i'],
             'cause'    => 'Conflicto de dependencias de Composer.',
@@ -32,10 +44,30 @@ class FailureClassifier
             'cause'    => 'Error de dependencias de npm/pnpm durante la instalación.',
             'fixes'    => ['Reinstala el lockfile localmente y haz commit; revisa versiones incompatibles.'],
         ],
+        'module_not_found' => [
+            'patterns' => ['/Cannot find module/i', "/Module not found: Can't resolve/i", '/Error: Cannot find package/i'],
+            'cause'    => 'El build no encontró un módulo/paquete importado por el código.',
+            'fixes'    => ['Verifica que la dependencia esté en package.json y haz commit del lockfile; revisa rutas de import.'],
+        ],
         'node_version_mismatch' => [
             'patterns' => ['/The engine "node" is incompatible/i', '/requires? Node(?:\.js)? (?:version )?[\d>=<.x ]+/i'],
             'cause'    => 'La versión de Node del runtime no coincide con la requerida.',
             'fixes'    => ['Define engines.node en package.json o ajusta la versión del runtime.'],
+        ],
+        'python_dep_error' => [
+            'patterns' => ['/Could not find a version that satisfies/i', '/No matching distribution found/i', '/ModuleNotFoundError/i'],
+            'cause'    => 'Falló la instalación de dependencias de Python (pip).',
+            'fixes'    => ['Revisa requirements.txt y la versión de Python del runtime; fija versiones compatibles.'],
+        ],
+        'go_build_error' => [
+            'patterns' => ['/go: .{1,120}no required module provides package/i', '/cannot find package/i', '/build constraints exclude all Go files/i'],
+            'cause'    => 'Falló la compilación de Go (módulos o paquetes).',
+            'fixes'    => ['Corre `go mod tidy` y haz commit de go.mod/go.sum; revisa la versión de Go del runtime.'],
+        ],
+        'nixpacks_no_plan' => [
+            'patterns' => ['/Nixpacks was unable to generate a build plan/i', '/No start command (was|could be) found/i', '/failed to generate a build plan/i'],
+            'cause'    => 'Nixpacks no pudo detectar cómo construir/arrancar la app.',
+            'fixes'    => ['Define el comando de arranque (Procfile/start script) o usa un Dockerfile; revisa el framework detectado.'],
         ],
         'build_oom' => [
             'patterns' => ['/JavaScript heap out of memory/i', '/Killed.*(?:npm|node|composer)/i', '/Out of memory/i', '/exit code:? 137/i'],
@@ -66,6 +98,16 @@ class FailureClassifier
             'patterns' => ['/no space left on device/i'],
             'cause'    => 'El nodo se quedó sin espacio en disco.',
             'fixes'    => ['Contacta soporte — es un problema de plataforma, no de tu aplicación.'],
+        ],
+        'build_timeout' => [
+            'patterns' => ['/context deadline exceeded/i', '/build (timed out|timeout)/i', '/Timeout (exceeded|after) \d+/i'],
+            'cause'    => 'El build excedió el tiempo máximo permitido.',
+            'fixes'    => ['Optimiza el build (caché de dependencias, imagen base más liviana) o reduce su alcance.'],
+        ],
+        'permission_denied' => [
+            'patterns' => ['/EACCES: permission denied/i', '/permission denied/i'],
+            'cause'    => 'El build falló por permisos insuficientes sobre un archivo o recurso.',
+            'fixes'    => ['Revisa permisos de los archivos del repo y los pasos del Dockerfile que escriben fuera del workdir.'],
         ],
     ];
 

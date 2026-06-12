@@ -35,6 +35,13 @@ class FailureClassifierTest extends TestCase
             'dockerfile'     => ['ERROR: failed to solve: process "/bin/sh -c composer install" did not complete', 'dockerfile_error'],
             'healthcheck'    => ['container my-app is unhealthy after 5 retries', 'healthcheck_timeout'],
             'disco'          => ['write /var/lib/docker: no space left on device', 'disk_full'],
+            'git auth'       => ["remote: Repository not found\nfatal: could not read from remote repository", 'git_auth_failed'],
+            'module'         => ["Error: Cannot find module 'express'", 'module_not_found'],
+            'python'         => ['ERROR: Could not find a version that satisfies the requirement flask', 'python_dep_error'],
+            'go'             => ['go: example.com/x: no required module provides package example.com/x', 'go_build_error'],
+            'nixpacks'       => ['Nixpacks was unable to generate a build plan for this app.', 'nixpacks_no_plan'],
+            'timeout'        => ['the build exceeded its limit: build timed out', 'build_timeout'],
+            'permiso'        => ['sh: ./build.sh: EACCES: permission denied', 'permission_denied'],
             'desconocido'    => ['some random output without recognizable signature', 'unknown'],
         ];
     }
