@@ -106,6 +106,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/rokepet-expiring.log'));
 
+        // roke.pet — cierra (reinicia) conversaciones de soporte inactivas >24h.
+        // El chat no es eterno: tras la ventana se auto-cierra. Cada hora.
+        $schedule->command('rokepet:expire-stale-chats')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/rokepet-chat-expire.log'));
+
         // roke.pet — cierra pruebas (trial local) vencidas sin conversión → plan
         // gratuito. Una vez al día.
         $schedule->command('rokepet:expire-trials')

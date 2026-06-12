@@ -24,6 +24,11 @@ class OwnerChatController extends Controller
     {
         $ownerId = $request->user()->uuid;
 
+        // El chat no es eterno: cierra (reinicia) cualquier conversación inactiva >24h
+        // antes de resolver la actual, para que el dueño empiece una nueva.
+        ChatConversation::forBrand()->forOwner($ownerId)->stale()->get()
+            ->each(fn (ChatConversation $c) => $this->chat->autoExpire($c));
+
         $conversation = ChatConversation::forBrand()
             ->forOwner($ownerId)
             ->active()

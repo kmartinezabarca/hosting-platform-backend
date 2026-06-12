@@ -36,6 +36,9 @@ class ChatConversation extends Model
         self::STATUS_HUMAN_ACTIVE,
     ];
 
+    /** Una conversación no es eterna: tras 24h de inactividad se cierra y se reinicia. */
+    public const STALE_AFTER_HOURS = 24;
+
     protected $fillable = [
         'brand', 'channel', 'source',
         'owner_id', 'assigned_agent_id',
@@ -94,11 +97,38 @@ class ChatConversation extends Model
         return $q->where('owner_id', $ownerId);
     }
 
+    /** Conversaciones activas pero inactivas desde hace más de STALE_AFTER_HOURS. */
+    public function scopeStale($q)
+    {
+        $cutoff = now()->subHours(self::STALE_AFTER_HOURS);
+
+        return $q->whereIn('status', self::ACTIVE_STATUSES)
+            ->where(function ($w) use ($cutoff) {
+                $w->where('last_message_at', '<', $cutoff)
+                  ->orWhere(function ($w2) use ($cutoff) {
+                      $w2->whereNull('last_message_at')->where('created_at', '<', $cutoff);
+                  });
+            });
+    }
+
     /* ===================== Helpers de estado ===================== */
 
     public function isClosed(): bool
     {
         return in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CLOSED], true);
+    }
+
+    /** Última actividad real de la conversación (último mensaje o, si no hay, su creación). */
+    public function lastActivityAt(): \Illuminate\Support\Carbon
+    {
+        return $this->last_message_at ?? $this->created_at ?? now();
+    }
+
+    /** ¿Sigue activa pero ya rebasó la ventana de 24h sin actividad? */
+    public function isExpired(): bool
+    {
+        return in_array($this->status, self::ACTIVE_STATUSES, true)
+            && $this->lastActivityAt()->lt(now()->subHours(self::STALE_AFTER_HOURS));
     }
 
     public function isHumanControlled(): bool

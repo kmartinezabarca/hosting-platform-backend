@@ -3,6 +3,7 @@
 namespace App\Domains\Pet;
 
 use App\Domains\Pet\Console\Commands\ExpirePetTrials;
+use App\Domains\Pet\Console\Commands\ExpireStaleChats;
 use App\Domains\Pet\Console\Commands\NotifyExpiringPetSubscriptions;
 use App\Domains\Pet\Console\Commands\ProcessOverduePetSubscriptions;
 use App\Domains\Pet\Console\Commands\SendPetReminders;
@@ -47,6 +48,7 @@ class PetServiceProvider extends ServiceProvider
                 ProcessOverduePetSubscriptions::class,
                 NotifyExpiringPetSubscriptions::class,
                 ExpirePetTrials::class,
+                ExpireStaleChats::class,
             ]);
         }
     }

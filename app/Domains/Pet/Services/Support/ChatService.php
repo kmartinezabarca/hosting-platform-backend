@@ -115,6 +115,35 @@ class ChatService
         }
     }
 
+    /**
+     * Cierra automáticamente una conversación inactiva (>24h). A diferencia de
+     * resolve(), el aviso es de auto-cierre por inactividad, no acción de un agente.
+     * El cliente la verá como cerrada y podrá iniciar una nueva.
+     */
+    public function autoExpire(ChatConversation $conversation): void
+    {
+        if ($conversation->isClosed()) {
+            return;
+        }
+
+        $conversation->forceFill([
+            'status'      => ChatConversation::STATUS_CLOSED,
+            'resolved_at' => $conversation->resolved_at ?? now(),
+            'closed_at'   => now(),
+            'ai_enabled'  => false,
+            'ai_status'   => 'disabled',
+        ])->save();
+
+        $this->systemMessage(
+            $conversation,
+            'Esta conversación se cerró automáticamente tras 24 horas de inactividad. '
+                . 'Si necesitas algo más, inicia un chat nuevo cuando quieras. 💛',
+            ['kind' => 'auto_expired'],
+        );
+
+        event(new ChatConversationResolved($conversation));
+    }
+
     public function resolve(ChatConversation $conversation, string $byName, bool $close = false): void
     {
         $conversation->forceFill([
