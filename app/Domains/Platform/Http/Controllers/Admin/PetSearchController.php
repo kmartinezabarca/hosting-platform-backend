@@ -67,13 +67,13 @@ class PetSearchController extends Controller
             ->where(function ($query) use ($q) {
                 $query->where('display_name', 'like', "%{$q}%")
                       ->orWhere('email',        'like', "%{$q}%")
-                      ->orWhere('uuid',          'like', "%{$q}%");
+                      ->orWhere('id',            'like', "%{$q}%");
             })
             ->limit(self::LIMIT)
-            ->get(['uuid', 'display_name', 'email'])
+            ->get(['id', 'display_name', 'email'])
             ->map(fn ($o) => [
                 'type'     => 'owner',
-                'id'       => $o->uuid,
+                'id'       => $o->id,
                 'label'    => $o->display_name ?? $o->email,
                 'sublabel' => $o->email,
             ])
