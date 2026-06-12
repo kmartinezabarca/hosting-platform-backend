@@ -1,0 +1,359 @@
+openapi: 3.1.0
+info:
+  title: ROKE Platform API v2
+  version: 0.1.0
+  description: |
+    Contrato del plano de cómputo (Projects → Environments → Resources → Deployments).
+    Lo consumen el portal React, la app Flutter y el agente de IA.
+
+    Convenciones:
+    - IDs públicos: UUID. Los IDs de proveedores (Coolify/Pterodactyl) nunca se exponen.
+    - Respuestas: `{ success: bool, data: ... }` (errores: `{ success: false, message }`).
+    - Operaciones largas: `202 Accepted` + objeto `orchestration`; progreso por Reverb
+      (`private-project.{uuid}`) o polling a `/orchestrations/{uuid}`.
+    - Rutas marcadas `x-status: planned` aún no están implementadas (ver roadmap).
+
+servers:
+  - url: https://api.roke.cloud/api
+security:
+  - sanctum: []
+
+paths:
+  /v2/teams:
+    get:
+      summary: Equipos donde el usuario autenticado es miembro
+      tags: [Teams]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Team' }
+
+  /v2/projects:
+    get:
+      summary: Proyectos visibles para el usuario
+      tags: [Projects]
+      parameters:
+        - name: team
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+    post:
+      summary: Crear proyecto (incluye ambiente production por defecto)
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team, name]
+              properties:
+                team: { type: string, format: uuid }
+                name: { type: string, maxLength: 100 }
+                repo_full_name: { type: string, example: "roke/mi-api" }
+                default_branch: { type: string, example: "main" }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { $ref: '#/components/schemas/Project' }
+        '403': { description: Sin permiso en el equipo (rol < developer) }
+
+  /v2/projects/{project}:
+    get:
+      summary: Detalle de proyecto (incluye environments y detected_stack)
+      tags: [Projects]
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+        '403': { description: No es miembro del equipo }
+        '404': { description: No existe }
+
+  /v2/projects/{project}/analyze:
+    post:
+      summary: Re-ejecutar detección de framework sobre el repo conectado (en línea)
+      tags: [Projects]
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Detección completada (detected_stack persistido)
+        '422': { description: El proyecto no tiene repo de GitHub conectado }
+
+  /v2/github/install-url:
+    get:
+      summary: URL de instalación de la GitHub App con state firmado (solo admin/owner)
+      tags: [GitHub]
+      parameters:
+        - { name: team, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK — data.install_url }
+        '403': { description: Rol insuficiente }
+
+  /v2/github/installations/claim:
+    post:
+      summary: Liga una instalación al equipo (verifica state firmado contra GitHub)
+      tags: [GitHub]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [installation_id, state]
+              properties:
+                installation_id: { type: integer }
+                state: { type: string }
+      responses:
+        '201': { description: Instalación vinculada }
+        '422': { description: State inválido o expirado }
+
+  /v2/github/installations:
+    get:
+      summary: Instalaciones de GitHub del equipo
+      tags: [GitHub]
+      parameters:
+        - { name: team, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+
+  /v2/github/installations/{installation}/repos:
+    get:
+      summary: Repos accesibles (paginado; search filtra client-side)
+      tags: [GitHub]
+      parameters:
+        - { name: installation, in: path, required: true, schema: { type: integer } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+      responses:
+        '200': { description: OK }
+
+  /v2/github/installations/{installation}/branches:
+    get:
+      summary: Ramas de un repo
+      tags: [GitHub]
+      parameters:
+        - { name: installation, in: path, required: true, schema: { type: integer } }
+        - { name: repo, in: query, required: true, schema: { type: string, example: "roke/api" } }
+      responses:
+        '200': { description: OK }
+
+  /webhooks/github:
+    post:
+      summary: Webhook de la GitHub App (público, HMAC X-Hub-Signature-256)
+      tags: [GitHub]
+      security: []
+      responses:
+        '202': { description: Recibido }
+        '401': { description: Firma inválida }
+
+  # ── Planeado (semanas 3-4 del MVP) — ver docs/blueprint/02-api-and-modules.md ──
+  /v2/projects/{project}/environments:
+    post:
+      x-status: planned
+      summary: Crear ambiente (staging/preview)
+      tags: [Environments]
+      responses: { '201': { description: Creado } }
+  /v2/environments/{environment}/env-vars:
+    get:
+      x-status: planned
+      summary: Nombres de variables (valores siempre enmascarados — write-only)
+      tags: [Environments]
+      responses: { '200': { description: OK } }
+    put:
+      x-status: planned
+      summary: Upsert masivo de variables
+      tags: [Environments]
+      responses: { '200': { description: OK } }
+  /v2/environments/{environment}/resources:
+    post:
+      summary: Crear recurso (app | static_site) → 202 + orchestration (ProvisionAppFlow)
+      tags: [Resources]
+      parameters:
+        - { name: environment, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name]
+              properties:
+                kind: { type: string, enum: [app, static_site] }
+                name: { type: string, maxLength: 100 }
+                spec:
+                  type: object
+                  properties:
+                    ram_mb: { type: integer, minimum: 256 }
+                    cpu: { type: number, minimum: 0.25 }
+      responses:
+        '202': { description: Saga de provisión arrancada — data.resource + data.orchestration }
+        '422': { description: El proyecto no tiene repo conectado }
+  /v2/resources/{resource}:
+    get:
+      summary: Estado, url, spec, health, último deployment
+      tags: [Resources]
+      parameters:
+        - { name: resource, in: path, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: OK } }
+  /v2/resources/{resource}/deployments:
+    get:
+      summary: Historial de deployments (paginado)
+      tags: [Deployments]
+      responses: { '200': { description: OK } }
+    post:
+      summary: Deploy manual → 202 (DeployFlow)
+      tags: [Deployments]
+      responses:
+        '202': { description: Deploy encolado }
+        '409': { description: El recurso aún se está aprovisionando }
+  /v2/deployments/{deployment}/logs:
+    get:
+      summary: Chunks de log paginados por seq (stream en vivo por Reverb private-deployment.{uuid})
+      tags: [Deployments]
+      parameters:
+        - { name: stream, in: query, schema: { type: string, enum: [build, deploy, runtime] } }
+        - { name: after_seq, in: query, schema: { type: integer } }
+      responses: { '200': { description: OK } }
+  /v2/orchestrations/{orchestration}:
+    get:
+      summary: Progreso de una saga (pasos + estado)
+      tags: [Orchestrations]
+      responses: { '200': { description: OK } }
+
+  /v2/resources/{resource}/actions:
+    post:
+      x-status: planned
+      summary: start | stop | restart
+      tags: [Resources]
+      responses: { '202': { description: Acción encolada } }
+  /v2/deployments/{deployment}/rollback:
+    post:
+      x-status: planned
+      summary: Rollback al deployment indicado
+      tags: [Deployments]
+      responses: { '202': { description: Rollback encolado } }
+  /v2/ai/conversations:
+    post:
+      x-status: planned
+      summary: Crear conversación con el asistente (contexto opcional de proyecto/recurso)
+      tags: [AI]
+      responses: { '201': { description: Creada } }
+
+components:
+  securitySchemes:
+    sanctum:
+      type: apiKey
+      in: cookie
+      name: auth_token
+      description: Cookie HttpOnly Sanctum (web). Flutter usa token Bearer con abilities.
+
+  schemas:
+    Team:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        plan_tier: { type: string, enum: [free, starter, pro, team, agency] }
+        is_personal: { type: boolean }
+        projects_count: { type: integer }
+        role: { type: string, enum: [owner, admin, developer, billing, viewer] }
+
+    Project:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        repo_full_name: { type: [string, 'null'] }
+        default_branch: { type: [string, 'null'] }
+        detected_stack: { type: [object, 'null'] }
+        team:
+          type: object
+          properties:
+            uuid: { type: string, format: uuid }
+            name: { type: string }
+        environments:
+          type: array
+          items: { $ref: '#/components/schemas/Environment' }
+
+    Environment:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        type: { type: string, enum: [production, staging, preview, development] }
+        branch: { type: [string, 'null'] }
+        auto_deploy: { type: boolean }
+
+    Resource:
+      type: object
+      description: Nunca incluye IDs de proveedor (viven solo en resource_provider_refs).
+      properties:
+        uuid: { type: string, format: uuid }
+        kind: { type: string, enum: [app, static_site, database, redis, game_server, compose] }
+        name: { type: string }
+        status:
+          type: string
+          enum: [creating, provisioning, running, stopped, sleeping, degraded, failed, suspended, deleting]
+        spec: { type: object }
+        health: { type: [object, 'null'] }
+
+    Deployment:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        trigger: { type: string, enum: [push, manual, rollback, ai, pr_open, pr_sync] }
+        status:
+          type: string
+          enum: [queued, building, deploying, running, success, failed, cancelled, rolled_back]
+        commit_sha: { type: [string, 'null'] }
+        commit_message: { type: [string, 'null'] }
+        branch: { type: [string, 'null'] }
+        initiated_by_ai: { type: boolean }
+        error_summary: { type: [string, 'null'], description: Causa raíz generada por el motor de troubleshooting }
+
+    Orchestration:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        flow: { type: string, example: provision_app }
+        state: { type: [string, 'null'] }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              step: { type: string }
+              status: { type: string, enum: [pending, running, done, failed, compensated] }
+              error: { type: [string, 'null'] }
+        completed_at: { type: [string, 'null'], format: date-time }
+        failed_at: { type: [string, 'null'], format: date-time }

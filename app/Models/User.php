@@ -196,6 +196,35 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Service::class);
     }
 
+    // ── Plano de cómputo (teams) ──────────────────────────────────────────
+
+    /**
+     * Equipos donde el usuario es miembro (incluye su equipo personal).
+     */
+    public function teams()
+    {
+        return $this->belongsToMany(\App\Domains\Platform\Compute\Models\Team::class, 'team_members')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    /**
+     * Equipos de los que el usuario es dueño.
+     */
+    public function ownedTeams()
+    {
+        return $this->hasMany(\App\Domains\Platform\Compute\Models\Team::class, 'owner_user_id');
+    }
+
+    /**
+     * Equipo personal (auto-creado en registro / backfill). Es el default
+     * para proyectos nuevos cuando el cliente no elige equipo.
+     */
+    public function personalTeam(): ?\App\Domains\Platform\Compute\Models\Team
+    {
+        return $this->ownedTeams()->where('is_personal', true)->first();
+    }
+
     /**
      * Get the receipts (comprobantes de pago) for the user.
      * Se usa "invoices" como alias para compatibilidad con withCount en el admin.

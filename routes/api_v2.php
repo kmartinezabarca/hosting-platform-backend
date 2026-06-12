@@ -1,0 +1,68 @@
+<?php
+
+use App\Domains\Platform\Ai\Http\Controllers\V2\ConversationController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\DeploymentController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\TeamController;
+use App\Domains\Platform\Git\Http\Controllers\GithubWebhookController;
+use App\Domains\Platform\Git\Http\Controllers\V2\GithubController;
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| API v2 — plano de cómputo
+|--------------------------------------------------------------------------
+|
+| Contrato nuevo (OpenAPI: docs/openapi/v2.yaml) que consumen el portal
+| React, la app Flutter y el agente de IA. v1 (api.php/client.php/admin.php)
+| queda congelada — las pantallas migran una por una.
+|
+| Convenciones: IDs públicos = uuid (route binding via HasUuidColumn),
+| respuestas { success, data }, autorización por Policy (membresía de equipo).
+|
+*/
+
+// Webhook de la GitHub App — público, verificado por HMAC (X-Hub-Signature-256).
+Route::post('/webhooks/github', [GithubWebhookController::class, 'handle']);
+
+Route::prefix('v2')
+    ->middleware(['auth:sanctum', 'session.timeout'])
+    ->group(function () {
+
+        // Teams
+        Route::get('/teams', [TeamController::class, 'index']);
+
+        // Projects
+        Route::get('/projects', [ProjectController::class, 'index']);
+        Route::post('/projects', [ProjectController::class, 'store']);
+        Route::get('/projects/{project}', [ProjectController::class, 'show']);
+        Route::post('/projects/{project}/analyze', [ProjectController::class, 'analyze'])
+            ->middleware('throttle:10,1'); // golpea la API de GitHub
+
+        // GitHub App
+        Route::get('/github/install-url', [GithubController::class, 'installUrl']);
+        Route::post('/github/installations/claim', [GithubController::class, 'claim']);
+        Route::get('/github/installations', [GithubController::class, 'installations']);
+        Route::get('/github/installations/{installation}/repos', [GithubController::class, 'repos']);
+        Route::get('/github/installations/{installation}/branches', [GithubController::class, 'branches']);
+
+        // Resources (apps) — operaciones largas responden 202 + orchestration
+        Route::post('/environments/{environment}/resources', [ResourceController::class, 'store']);
+        Route::get('/resources/{resource}', [ResourceController::class, 'show']);
+        Route::get('/orchestrations/{orchestration}', [ResourceController::class, 'orchestration']);
+
+        // Deployments
+        Route::get('/resources/{resource}/deployments', [DeploymentController::class, 'index']);
+        Route::post('/resources/{resource}/deployments', [DeploymentController::class, 'store']);
+        Route::get('/deployments/{deployment}/logs', [DeploymentController::class, 'logs']);
+
+        // Asistente de IA (v1: herramientas de lectura + diagnóstico)
+        Route::post('/ai/conversations', [ConversationController::class, 'store']);
+        Route::get('/ai/conversations/{conversation}', [ConversationController::class, 'show']);
+        Route::post('/ai/conversations/{conversation}/messages', [ConversationController::class, 'message'])
+            ->middleware('throttle:20,1'); // cada mensaje puede costar varias llamadas LLM
+
+        // Mes 2: acciones del agente (safe_write/destructive + confirmación),
+        // game servers self-service v2 — ver docs/blueprint/02-api-and-modules.md
+    });

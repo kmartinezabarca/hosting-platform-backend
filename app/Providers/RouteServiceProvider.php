@@ -89,6 +89,7 @@ class RouteServiceProvider extends ServiceProvider
                     require base_path('routes/auth.php');
                     require base_path('routes/client.php');
                     require base_path('routes/admin.php');
+                    require base_path('routes/api_v2.php');
                 });
 
             // roke.pet (prefijo /api/rp) ahora lo carga App\Domains\Pet\PetServiceProvider.
