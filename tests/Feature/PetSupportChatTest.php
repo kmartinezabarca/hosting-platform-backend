@@ -59,6 +59,13 @@ class PetSupportChatTest extends TestCase
         );
     }
 
+    private function petAdmin(User $user): AppAdmin
+    {
+        $this->owner($user);
+
+        return AppAdmin::firstOrCreate(['user_id' => $user->uuid]);
+    }
+
     private function conversationFor(string $ownerUuid, array $overrides = []): ChatConversation
     {
         return ChatConversation::create(array_merge([
@@ -206,8 +213,7 @@ class PetSupportChatTest extends TestCase
     public function test_admin_can_list_pet_conversations(): void
     {
         $user = User::factory()->create();
-        $this->owner($user);
-        AppAdmin::firstOrCreate(['user_id' => $user->uuid]);
+        $this->petAdmin($user);
 
         $this->conversationFor((string) Str::uuid());
 
@@ -225,7 +231,7 @@ class PetSupportChatTest extends TestCase
         $owner = User::factory()->create();
         $this->owner($owner);
         $admin = User::factory()->create();
-        AppAdmin::firstOrCreate(['user_id' => $admin->uuid]);
+        $this->petAdmin($admin);
         $conv = $this->conversationFor($owner->uuid, [
             'status'    => ChatConversation::STATUS_WAITING_AGENT,
             'ai_status' => 'escalated',
@@ -254,7 +260,7 @@ class PetSupportChatTest extends TestCase
         $owner = User::factory()->create();
         $this->owner($owner);
         $admin = User::factory()->create();
-        AppAdmin::firstOrCreate(['user_id' => $admin->uuid]);
+        $this->petAdmin($admin);
         $conv = $this->conversationFor($owner->uuid);
 
         $this->actingAs($admin)
