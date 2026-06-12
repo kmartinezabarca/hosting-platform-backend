@@ -11,7 +11,6 @@ use App\Domains\Platform\Compute\Http\Controllers\V2\TeamController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\TeamMemberController;
 use App\Domains\Platform\Git\Http\Controllers\GithubWebhookController;
 use App\Domains\Platform\Git\Http\Controllers\V2\GithubController;
-use App\Domains\Platform\Migration\Hestia\Http\HestiaMigrationController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -43,9 +42,6 @@ Route::prefix('v2')
 
         // Catálogo de presets de servidores de juego (specs + disponibilidad).
         Route::get('/game-presets', [GamePresetController::class, 'index']);
-
-        // Importador asistido de HestiaCP — solo planifica (mes 3).
-        Route::post('/migrations/hestia/plan', [HestiaMigrationController::class, 'plan']);
 
         // Miembros del equipo (gestionar requiere rol admin+)
         Route::get('/teams/{team}/members', [TeamMemberController::class, 'index']);
