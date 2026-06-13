@@ -66,6 +66,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/provisioning-pending.log'));
 
+        // Red de seguridad del plano de cómputo: re-encola orquestaciones vivas
+        // estancadas (worker caído). Sin esto, un despliegue se cuelga para siempre.
+        $schedule->command('compute:requeue-stuck-orchestrations')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/compute-requeue-stuck.log'));
+
         // Reconciliación de proxies FRP: game servers activos con servidor
         // Pterodactyl pero sin proxy (fallos tardíos de FRP). Reintenta solo
         // el paso FRP; notifica al admin tras 3 intentos fallidos.
