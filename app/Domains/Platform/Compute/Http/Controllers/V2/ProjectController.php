@@ -24,9 +24,15 @@ class ProjectController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        // "Proyectos" = apps desplegables. El espejo "Game Servers" (ComputeMirror:
+        // slug 'game-servers' + sin repo) NO es una app: existe para que la IA vea
+        // los game servers, pero se gestionan en "Mis Servicios". Se excluye con su
+        // firma exacta para no ocultar un proyecto real que el usuario nombrara así.
         $query = Project::forUser($request->user())
             ->with('team:id,uuid,name')
             ->whereNull('archived_at')
+            ->where(fn ($q) => $q->where('slug', '!=', 'game-servers')
+                ->orWhereNotNull('repo_full_name'))
             ->orderByDesc('updated_at');
 
         if ($teamUuid = $request->query('team')) {
@@ -126,6 +132,10 @@ class ProjectController extends Controller
     public function show(Request $request, Project $project): JsonResponse
     {
         $this->authorize('view', $project);
+
+        // El espejo "Game Servers" (slug 'game-servers' sin repo) no es un proyecto
+        // desplegable; se gestiona en "Mis Servicios", no aquí.
+        abort_if($project->slug === 'game-servers' && $project->repo_full_name === null, 404);
 
         $project->load(['team:id,uuid,name', 'environments.resources']);
 

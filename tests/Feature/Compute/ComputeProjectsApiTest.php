@@ -88,6 +88,25 @@ class ComputeProjectsApiTest extends TestCase
         $response->assertOk()->assertJsonCount(1, 'data');
     }
 
+    public function test_game_server_mirror_is_excluded_from_projects(): void
+    {
+        $user = $this->actingUser();
+        $team = Team::factory()->personal()->create(['owner_user_id' => $user->id]);
+
+        // App real (con repo) → sí aparece.
+        Project::factory()->create(['team_id' => $team->id, 'repo_full_name' => 'roke/app']);
+        // Espejo de game servers (slug 'game-servers' sin repo) → NO es app, se excluye.
+        Project::factory()->create([
+            'team_id'        => $team->id,
+            'slug'           => 'game-servers',
+            'repo_full_name' => null,
+        ]);
+
+        $this->actingAs($user)->getJson('/api/v2/projects')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
     public function test_guest_is_rejected(): void
     {
         $this->getJson('/api/v2/teams')->assertUnauthorized();
