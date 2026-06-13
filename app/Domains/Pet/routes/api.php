@@ -2,6 +2,7 @@
 
 use App\Domains\Pet\Http\Controllers\AdminController;
 use App\Domains\Pet\Http\Controllers\AdminModerationController;
+use App\Domains\Pet\Http\Controllers\AdminTipCampaignController;
 use App\Domains\Pet\Http\Controllers\AdoptionController;
 use App\Domains\Pet\Http\Controllers\AuthController;
 use App\Domains\Pet\Http\Controllers\BillingController;
@@ -285,6 +286,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/notifications',             [AdminController::class, 'listNotifications']);
         Route::get('/admin/notifications/{id}',        [AdminController::class, 'getNotification']);
         Route::post('/admin/notifications/{id}/retry', [AdminController::class, 'retryNotification']);
+
+        // ── Consejos (biblioteca) + campañas de notificación ──────────────────
+        Route::get('/admin/tips',          [AdminTipCampaignController::class, 'tips']);
+        Route::post('/admin/tips',         [AdminTipCampaignController::class, 'storeTip']);
+        Route::put('/admin/tips/{id}',     [AdminTipCampaignController::class, 'updateTip']);
+        Route::delete('/admin/tips/{id}',  [AdminTipCampaignController::class, 'destroyTip']);
+
+        Route::get('/admin/campaigns/audience-count', [AdminTipCampaignController::class, 'audienceCount']);
+        Route::get('/admin/campaigns',                [AdminTipCampaignController::class, 'campaigns']);
+        Route::post('/admin/campaigns',               [AdminTipCampaignController::class, 'storeCampaign']);
+        Route::post('/admin/campaigns/test',          [AdminTipCampaignController::class, 'testCampaign']);
+        Route::get('/admin/campaigns/{id}',           [AdminTipCampaignController::class, 'showCampaign']);
+        Route::post('/admin/campaigns/{id}/cancel',   [AdminTipCampaignController::class, 'cancelCampaign']);
 
         // Planes
         Route::get('/admin/plans',              [PlanController::class, 'adminIndex']);

@@ -2,6 +2,7 @@
 
 namespace App\Domains\Pet;
 
+use App\Domains\Pet\Console\Commands\DispatchScheduledCampaigns;
 use App\Domains\Pet\Console\Commands\ExpirePetTrials;
 use App\Domains\Pet\Console\Commands\ExpireStaleChats;
 use App\Domains\Pet\Console\Commands\NotifyExpiringPetSubscriptions;
@@ -49,6 +50,7 @@ class PetServiceProvider extends ServiceProvider
                 NotifyExpiringPetSubscriptions::class,
                 ExpirePetTrials::class,
                 ExpireStaleChats::class,
+                DispatchScheduledCampaigns::class,
             ]);
         }
     }

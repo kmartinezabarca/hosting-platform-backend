@@ -114,6 +114,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/rokepet-chat-expire.log'));
 
+        // roke.pet — despacha campañas de notificación programadas cuya hora
+        // ya llegó (consejos a los dueños). Cada minuto.
+        $schedule->command('rokepet:dispatch-scheduled-campaigns')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/rokepet-campaigns.log'));
+
         // roke.pet — cierra pruebas (trial local) vencidas sin conversión → plan
         // gratuito. Una vez al día.
         $schedule->command('rokepet:expire-trials')
