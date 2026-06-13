@@ -187,6 +187,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/prune-previews.log'));
+
+        // Retención de trazas HTTP técnicas. Evita que api_request_logs crezca
+        // indefinidamente cuando se registra cada petición API.
+        $schedule->command('api-logs:prune')
+            ->dailyAt('02:30')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/api-request-logs-prune.log'));
     }
 
     /**

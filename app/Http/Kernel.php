@@ -41,6 +41,7 @@ class Kernel extends HttpKernel
         ],
 
         'api' => [
+            \App\Http\Middleware\LogApiRequest::class,
             \App\Http\Middleware\RequireXhrMiddleware::class,
             \App\Http\Middleware\InjectTokenFromCookie::class,
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,

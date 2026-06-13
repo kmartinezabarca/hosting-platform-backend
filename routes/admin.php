@@ -31,6 +31,7 @@ use App\Domains\Platform\Http\Controllers\Admin\PetNotificationController;
 use App\Domains\Platform\Http\Controllers\Admin\PetSearchController;
 use App\Domains\Platform\Http\Controllers\Admin\AdminDomainController;
 use App\Domains\Platform\Http\Controllers\Admin\AnalyticsController;
+use App\Domains\Platform\Http\Controllers\Admin\ApiRequestLogController;
 use App\Domains\Platform\Http\Controllers\Admin\AuditLogController;
 use App\Domains\Platform\Http\Controllers\Admin\UserRequestController;
 
@@ -159,6 +160,13 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
 
         // Analytics (ingresos / MRR / churn) — incluido en el scope de support (§0)
         Route::get("/analytics/overview", [AnalyticsController::class, "overview"]);
+
+        // API request logs — soporte puede consultar trazas sanitizadas para reproducir reportes.
+        Route::prefix('api-request-logs')->group(function () {
+            Route::get('/routes', [ApiRequestLogController::class, 'routes']);
+            Route::get('/', [ApiRequestLogController::class, 'index']);
+            Route::get('/{apiRequestLog}', [ApiRequestLogController::class, 'show']);
+        });
     });
 
     /*
