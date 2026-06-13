@@ -15,6 +15,12 @@ return [
 
     'driver' => env('PAGE_GENERATOR_DRIVER', 'ollama'),
 
+    // Dominio público donde el backend SIRVE las páginas publicadas (Opción A).
+    // DEBE ser un dominio separado y SIN cookies (p.ej. https://rokeindustries.app),
+    // nunca el del api/app: las páginas son HTML de usuario y no deben compartir
+    // origen con la sesión Sanctum. Default a APP_URL para no romper en local.
+    'public_base' => env('SITE_BUILDER_PUBLIC_BASE', env('APP_URL')),
+
     // La generación LLM es lenta (más aún self-hosted): timeout amplio.
     'timeout' => (int) env('PAGE_GENERATOR_TIMEOUT', 120),
 

@@ -177,4 +177,46 @@ class PageGeneratorEndpointTest extends TestCase
 
         $this->assertDatabaseMissing('generated_pages', ['id' => $page->id]);
     }
+
+    // ── Publicación (Opción A: servido por ROKE) ──────────────────────────────
+
+    public function test_publish_then_serves_html_publicly(): void
+    {
+        $page = $this->makePage($this->user, 'Pública');
+
+        // No publicada aún → la URL pública responde 404.
+        $this->get("/p/{$page->uuid}")->assertNotFound();
+
+        // Publicar (autenticado, dueño).
+        $this->actingAs($this->user)->postJson("/api/v2/site-builder/pages/{$page->uuid}/publish")
+            ->assertOk()
+            ->assertJsonPath('data.published', true)
+            ->assertJsonPath('data.public_url', fn ($url) => is_string($url) && str_contains($url, $page->uuid));
+
+        // Ahora el HTML se sirve público (sin auth) como text/html.
+        $res = $this->get("/p/{$page->uuid}")
+            ->assertOk()
+            ->assertHeader('Content-Type', 'text/html; charset=UTF-8');
+        $this->assertSame('<html><body>x</body></html>', $res->getContent());
+    }
+
+    public function test_unpublish_makes_it_404_again(): void
+    {
+        $page = $this->makePage($this->user);
+        $this->actingAs($this->user)->postJson("/api/v2/site-builder/pages/{$page->uuid}/publish")->assertOk();
+        $this->get("/p/{$page->uuid}")->assertOk();
+
+        $this->actingAs($this->user)->postJson("/api/v2/site-builder/pages/{$page->uuid}/unpublish")->assertOk();
+        $this->get("/p/{$page->uuid}")->assertNotFound();
+    }
+
+    public function test_publish_requires_owner(): void
+    {
+        $page = $this->makePage(User::factory()->create(['status' => 'active']));
+
+        $this->actingAs($this->user)->postJson("/api/v2/site-builder/pages/{$page->uuid}/publish")
+            ->assertForbidden();
+
+        $this->get("/p/{$page->uuid}")->assertNotFound(); // no se publicó
+    }
 }

@@ -109,6 +109,39 @@ class PageGeneratorController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * POST /api/v2/site-builder/pages/{page}/publish — "Desplegar con ROKE":
+     * el backend empieza a servir el HTML en su URL pública.
+     */
+    public function publish(Request $request, GeneratedPage $page): JsonResponse
+    {
+        $this->authorizeOwner($request, $page);
+
+        if (! $page->isPublished()) {
+            $page->update(['published_at' => now()]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->transform($page->fresh()),
+        ]);
+    }
+
+    /**
+     * POST /api/v2/site-builder/pages/{page}/unpublish — deja de servirla.
+     */
+    public function unpublish(Request $request, GeneratedPage $page): JsonResponse
+    {
+        $this->authorizeOwner($request, $page);
+
+        $page->update(['published_at' => null]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->transform($page->fresh()),
+        ]);
+    }
+
     private function authorizeOwner(Request $request, GeneratedPage $page): void
     {
         abort_unless((int) $page->user_id === (int) $request->user()->id, 403);
@@ -124,6 +157,8 @@ class PageGeneratorController extends Controller
             'provider'   => $page->provider,
             'model'      => $page->model,
             'warnings'   => $page->warnings ?? [],
+            'published'  => $page->isPublished(),
+            'public_url' => $page->isPublished() ? $page->publicUrl() : null,
             'created_at' => $page->created_at,
         ];
 

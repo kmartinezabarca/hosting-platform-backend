@@ -100,6 +100,9 @@ Route::prefix('v2')
         Route::get('/site-builder/pages', [PageGeneratorController::class, 'index']);
         Route::get('/site-builder/pages/{page}', [PageGeneratorController::class, 'show']);
         Route::delete('/site-builder/pages/{page}', [PageGeneratorController::class, 'destroy']);
+        // "Desplegar con ROKE": publicar/despublicar (el backend sirve el HTML).
+        Route::post('/site-builder/pages/{page}/publish', [PageGeneratorController::class, 'publish']);
+        Route::post('/site-builder/pages/{page}/unpublish', [PageGeneratorController::class, 'unpublish']);
 
         // Mes 2 pendiente: tier destructive del agente, game servers self-service
         // v2 — ver docs/blueprint/02-api-and-modules.md

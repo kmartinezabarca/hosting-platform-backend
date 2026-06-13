@@ -32,15 +32,31 @@ class GeneratedPage extends Model
         'provider',
         'model',
         'warnings',
+        'published_at',
     ];
 
     protected $casts = [
-        'spec'     => 'array',
-        'warnings' => 'array',
+        'spec'         => 'array',
+        'warnings'     => 'array',
+        'published_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
+
+    public function isPublished(): bool
+    {
+        return $this->published_at !== null;
+    }
+
+    /** URL pública donde el backend sirve el HTML (dominio configurable). */
+    public function publicUrl(): string
+    {
+        $base = rtrim((string) config('page_generator.public_base', config('app.url')), '/');
+
+        return "{$base}/p/{$this->uuid}";
+    }
 }
+
