@@ -2,6 +2,7 @@
 
 namespace App\Domains\Platform\Compute\Orchestrator\Steps;
 
+use App\Domains\Platform\Compute\Enums\ResourceStatus;
 use App\Domains\Platform\Compute\Models\Orchestration;
 use App\Domains\Platform\Compute\Orchestrator\Step;
 use App\Domains\Platform\Compute\Orchestrator\StepResult;
@@ -18,8 +19,7 @@ class CreateCoolifyApp implements Step
     public function __construct(
         private readonly AppRuntimeDriver $driver,
         private readonly GitHubAppClient $github,
-    ) {
-    }
+    ) {}
 
     public function execute(Orchestration $orchestration): StepResult
     {
@@ -30,24 +30,27 @@ class CreateCoolifyApp implements Step
         }
 
         $environment = $resource->environment;
-        $project     = $environment->project;
-        $stack       = $project->detected_stack ?? [];
+        $project = $environment->project;
+        $stack = $project->detected_stack ?? [];
 
         $appId = $this->driver->createApplication($resource, [
-            'git_url'          => $this->gitUrl($project),
-            'branch'           => $environment->branch ?? $project->default_branch ?? 'main',
-            'build_pack'       => $this->buildPack($stack),
-            'port'             => data_get($stack, 'run.port', 8080),
+            'git_url' => $this->gitUrl($project),
+            'branch' => $environment->branch ?? $project->default_branch ?? 'main',
+            'build_pack' => $this->buildPack($stack),
+            'port' => data_get($stack, 'run.port', 8080),
             'environment_name' => $environment->slug,
+            'health_check' => [
+                'path' => data_get($stack, 'run.healthcheck', '/'),
+            ],
         ]);
 
         $resource->providerRefs()->create([
-            'provider'    => 'coolify',
+            'provider' => 'coolify',
             'external_id' => $appId,
         ]);
 
         // El estado lo transiciona solo el orquestador (regla del blueprint).
-        $resource->update(['status' => \App\Domains\Platform\Compute\Enums\ResourceStatus::Provisioning]);
+        $resource->update(['status' => ResourceStatus::Provisioning]);
 
         return StepResult::completed();
     }
@@ -67,9 +70,9 @@ class CreateCoolifyApp implements Step
     {
         return match (data_get($stack, 'build.method')) {
             'dockerfile' => 'dockerfile',
-            'static'     => 'static',
-            'compose'    => 'dockercompose',
-            default      => 'nixpacks',
+            'static' => 'static',
+            'compose' => 'dockercompose',
+            default => 'nixpacks',
         };
     }
 }

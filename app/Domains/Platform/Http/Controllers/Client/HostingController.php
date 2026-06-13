@@ -2,19 +2,23 @@
 
 namespace App\Domains\Platform\Http\Controllers\Client;
 
-use App\Http\Controllers\Controller;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Services\CloudflareService;
 use App\Domains\Platform\Services\Coolify\CoolifyService;
+use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class HostingController extends Controller
 {
     public function __construct(
-        private readonly CoolifyService    $coolify,
+        private readonly CoolifyService $coolify,
         private readonly CloudflareService $cloudflare,
     ) {}
 
@@ -23,16 +27,16 @@ class HostingController extends Controller
         $service = $this->hostingService($uuid);
         $appUuid = $this->appUuidOrNull($service);
 
-        if (!$appUuid) {
+        if (! $appUuid) {
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'service'            => $service,
+                    'service' => $service,
                     'connection_details' => $this->safeConnectionDetails($service),
-                    'coolify_app'        => null,
-                    'coolify_db'         => null,
+                    'coolify_app' => null,
+                    'coolify_db' => null,
                     'provisioning' => [
-                        'status'  => 'pending',
+                        'status' => 'pending',
                         'message' => 'El servicio existe, pero todavía no ha sido aprovisionado en Coolify.',
                     ],
                 ],
@@ -40,11 +44,11 @@ class HostingController extends Controller
         }
 
         return $this->coolifyResponse(function () use ($service, $appUuid) {
-            $conn    = $service->connection_details ?? [];
-            $app     = $this->coolify->getApplication($appUuid);
-            $db      = null;
+            $conn = $service->connection_details ?? [];
+            $app = $this->coolify->getApplication($appUuid);
+            $db = null;
 
-            if (!empty($conn['coolify_db_uuid'])) {
+            if (! empty($conn['coolify_db_uuid'])) {
                 try {
                     $db = $this->coolify->getDatabase($conn['coolify_db_uuid']);
                 } catch (\Throwable) {
@@ -53,10 +57,10 @@ class HostingController extends Controller
             }
 
             return [
-                'service'            => $service,
+                'service' => $service,
                 'connection_details' => $this->safeConnectionDetails($service),
-                'coolify_app'        => $app,
-                'coolify_db'         => $db,
+                'coolify_app' => $app,
+                'coolify_db' => $db,
             ];
         });
     }
@@ -64,13 +68,13 @@ class HostingController extends Controller
     public function databases(string $uuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $conn    = $service->connection_details ?? [];
-        $dbUuid  = $conn['coolify_db_uuid'] ?? null;
+        $conn = $service->connection_details ?? [];
+        $dbUuid = $conn['coolify_db_uuid'] ?? null;
 
-        if (!$dbUuid) {
+        if (! $dbUuid) {
             return response()->json([
                 'success' => true,
-                'data'    => ['databases' => []],
+                'data' => ['databases' => []],
             ]);
         }
 
@@ -82,7 +86,7 @@ class HostingController extends Controller
     public function createDatabase(Request $request, string $uuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $conn    = $service->connection_details ?? [];
+        $conn = $service->connection_details ?? [];
         $secrets = $service->connection_secrets ?? [];
 
         $validated = $request->validate([
@@ -93,18 +97,18 @@ class HostingController extends Controller
         return $this->coolifyResponse(function () use ($service, $conn, $secrets, $validated) {
             $db = $this->coolify->createDatabase([
                 'project_uuid' => $conn['coolify_project_uuid'],
-                'server_uuid'  => config('coolify.server_uuid'),
-                'name'         => strtolower($validated['name']),
-                'type'         => $validated['type'] ?? 'mariadb',
+                'server_uuid' => config('coolify.server_uuid'),
+                'name' => strtolower($validated['name']),
+                'type' => $validated['type'] ?? 'mariadb',
             ]);
 
             // Registrar el nuevo UUID en connection_details
             $service->update([
                 'connection_details' => array_merge($conn, [
                     'coolify_db_uuid' => $db['uuid'],
-                    'db_name'         => $db['_db_name'],
-                    'db_user'         => $db['_db_user'],
-                    'db_type'         => $db['_db_type'],
+                    'db_name' => $db['_db_name'],
+                    'db_user' => $db['_db_user'],
+                    'db_type' => $db['_db_type'],
                 ]),
                 'connection_secrets' => array_merge($secrets, [
                     'db_password' => $db['_db_password'],
@@ -112,9 +116,9 @@ class HostingController extends Controller
             ]);
 
             return [
-                'database'    => $db,
-                'db_name'     => $db['_db_name'],
-                'db_user'     => $db['_db_user'],
+                'database' => $db,
+                'db_name' => $db['_db_name'],
+                'db_user' => $db['_db_user'],
                 'db_password' => $db['_db_password'],
             ];
         }, 201);
@@ -123,9 +127,9 @@ class HostingController extends Controller
     public function deleteDatabase(string $uuid, string $dbUuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $conn    = $service->connection_details ?? [];
+        $conn = $service->connection_details ?? [];
         $secrets = $service->connection_secrets ?? [];
-        $target  = rawurldecode($dbUuid);
+        $target = rawurldecode($dbUuid);
 
         return $this->coolifyResponse(function () use ($service, $conn, $secrets, $target) {
             $this->coolify->deleteDatabase($target);
@@ -135,9 +139,9 @@ class HostingController extends Controller
                 $service->update([
                     'connection_details' => array_merge($conn, [
                         'coolify_db_uuid' => null,
-                        'db_name'         => null,
-                        'db_user'         => null,
-                        'db_type'         => null,
+                        'db_name' => null,
+                        'db_user' => null,
+                        'db_type' => null,
                     ]),
                     'connection_secrets' => array_merge($secrets, [
                         'db_password' => null,
@@ -149,9 +153,23 @@ class HostingController extends Controller
         });
     }
 
+    /**
+     * POST /hosting/{uuid}/db-console
+     * Aprovisiona (idempotente) un gestor web Adminer para que el cliente
+     * administre su base de datos desde el navegador, y devuelve su URL.
+     */
+    public function dbConsole(string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+
+        return $this->coolifyResponse(
+            fn () => app(HostingProvisioningService::class)->provisionDbConsole($service)
+        );
+    }
+
     public function domains(string $uuid): JsonResponse
     {
-        $service     = $this->hostingService($uuid);
+        $service = $this->hostingService($uuid);
         $projectUuid = $this->requireProjectUuid($service);
 
         return $this->coolifyResponse(fn () => [
@@ -161,25 +179,25 @@ class HostingController extends Controller
 
     public function createDomain(Request $request, string $uuid): JsonResponse
     {
-        $service     = $this->hostingService($uuid);
-        $conn        = $service->connection_details ?? [];
+        $service = $this->hostingService($uuid);
+        $conn = $service->connection_details ?? [];
         $projectUuid = $this->requireProjectUuid($service);
 
         $validated = $request->validate([
-            'domain'     => ['required', 'string', 'max:255'],
+            'domain' => ['required', 'string', 'max:255'],
             'build_pack' => ['sometimes', 'string', 'in:static,php'],
         ]);
 
         $domain = $this->normalizeDomain($validated['domain']);
-        $fqdn   = "https://{$domain}";
+        $fqdn = "https://{$domain}";
 
         return $this->coolifyResponse(fn () => [
             'application' => $this->coolify->createApplication([
                 'project_uuid' => $projectUuid,
-                'server_uuid'  => config('coolify.server_uuid'),
-                'name'         => $domain,
-                'build_pack'   => $validated['build_pack'] ?? 'static',
-                'fqdn'         => $fqdn,
+                'server_uuid' => config('coolify.server_uuid'),
+                'name' => $domain,
+                'build_pack' => $validated['build_pack'] ?? 'static',
+                'fqdn' => $fqdn,
             ]),
         ], 201);
     }
@@ -187,7 +205,7 @@ class HostingController extends Controller
     public function deleteDomain(string $uuid, string $appUuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $target  = rawurldecode($appUuid);
+        $target = rawurldecode($appUuid);
 
         return $this->coolifyResponse(function () use ($service, $target) {
             $conn = $service->connection_details ?? [];
@@ -199,7 +217,7 @@ class HostingController extends Controller
                 $service->update([
                     'connection_details' => array_merge($conn, [
                         'coolify_app_uuid' => null,
-                        'fqdn'             => null,
+                        'fqdn' => null,
                     ]),
                     'status' => 'suspended',
                 ]);
@@ -227,29 +245,31 @@ class HostingController extends Controller
      */
     public function dnsRecords(string $uuid): JsonResponse
     {
-        $service   = $this->hostingService($uuid);
-        $prefix    = $this->dnsPrefix($service);
+        $service = $this->hostingService($uuid);
+        $prefix = $this->dnsPrefix($service);
 
         if (! $prefix) {
             return response()->json([
                 'success' => true,
-                'data'    => ['records' => [], 'prefix' => null,
-                              'message' => 'El servicio no tiene subdominio o dominio configurado.'],
+                'data' => ['records' => [], 'prefix' => null,
+                    'message' => 'El servicio no tiene subdominio o dominio configurado.'],
             ]);
         }
 
         try {
             $records = $this->cloudflare->listRecordsByPrefix($prefix);
+
             return response()->json([
                 'success' => true,
-                'data'    => ['records' => $records, 'prefix' => $prefix],
+                'data' => ['records' => $records, 'prefix' => $prefix],
             ]);
         } catch (\Throwable $e) {
             Log::warning('DNS: no se pudieron listar registros', ['error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudieron obtener los registros DNS. Intenta de nuevo.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 502);
         }
     }
@@ -262,14 +282,14 @@ class HostingController extends Controller
     public function createDnsRecord(Request $request, string $uuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $prefix  = $this->dnsPrefix($service);
+        $prefix = $this->dnsPrefix($service);
 
         $validated = $request->validate([
-            'type'     => ['required', 'string', \Illuminate\Validation\Rule::in(['A','AAAA','CNAME','MX','TXT','NS','SRV'])],
-            'name'     => ['required', 'string', 'max:253'],
-            'content'  => ['required', 'string', 'max:1024'],
-            'ttl'      => ['sometimes', 'integer', 'min:60', 'max:86400'],
-            'proxied'  => ['sometimes', 'boolean'],
+            'type' => ['required', 'string', Rule::in(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV'])],
+            'name' => ['required', 'string', 'max:253'],
+            'content' => ['required', 'string', 'max:1024'],
+            'ttl' => ['sometimes', 'integer', 'min:60', 'max:86400'],
+            'proxied' => ['sometimes', 'boolean'],
             'priority' => ['sometimes', 'integer', 'min:0', 'max:65535'],
         ]);
 
@@ -292,16 +312,18 @@ class HostingController extends Controller
                 $validated['type'],
                 $name,
                 $validated['content'],
-                (int) ($validated['ttl']    ?? 3600),
-                (bool)($validated['proxied'] ?? false),
+                (int) ($validated['ttl'] ?? 3600),
+                (bool) ($validated['proxied'] ?? false),
                 $extra,
             );
+
             return response()->json(['success' => true, 'data' => $record], 201);
         } catch (\Throwable $e) {
             Log::warning('DNS: no se pudo crear registro', ['error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'No se pudo crear el registro. ' . $e->getMessage(),
+                'message' => 'No se pudo crear el registro. '.$e->getMessage(),
             ], 422);
         }
     }
@@ -315,20 +337,22 @@ class HostingController extends Controller
         $this->hostingService($uuid); // authorize ownership
 
         $validated = $request->validate([
-            'content'  => ['required', 'string', 'max:1024'],
-            'ttl'      => ['sometimes', 'integer', 'min:60', 'max:86400'],
-            'proxied'  => ['sometimes', 'boolean'],
+            'content' => ['required', 'string', 'max:1024'],
+            'ttl' => ['sometimes', 'integer', 'min:60', 'max:86400'],
+            'proxied' => ['sometimes', 'boolean'],
             'priority' => ['sometimes', 'integer', 'min:0', 'max:65535'],
         ]);
 
         try {
             $record = $this->cloudflare->updateRecord($recordId, $validated);
+
             return response()->json(['success' => true, 'data' => $record]);
         } catch (\Throwable $e) {
             Log::warning('DNS: no se pudo actualizar registro', ['error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'No se pudo actualizar el registro. ' . $e->getMessage(),
+                'message' => 'No se pudo actualizar el registro. '.$e->getMessage(),
             ], 422);
         }
     }
@@ -343,6 +367,7 @@ class HostingController extends Controller
 
         try {
             $this->cloudflare->deleteRecord($recordId);
+
             return response()->json(['success' => true, 'message' => 'Registro DNS eliminado.']);
         } catch (\Throwable $e) {
             return response()->json([
@@ -368,8 +393,10 @@ class HostingController extends Controller
         $fqdn = $conn['fqdn'] ?? null;
         if ($fqdn) {
             $host = preg_replace('#^https?://#', '', $fqdn);
+
             return strtolower(explode('/', $host)[0]);
         }
+
         return null;
     }
 
@@ -381,13 +408,13 @@ class HostingController extends Controller
      */
     public function ssl(string $uuid): JsonResponse
     {
-        $service    = $this->hostingService($uuid);
-        $appUuid    = $this->appUuidOrNull($service);
+        $service = $this->hostingService($uuid);
+        $appUuid = $this->appUuidOrNull($service);
         $forceHttps = false;
 
         if ($appUuid) {
             try {
-                $app        = $this->coolify->getApplication($appUuid);
+                $app = $this->coolify->getApplication($appUuid);
                 $forceHttps = (bool) ($app['redirect_http_to_https'] ?? false);
             } catch (\Throwable $e) {
                 Log::warning('SSL: no se pudo obtener app de Coolify', ['error' => $e->getMessage()]);
@@ -395,8 +422,8 @@ class HostingController extends Controller
         }
 
         // Resolver dominio para inspeccionar cert
-        $conn   = $service->connection_details ?? [];
-        $fqdn   = $conn['fqdn'] ?? $conn['domain'] ?? $service->domain ?? null;
+        $conn = $service->connection_details ?? [];
+        $fqdn = $conn['fqdn'] ?? $conn['domain'] ?? $service->domain ?? null;
         $domain = $fqdn ? preg_replace('#^https?://#', '', trim((string) $fqdn)) : null;
         $domain = $domain ? explode('/', $domain)[0] : null;
 
@@ -404,7 +431,7 @@ class HostingController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => [
+            'data' => [
                 'force_https' => $forceHttps,
                 'certificate' => $cert,
             ],
@@ -421,8 +448,8 @@ class HostingController extends Controller
         $appUuid = $this->requireAppUuid($service);
 
         return $this->coolifyResponse(function () use ($appUuid) {
-            $app      = $this->coolify->getApplication($appUuid);
-            $current  = (bool) ($app['redirect_http_to_https'] ?? false);
+            $app = $this->coolify->getApplication($appUuid);
+            $current = (bool) ($app['redirect_http_to_https'] ?? false);
             $newValue = ! $current;
 
             $this->coolify->updateApplication($appUuid, [
@@ -444,27 +471,27 @@ class HostingController extends Controller
     public function files(string $uuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $conn    = $service->connection_details ?? [];
+        $conn = $service->connection_details ?? [];
         $secrets = $service->connection_secrets ?? [];
 
         return response()->json([
             'success' => true,
-            'data'    => [
+            'data' => [
                 'access_type' => 'ftp_sftp',
-                'message'     => 'El acceso a archivos se realiza mediante FTP o SFTP.',
+                'message' => 'El acceso a archivos se realiza mediante FTP o SFTP.',
                 'ftp' => [
-                    'host'     => $conn['ftp_host'] ?? $conn['fqdn'] ?? null,
-                    'port'     => $conn['ftp_port'] ?? 21,
+                    'host' => $conn['ftp_host'] ?? $conn['fqdn'] ?? null,
+                    'port' => $conn['ftp_port'] ?? 21,
                     'username' => $conn['ftp_user'] ?? null,
                     'password' => $secrets['ftp_password'] ?? $conn['ftp_password'] ?? null,
                 ],
                 'sftp' => [
-                    'host'     => $conn['sftp_host'] ?? $conn['fqdn'] ?? null,
-                    'port'     => $conn['sftp_port'] ?? 22,
+                    'host' => $conn['sftp_host'] ?? $conn['fqdn'] ?? null,
+                    'port' => $conn['sftp_port'] ?? 22,
                     'username' => $conn['sftp_user'] ?? null,
                 ],
                 'panel_url' => config('coolify.base_url'),
-                'note'      => 'Puedes gestionar tus archivos desde el panel de Coolify o mediante un cliente FTP como FileZilla.',
+                'note' => 'Puedes gestionar tus archivos desde el panel de Coolify o mediante un cliente FTP como FileZilla.',
             ],
         ]);
     }
@@ -479,40 +506,40 @@ class HostingController extends Controller
     public function wordpress(string $uuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
-        $conn    = $service->connection_details ?? [];
-        $fqdn    = $conn['fqdn'] ?? $service->coolify_app['fqdn'] ?? null;
-        $domain  = $conn['domain'] ?? ($fqdn ? preg_replace('#^https?://#', '', rtrim($fqdn, '/')) : null);
+        $conn = $service->connection_details ?? [];
+        $fqdn = $conn['fqdn'] ?? $service->coolify_app['fqdn'] ?? null;
+        $domain = $conn['domain'] ?? ($fqdn ? preg_replace('#^https?://#', '', rtrim($fqdn, '/')) : null);
 
         if (! $domain && ! $fqdn) {
             return response()->json([
                 'success' => true,
-                'data'    => ['detected' => false, 'message' => 'El servicio no tiene una URL configurada.'],
+                'data' => ['detected' => false, 'message' => 'El servicio no tiene una URL configurada.'],
             ]);
         }
 
-        $siteUrl  = $fqdn ?? 'https://' . $domain;
-        $wpApiUrl = rtrim($siteUrl, '/') . '/wp-json/';
+        $siteUrl = $fqdn ?? 'https://'.$domain;
+        $wpApiUrl = rtrim($siteUrl, '/').'/wp-json/';
 
         try {
-            $resp = \Illuminate\Support\Facades\Http::timeout(8)
+            $resp = Http::timeout(8)
                 ->withoutVerifying()
                 ->get($wpApiUrl);
 
             if (! $resp->ok()) {
                 return response()->json([
                     'success' => true,
-                    'data'    => [
-                        'detected'    => false,
-                        'site_url'    => $siteUrl,
-                        'admin_url'   => rtrim($siteUrl, '/') . '/wp-admin/',
-                        'message'     => 'No se detectó una instalación de WordPress en este sitio.',
+                    'data' => [
+                        'detected' => false,
+                        'site_url' => $siteUrl,
+                        'admin_url' => rtrim($siteUrl, '/').'/wp-admin/',
+                        'message' => 'No se detectó una instalación de WordPress en este sitio.',
                         'http_status' => $resp->status(),
                     ],
                 ]);
             }
 
-            $json    = $resp->json() ?? [];
-            $wpVer   = $json['generator'] ?? null;
+            $json = $resp->json() ?? [];
+            $wpVer = $json['generator'] ?? null;
             // Parse version from "https://wordpress.org/?v=6.5.3"
             if ($wpVer && preg_match('/v=([\d.]+)/', $wpVer, $m)) {
                 $wpVer = $m[1];
@@ -523,28 +550,32 @@ class HostingController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data'    => [
-                    'detected'       => true,
-                    'site_url'       => $siteUrl,
-                    'admin_url'      => rtrim($siteUrl, '/') . '/wp-admin/',
-                    'site_name'      => $json['name']        ?? null,
-                    'site_tagline'   => $json['description'] ?? null,
-                    'wp_version'     => $wpVer,
-                    'timezone'       => $json['timezone']    ?? null,
-                    'language'       => $json['language']    ?? null,
+                'data' => [
+                    'detected' => true,
+                    'site_url' => $siteUrl,
+                    'admin_url' => rtrim($siteUrl, '/').'/wp-admin/',
+                    'site_name' => $json['name'] ?? null,
+                    'site_tagline' => $json['description'] ?? null,
+                    'wp_version' => $wpVer,
+                    'timezone' => $json['timezone'] ?? null,
+                    'language' => $json['language'] ?? null,
                     'api_accessible' => true,
-                    'ssl_enabled'    => $sslOk,
-                    'namespaces'     => $json['namespaces']  ?? [],
+                    'ssl_enabled' => $sslOk,
+                    'namespaces' => $json['namespaces'] ?? [],
                 ],
             ]);
         } catch (\Throwable $e) {
+            $friendly = $this->classifyNetworkError($e->getMessage());
+
             return response()->json([
                 'success' => true,
-                'data'    => [
-                    'detected'    => false,
-                    'site_url'    => $siteUrl,
-                    'admin_url'   => rtrim($siteUrl, '/') . '/wp-admin/',
-                    'message'     => 'No se pudo conectar al sitio.',
+                'data' => [
+                    'detected' => false,
+                    'reachable' => false,
+                    'site_url' => $siteUrl,
+                    'admin_url' => rtrim($siteUrl, '/').'/wp-admin/',
+                    'message' => $friendly['message'],
+                    'error_code' => $friendly['code'],
                     'api_accessible' => false,
                 ],
             ]);
@@ -562,13 +593,15 @@ class HostingController extends Controller
 
         try {
             $this->coolify->restartApplication($appUuid);
+
             return response()->json(['success' => true, 'message' => 'Contenedor reiniciado. Las cachés en memoria han sido eliminadas.']);
         } catch (\Throwable $e) {
             Log::warning('wordpress restart failed', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudo reiniciar el contenedor.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 502);
         }
     }
@@ -584,17 +617,19 @@ class HostingController extends Controller
 
         try {
             $result = $this->coolify->deployApplication($appUuid);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Redespliegue iniciado. El sitio se actualizará en unos minutos.',
-                'data'    => $result,
+                'data' => $result,
             ]);
         } catch (\Throwable $e) {
             Log::warning('wordpress deploy failed', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudo iniciar el redespliegue.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 502);
         }
     }
@@ -611,13 +646,15 @@ class HostingController extends Controller
 
         try {
             $this->coolify->restartApplication($appUuid);
+
             return response()->json(['success' => true, 'message' => 'Servicio reiniciado correctamente.']);
         } catch (\Throwable $e) {
             Log::warning('hosting restart failed', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudo reiniciar el servicio.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 502);
         }
     }
@@ -633,17 +670,19 @@ class HostingController extends Controller
 
         try {
             $result = $this->coolify->deployApplication($appUuid);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Redespliegue iniciado. El servicio se actualizará en unos minutos.',
-                'data'    => $result,
+                'data' => $result,
             ]);
         } catch (\Throwable $e) {
             Log::warning('hosting redeploy failed', ['service_id' => $service->id, 'error' => $e->getMessage()]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudo iniciar el redespliegue.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 502);
         }
     }
@@ -668,7 +707,7 @@ class HostingController extends Controller
     {
         $uuid = $this->appUuidOrNull($service);
 
-        if (!$uuid) {
+        if (! $uuid) {
             abort(409, 'El servicio de hosting todavía no ha sido aprovisionado en Coolify.');
         }
 
@@ -679,7 +718,7 @@ class HostingController extends Controller
     {
         $uuid = $service->connection_details['coolify_project_uuid'] ?? null;
 
-        if (!$uuid) {
+        if (! $uuid) {
             abort(409, 'El servicio de hosting todavía no ha sido aprovisionado en Coolify.');
         }
 
@@ -719,24 +758,26 @@ class HostingController extends Controller
     private function fetchCertInfo(string $domain): array
     {
         $result = [
-            'domain'         => $domain,
-            'issuer'         => null,
-            'valid_from'     => null,
-            'valid_to'       => null,
+            'domain' => $domain,
+            'issuer' => null,
+            'valid_from' => null,
+            'valid_to' => null,
             'days_remaining' => null,
-            'is_valid'       => false,
+            'is_valid' => false,
             'is_self_signed' => false,
-            'error'          => null,
+            'reachable' => true,
+            'error' => null,
+            'error_code' => null,
         ];
 
         try {
             $ctx = stream_context_create([
                 'ssl' => [
                     'capture_peer_cert' => true,
-                    'verify_peer'       => false,   // capturar incluso auto-firmados
-                    'verify_peer_name'  => false,
-                    'SNI_enabled'       => true,
-                    'peer_name'         => $domain,
+                    'verify_peer' => false,   // capturar incluso auto-firmados
+                    'verify_peer_name' => false,
+                    'SNI_enabled' => true,
+                    'peer_name' => $domain,
                 ],
             ]);
 
@@ -749,7 +790,13 @@ class HostingController extends Controller
             );
 
             if (! $socket) {
-                $result['error'] = $errstr ?: 'No se pudo conectar al dominio en el puerto 443.';
+                // No filtrar el error crudo de PHP (p. ej. "php_network_getaddresses:
+                // getaddrinfo ... failed") a la UI: clasificarlo en un mensaje claro.
+                $friendly = $this->classifyNetworkError($errstr ?: '');
+                $result['reachable'] = false;
+                $result['error'] = $friendly['message'];
+                $result['error_code'] = $friendly['code'];
+
                 return $result;
             }
 
@@ -759,31 +806,80 @@ class HostingController extends Controller
             $cert = $params['options']['ssl']['peer_certificate'] ?? null;
             if (! $cert) {
                 $result['error'] = 'Conexión establecida pero no se obtuvo el certificado.';
+
                 return $result;
             }
 
             $info = openssl_x509_parse($cert);
 
             $validFromTs = (int) ($info['validFrom_time_t'] ?? 0);
-            $validToTs   = (int) ($info['validTo_time_t']   ?? 0);
-            $now         = time();
-            $remaining   = $validToTs > 0 ? (int) ceil(($validToTs - $now) / 86400) : null;
+            $validToTs = (int) ($info['validTo_time_t'] ?? 0);
+            $now = time();
+            $remaining = $validToTs > 0 ? (int) ceil(($validToTs - $now) / 86400) : null;
 
-            $issuerOrg  = $info['issuer']['O']  ?? $info['issuer']['CN']  ?? null;
+            $issuerOrg = $info['issuer']['O'] ?? $info['issuer']['CN'] ?? null;
             $isSelfSigned = ! empty($info['subject']) && ! empty($info['issuer'])
                 && ($info['subject'] === $info['issuer']);
 
-            $result['issuer']         = $issuerOrg;
-            $result['valid_from']     = $validFromTs > 0 ? date('Y-m-d H:i:s', $validFromTs) : null;
-            $result['valid_to']       = $validToTs   > 0 ? date('Y-m-d H:i:s', $validToTs)   : null;
+            $result['issuer'] = $issuerOrg;
+            $result['valid_from'] = $validFromTs > 0 ? date('Y-m-d H:i:s', $validFromTs) : null;
+            $result['valid_to'] = $validToTs > 0 ? date('Y-m-d H:i:s', $validToTs) : null;
             $result['days_remaining'] = $remaining;
-            $result['is_valid']       = $remaining !== null && $remaining > 0;
+            $result['is_valid'] = $remaining !== null && $remaining > 0;
             $result['is_self_signed'] = $isSelfSigned;
         } catch (\Throwable $e) {
-            $result['error'] = 'Error al inspeccionar el certificado: ' . $e->getMessage();
+            $friendly = $this->classifyNetworkError($e->getMessage());
+            $result['reachable'] = false;
+            $result['error'] = $friendly['message'];
+            $result['error_code'] = $friendly['code'];
         }
 
         return $result;
+    }
+
+    /**
+     * Traduce un error de red crudo (getaddrinfo, connection refused, timeout…)
+     * a un mensaje claro para el usuario + un código estable que la UI puede usar
+     * para decidir el tono (informativo vs. error). Nunca expone strings de PHP.
+     */
+    private function classifyNetworkError(string $raw): array
+    {
+        $low = strtolower($raw);
+
+        $isDns =
+            str_contains($low, 'getaddrinfo') ||
+            str_contains($low, 'php_network_getaddresses') ||
+            str_contains($low, 'name or service not known') ||
+            str_contains($low, 'temporary failure in name resolution') ||
+            str_contains($low, 'no such host') ||
+            str_contains($low, 'host desconocido');
+
+        if ($isDns) {
+            return [
+                'code' => 'dns',
+                'message' => 'El dominio todavía no resuelve en DNS. Si acabas de activarlo, espera a que propague (suele tardar unos minutos).',
+            ];
+        }
+
+        $isUnreachable =
+            str_contains($low, 'connection refused') ||
+            str_contains($low, 'timed out') ||
+            str_contains($low, 'timeout') ||
+            str_contains($low, 'connection reset') ||
+            str_contains($low, 'network is unreachable') ||
+            str_contains($low, 'no route to host');
+
+        if ($isUnreachable) {
+            return [
+                'code' => 'unreachable',
+                'message' => 'El sitio aún no responde. Verifica que el despliegue haya terminado y que el servicio esté en línea.',
+            ];
+        }
+
+        return [
+            'code' => 'tls',
+            'message' => 'No se pudo establecer una conexión segura con el dominio.',
+        ];
     }
 
     private function coolifyResponse(callable $callback, int $status = 200): JsonResponse
@@ -791,9 +887,9 @@ class HostingController extends Controller
         try {
             return response()->json([
                 'success' => true,
-                'data'    => $callback(),
+                'data' => $callback(),
             ], $status);
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+        } catch (HttpExceptionInterface $e) {
             throw $e;
         } catch (\Throwable $e) {
             Log::warning('Error en HostingController/Coolify', [
@@ -803,7 +899,7 @@ class HostingController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No se pudo conectar con el panel de hosting. Intenta de nuevo.',
-                'debug'   => config('app.debug') ? $e->getMessage() : null,
+                'debug' => config('app.debug') ? $e->getMessage() : null,
             ], 502);
         }
     }

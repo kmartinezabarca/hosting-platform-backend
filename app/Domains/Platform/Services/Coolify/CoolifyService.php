@@ -11,15 +11,18 @@ use RuntimeException;
 class CoolifyService
 {
     private string $baseUrl;
+
     private string $apiToken;
+
     private string $teamId;
+
     private string $serverUuid;
 
     public function __construct()
     {
-        $this->baseUrl    = rtrim(config('coolify.base_url'), '/');
-        $this->apiToken   = config('coolify.api_token', '');
-        $this->teamId     = (string) config('coolify.team_id', '0');
+        $this->baseUrl = rtrim(config('coolify.base_url'), '/');
+        $this->apiToken = config('coolify.api_token', '');
+        $this->teamId = (string) config('coolify.team_id', '0');
         $this->serverUuid = config('coolify.server_uuid', '');
     }
 
@@ -28,7 +31,7 @@ class CoolifyService
     public function createProject(string $name, string $description = ''): array
     {
         $response = $this->http()->post('/api/v1/projects', [
-            'name'        => $name,
+            'name' => $name,
             'description' => $description,
         ]);
 
@@ -70,24 +73,36 @@ class CoolifyService
      */
     public function createApplication(array $data): array
     {
-        $buildPack   = $data['build_pack'] ?? 'static';
-        $dockerImage = $this->resolveDockerImage($buildPack);
+        // Imagen Docker: explícita ('docker_image', p. ej. 'adminer:4') o derivada
+        // del build_pack del plan. Permite desplegar utilidades (Adminer) además
+        // de los runtimes de hosting.
+        $dockerImage = $data['docker_image'] ?? $this->resolveDockerImage($data['build_pack'] ?? 'static');
         [$imageName, $imageTag] = $this->splitDockerImage($dockerImage);
+
+        // Puerto que expone el contenedor (80 para nginx/php, 8080 para Adminer…).
+        $portsExposes = (string) ($data['ports_exposes'] ?? '80');
 
         // Coolify v4 (endpoint /applications/dockerimage) NO acepta 'docker_image'
         // ni 'fqdn'. El nombre/tag van separados y el dominio va en 'domains'.
         $payload = [
-            'project_uuid'               => $data['project_uuid'],
-            'server_uuid'                => $data['server_uuid'] ?? $this->serverUuid,
-            'environment_name'           => $data['environment_name'] ?? 'production',
+            'project_uuid' => $data['project_uuid'],
+            'server_uuid' => $data['server_uuid'] ?? $this->serverUuid,
+            'environment_name' => $data['environment_name'] ?? 'production',
             'docker_registry_image_name' => $imageName,
-            'docker_registry_image_tag'  => $imageTag,
-            'name'                       => $data['name'],
-            'ports_exposes'              => '80',
-            'instant_deploy'             => false,
+            'docker_registry_image_tag' => $imageTag,
+            'name' => $data['name'],
+            'ports_exposes' => $portsExposes,
+            'instant_deploy' => (bool) ($data['instant_deploy'] ?? false),
         ];
 
-        if (!empty($data['fqdn'])) {
+        $payload = array_merge(
+            $payload,
+            // El health check apunta al puerto expuesto por defecto, para no marcar
+            // como unhealthy un contenedor que escucha en un puerto distinto a 80.
+            CoolifyHealthCheckPayload::forPort($data['health_check_port'] ?? $portsExposes, $data['health_check'] ?? []),
+        );
+
+        if (! empty($data['fqdn'])) {
             $payload['domains'] = $data['fqdn'];
         }
 
@@ -129,6 +144,7 @@ class CoolifyService
     {
         $response = $this->http()->post('/api/v1/deploy', ['uuid' => $appUuid, 'force' => false]);
         $this->assertOk($response, 'deployApplication');
+
         return $response->json() ?? [];
     }
 
@@ -163,7 +179,7 @@ class CoolifyService
 
         $resources = $response->json() ?? [];
 
-        return array_filter($resources, fn($r) => ($r['type'] ?? '') === 'application');
+        return array_filter($resources, fn ($r) => ($r['type'] ?? '') === 'application');
     }
 
     // ── Bases de datos ────────────────────────────────────────────────────────
@@ -180,36 +196,36 @@ class CoolifyService
      */
     public function createDatabase(array $data): array
     {
-        $type    = $data['type'] ?? 'mariadb';
-        $dbName  = preg_replace('/[^a-z0-9_]/', '_', strtolower($data['name'] ?? 'hosting_db'));
-        $dbUser  = $dbName . '_user';
-        $dbPass  = $this->generateDbPassword();
+        $type = $data['type'] ?? 'mariadb';
+        $dbName = preg_replace('/[^a-z0-9_]/', '_', strtolower($data['name'] ?? 'hosting_db'));
+        $dbUser = $dbName.'_user';
+        $dbPass = $this->generateDbPassword();
         $rootPass = $this->generateDbPassword();
 
         $payload = [
-            'project_uuid'     => $data['project_uuid'],
-            'server_uuid'      => $data['server_uuid'] ?? $this->serverUuid,
+            'project_uuid' => $data['project_uuid'],
+            'server_uuid' => $data['server_uuid'] ?? $this->serverUuid,
             'environment_name' => $data['environment_name'] ?? 'production',
-            'name'             => $data['name'],
+            'name' => $data['name'],
         ];
 
         $payload = match ($type) {
             'mysql' => array_merge($payload, [
                 'mysql_root_password' => $rootPass,
-                'mysql_database'      => $dbName,
-                'mysql_user'          => $dbUser,
-                'mysql_password'      => $dbPass,
+                'mysql_database' => $dbName,
+                'mysql_user' => $dbUser,
+                'mysql_password' => $dbPass,
             ]),
             'postgresql' => array_merge($payload, [
-                'postgres_user'     => $dbUser,
+                'postgres_user' => $dbUser,
                 'postgres_password' => $dbPass,
-                'postgres_db'       => $dbName,
+                'postgres_db' => $dbName,
             ]),
             default => array_merge($payload, [ // mariadb
                 'mariadb_root_password' => $rootPass,
-                'mariadb_database'      => $dbName,
-                'mariadb_user'          => $dbUser,
-                'mariadb_password'      => $dbPass,
+                'mariadb_database' => $dbName,
+                'mariadb_user' => $dbUser,
+                'mariadb_password' => $dbPass,
             ]),
         };
 
@@ -220,10 +236,10 @@ class CoolifyService
         $result = $response->json();
 
         // Normalizar credenciales en la respuesta para acceso uniforme
-        $result['_db_name']     = $dbName;
-        $result['_db_user']     = $dbUser;
+        $result['_db_name'] = $dbName;
+        $result['_db_user'] = $dbUser;
         $result['_db_password'] = $dbPass;
-        $result['_db_type']     = $type;
+        $result['_db_type'] = $type;
 
         return $result;
     }
@@ -304,7 +320,7 @@ class CoolifyService
 
         Log::error("CoolifyService::{$method} falló", [
             'status' => $response->status(),
-            'body'   => $response->body(),
+            'body' => $response->body(),
         ]);
 
         throw new RuntimeException("Coolify [{$method}]: HTTP {$response->status()} — {$response->body()}");
@@ -313,9 +329,9 @@ class CoolifyService
     private function resolveDockerImage(string $buildPack): string
     {
         return match ($buildPack) {
-            'php'    => 'serversideup/php:8.2-fpm-nginx',
+            'php' => 'serversideup/php:8.2-fpm-nginx',
             'static' => 'nginx:alpine',
-            default  => 'nginx:alpine',
+            default => 'nginx:alpine',
         };
     }
 

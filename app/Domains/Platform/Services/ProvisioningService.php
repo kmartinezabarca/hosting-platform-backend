@@ -2,6 +2,7 @@
 
 namespace App\Domains\Platform\Services;
 
+use App\Domains\Platform\Jobs\RunProvisioningJob;
 use App\Domains\Platform\Models\ProvisioningJob;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
@@ -30,8 +31,10 @@ class ProvisioningService
     ) {}
 
     /**
-     * Encola (idempotente) y ejecuta de inmediato el aprovisionamiento del
-     * servicio. Pensado para llamarse justo tras contratar.
+     * Encola (idempotente) el aprovisionamiento del servicio. Pensado para
+     * llamarse justo tras contratar: NO bloquea el request HTTP del checkout —
+     * un worker ejecuta el trabajo en segundo plano vía {@see RunProvisioningJob}.
+     * En tests (QUEUE_CONNECTION=sync) corre inline, preservando el flujo síncrono.
      */
     public function dispatch(Service $service): void
     {
@@ -44,15 +47,24 @@ class ProvisioningService
 
         $job = ProvisioningJob::firstOrCreate(
             ['service_id' => $service->id, 'provider' => $provider],
-            ['status' => ProvisioningJob::STATUS_PENDING, 'available_at' => now()],
+            // available_at en el futuro: el worker ejecuta el job de inmediato; el
+            // cron `provisioning:process-pending` solo entra como respaldo si el
+            // worker no corrió (evita doble ejecución worker + cron en operación normal).
+            ['status' => ProvisioningJob::STATUS_PENDING, 'available_at' => now()->addMinutes(2)],
         );
 
-        // Si ya quedó aprovisionado o resuelto, no hacer nada.
-        if (in_array($job->status, [ProvisioningJob::STATUS_SUCCEEDED], true)) {
+        // Si ya quedó aprovisionado, no hacer nada.
+        if ($job->status === ProvisioningJob::STATUS_SUCCEEDED) {
             return;
         }
 
-        $this->runJob($job->fresh('service'));
+        // La UI muestra "Aprovisionando" mientras el worker trabaja.
+        if ($service->provisioning_status !== 'provisioning') {
+            $service->forceFill(['provisioning_status' => 'pending'])->save();
+        }
+
+        RunProvisioningJob::dispatch($job->id)
+            ->onQueue(config('compute.queues.provisioning', 'provisioning'));
     }
 
     /**

@@ -21,18 +21,23 @@ use App\Domains\Platform\Models\TicketReply;
 use App\Models\User;
 use App\Domains\Platform\Notifications\InvoiceReady;
 use App\Domains\Platform\Services\Admin\ServiceSupportOverviewService;
+use App\Domains\Platform\Services\Coolify\CoolifyHealthCheckPayload;
+use App\Domains\Platform\Services\Coolify\CoolifyService;
 use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
 use App\Domains\Platform\Services\DashboardStatsService;
+use App\Domains\Platform\Services\HostingHealthService;
 use App\Domains\Platform\Services\InvoiceService;
 use App\Domains\Platform\Services\PaymentReceiptService;
 use App\Domains\Platform\Services\PaymentService;
 use App\Domains\Platform\Services\Pterodactyl\GameServerProvisioningService;
+use App\Domains\Platform\Services\ServiceStatusSyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -365,6 +370,30 @@ class AdminController extends Controller
         };
     }
 
+    private function adminCoolifyService(string $uuid): Service
+    {
+        $service = Service::with(['plan.category', 'user'])
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        if ($service->plan?->provisioner !== 'coolify') {
+            abort(422, 'Este servicio no es un hosting administrado por Coolify.');
+        }
+
+        return $service;
+    }
+
+    private function requireCoolifyAppUuid(Service $service): string
+    {
+        $uuid = $service->connection_details['coolify_app_uuid'] ?? $service->external_id ?? null;
+
+        if (! $uuid) {
+            abort(409, 'El hosting todavía no ha sido aprovisionado en Coolify.');
+        }
+
+        return (string) $uuid;
+    }
+
     public function getService(string $uuid): JsonResponse
     {
         $service = Service::with([
@@ -384,6 +413,184 @@ class AdminController extends Controller
             'success' => true,
             'data' => $this->serviceSupportOverview->build($uuid),
         ]);
+    }
+
+    /**
+     * POST /admin/services/{uuid}/hosting/restart
+     * Reinicia la app Coolify de un servicio de hosting desde el panel admin.
+     */
+    public function restartHosting(string $uuid): JsonResponse
+    {
+        $service = $this->adminCoolifyService($uuid);
+        $appUuid = $this->requireCoolifyAppUuid($service);
+
+        try {
+            app(CoolifyService::class)->restartApplication($appUuid);
+
+            AuditLog::record(
+                action: 'hosting.restart_requested',
+                target: $service,
+                description: "Reinicio solicitado para hosting {$service->name} ({$appUuid}).",
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reinicio solicitado en Coolify.',
+                'data' => ['app_uuid' => $appUuid],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Admin hosting restart failed', [
+                'service_id' => $service->id,
+                'app_uuid' => $appUuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo reiniciar el hosting.',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
+    /**
+     * POST /admin/services/{uuid}/hosting/redeploy
+     * Dispara un nuevo deploy Coolify sin recrear el servicio completo.
+     */
+    public function redeployHosting(string $uuid): JsonResponse
+    {
+        $service = $this->adminCoolifyService($uuid);
+        $appUuid = $this->requireCoolifyAppUuid($service);
+
+        try {
+            $result = app(CoolifyService::class)->deployApplication($appUuid);
+
+            AuditLog::record(
+                action: 'hosting.redeploy_requested',
+                target: $service,
+                description: "Redespliegue solicitado para hosting {$service->name} ({$appUuid}).",
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Redespliegue iniciado en Coolify.',
+                'data' => $result,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Admin hosting redeploy failed', [
+                'service_id' => $service->id,
+                'app_uuid' => $appUuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo iniciar el redespliegue.',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
+    /**
+     * POST /admin/services/{uuid}/hosting/sync-status
+     * Mide el sitio, sincroniza live_status/live_metrics y devuelve el snapshot.
+     */
+    public function syncHostingStatus(string $uuid): JsonResponse
+    {
+        $service = $this->adminCoolifyService($uuid);
+
+        try {
+            $sample = app(HostingHealthService::class)->check($service);
+            app(ServiceStatusSyncService::class)->syncOne($service->fresh(['plan.category']));
+
+            $fresh = $service->fresh(['plan.category']);
+
+            AuditLog::record(
+                action: 'hosting.status_synced',
+                target: $service,
+                description: "Estado de hosting sincronizado para {$service->name}.",
+                changes: ['live_status' => $fresh?->live_status],
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Estado del hosting sincronizado.',
+                'data' => [
+                    'live_status' => $fresh?->live_status,
+                    'live_metrics' => $fresh?->live_metrics,
+                    'live_synced_at' => optional($fresh?->live_synced_at)->toIso8601String(),
+                    'health_sample' => $sample ? [
+                        'ok' => (bool) $sample->ok,
+                        'http_status' => $sample->http_status,
+                        'latency_ms' => $sample->latency_ms,
+                        'error' => $sample->error,
+                        'checked_at' => optional($sample->checked_at)->toIso8601String(),
+                    ] : null,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Admin hosting status sync failed', [
+                'service_id' => $service->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo sincronizar el estado del hosting.',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
+    /**
+     * POST /admin/services/{uuid}/hosting/sync-health-check
+     * Configura o corrige el health check nativo de Coolify para esta app.
+     */
+    public function syncHostingHealthCheck(Request $request, string $uuid): JsonResponse
+    {
+        $service = $this->adminCoolifyService($uuid);
+        $appUuid = $this->requireCoolifyAppUuid($service);
+
+        $validated = $request->validate([
+            'path' => ['nullable', 'string', 'max:128'],
+            'port' => ['nullable', 'integer', 'min:1', 'max:65535'],
+        ]);
+
+        $overrides = array_filter($validated, fn ($value) => $value !== null && $value !== '');
+        $payload = CoolifyHealthCheckPayload::forPort($overrides['port'] ?? '80', $overrides);
+
+        try {
+            $result = app(CoolifyService::class)->updateApplication($appUuid, $payload);
+
+            AuditLog::record(
+                action: 'hosting.health_check_synced',
+                target: $service,
+                description: "Health check Coolify sincronizado para hosting {$service->name} ({$appUuid}).",
+                changes: $payload,
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Health check configurado en Coolify.',
+                'data' => [
+                    'app_uuid' => $appUuid,
+                    'health_check' => $payload,
+                    'coolify' => $result,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Admin hosting health check sync failed', [
+                'service_id' => $service->id,
+                'app_uuid' => $appUuid,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo configurar el health check en Coolify.',
+                'debug' => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
     }
 
     public function createService(StoreServiceRequest $request): JsonResponse

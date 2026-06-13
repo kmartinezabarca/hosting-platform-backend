@@ -5,6 +5,7 @@ namespace App\Domains\Platform\Compute\Providers\Coolify;
 use App\Domains\Platform\Compute\Models\Project;
 use App\Domains\Platform\Compute\Models\Resource;
 use App\Domains\Platform\Compute\Providers\Contracts\AppRuntimeDriver;
+use App\Domains\Platform\Services\Coolify\CoolifyHealthCheckPayload;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -22,11 +23,12 @@ use RuntimeException;
 class CoolifyDriver implements AppRuntimeDriver
 {
     private string $baseUrl;
+
     private string $serverUuid;
 
     public function __construct()
     {
-        $this->baseUrl    = rtrim((string) config('coolify.base_url', config('coolify.url', '')), '/');
+        $this->baseUrl = rtrim((string) config('coolify.base_url', config('coolify.url', '')), '/');
         $this->serverUuid = (string) config('coolify.server_uuid', '');
     }
 
@@ -38,7 +40,7 @@ class CoolifyDriver implements AppRuntimeDriver
         }
 
         $response = $this->http()->post('/api/v1/projects', [
-            'name'        => "{$project->team->slug}--{$project->slug}",
+            'name' => "{$project->team->slug}--{$project->slug}",
             'description' => "ROKE project {$project->uuid}",
         ]);
 
@@ -60,16 +62,21 @@ class CoolifyDriver implements AppRuntimeDriver
         $project = $resource->environment->project;
 
         $payload = [
-            'project_uuid'     => $this->ensureProject($project),
-            'server_uuid'      => $this->serverUuid,
+            'project_uuid' => $this->ensureProject($project),
+            'server_uuid' => $this->serverUuid,
             'environment_name' => $config['environment_name'] ?? 'production',
-            'name'             => $resource->name,
-            'git_repository'   => $config['git_url'],
-            'git_branch'       => $config['branch'] ?? 'main',
-            'build_pack'       => $config['build_pack'] ?? 'nixpacks',
-            'ports_exposes'    => (string) ($config['port'] ?? 8080),
-            'instant_deploy'   => false,
+            'name' => $resource->name,
+            'git_repository' => $config['git_url'],
+            'git_branch' => $config['branch'] ?? 'main',
+            'build_pack' => $config['build_pack'] ?? 'nixpacks',
+            'ports_exposes' => (string) ($config['port'] ?? 8080),
+            'instant_deploy' => false,
         ];
+
+        $payload = array_merge(
+            $payload,
+            CoolifyHealthCheckPayload::forPort($config['health_check_port'] ?? $config['port'] ?? 8080, $config['health_check'] ?? []),
+        );
 
         $response = $this->http()->post('/api/v1/applications/public', $payload);
 
@@ -82,7 +89,7 @@ class CoolifyDriver implements AppRuntimeDriver
     {
         $response = $this->http()->patch("/api/v1/applications/{$appId}", [
             'git_repository' => $gitUrl,
-            'git_branch'     => $branch,
+            'git_branch' => $branch,
         ]);
 
         $this->assertOk($response, 'updateGitRepository');
@@ -96,8 +103,8 @@ class CoolifyDriver implements AppRuntimeDriver
 
         $response = $this->http()->patch("/api/v1/applications/{$appId}/envs/bulk", [
             'data' => collect($vars)->map(fn ($value, $key) => [
-                'key'        => $key,
-                'value'      => (string) $value,
+                'key' => $key,
+                'value' => (string) $value,
                 'is_preview' => false,
             ])->values()->all(),
         ]);
@@ -151,16 +158,16 @@ class CoolifyDriver implements AppRuntimeDriver
 
         // Normalización de estados v4 → contrato del driver.
         $normalized = match ($status) {
-            'queued'                            => 'queued',
-            'in_progress'                       => 'in_progress',
-            'finished'                          => 'finished',
-            'failed', 'cancelled-by-user'       => 'failed',
-            default                             => 'in_progress',
+            'queued' => 'queued',
+            'in_progress' => 'in_progress',
+            'finished' => 'finished',
+            'failed', 'cancelled-by-user' => 'failed',
+            default => 'in_progress',
         };
 
         return [
             'status' => $normalized,
-            'logs'   => $this->flattenLogs($response->json('logs')),
+            'logs' => $this->flattenLogs($response->json('logs')),
         ];
     }
 
@@ -225,7 +232,7 @@ class CoolifyDriver implements AppRuntimeDriver
         if ($response->failed()) {
             throw new RuntimeException(
                 "Coolify {$operation} falló (HTTP {$response->status()}): "
-                . substr($response->body(), 0, 300)
+                .substr($response->body(), 0, 300)
             );
         }
     }

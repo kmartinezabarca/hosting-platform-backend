@@ -162,6 +162,8 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->prefix('hosting')->group
     Route::get('/{uuid}/databases',  [HostingController::class, 'databases']);
     Route::post('/{uuid}/databases', [HostingController::class, 'createDatabase']);
     Route::delete('/{uuid}/databases/{db}', [HostingController::class, 'deleteDatabase']);
+    // Gestor web de base de datos (Adminer) — administración desde el navegador
+    Route::post('/{uuid}/db-console', [HostingController::class, 'dbConsole']);
     // NOTE: Email hosting (Mailcow) has been removed. ROKE guides clients to
     // Google Workspace / Microsoft 365 / Zoho Mail via the DNS records panel.
     Route::get ('/{uuid}/wordpress',          [HostingController::class, 'wordpress']);

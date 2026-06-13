@@ -176,6 +176,10 @@ Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(f
         // son acciones destructivas/de facturación, no de asistencia).
         Route::post("/services",                         [AdminController::class, "createService"]);
         Route::post("/services/{uuid}/reprovision",      [AdminController::class, "reprovision"]);
+        Route::post("/services/{uuid}/hosting/restart",  [AdminController::class, "restartHosting"]);
+        Route::post("/services/{uuid}/hosting/redeploy", [AdminController::class, "redeployHosting"]);
+        Route::post("/services/{uuid}/hosting/sync-status", [AdminController::class, "syncHostingStatus"]);
+        Route::post("/services/{uuid}/hosting/sync-health-check", [AdminController::class, "syncHostingHealthCheck"]);
         Route::put("/services/{uuid}",                   [AdminController::class, "updateService"]);
         Route::delete("/services/{uuid}",                [AdminController::class, "deleteService"]);
         Route::put("/services/{uuid}/status",            [AdminController::class, "updateServiceStatus"]);

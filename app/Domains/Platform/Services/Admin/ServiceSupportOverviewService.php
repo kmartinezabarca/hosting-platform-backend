@@ -99,6 +99,13 @@ class ServiceSupportOverviewService
             'status'        => 'unknown',   // running | stopped | starting | degraded | not_provisioned | unknown
             'status_raw'    => null,
             'health'        => null,        // healthy | unhealthy | null
+            'health_check'  => [
+                'enabled' => null,
+                'path' => null,
+                'port' => null,
+                'method' => null,
+                'return_code' => null,
+            ],
             'unreachable'   => false,
             'last_error'    => $service->provisioning_error
                 ?? ($service->status === 'failed' ? $service->notes : null),
@@ -118,6 +125,13 @@ class ServiceSupportOverviewService
             [$runState, $health] = array_pad(explode(':', (string) $raw, 2), 2, null);
             $snapshot['status'] = $this->normalizeCoolifyState($runState);
             $snapshot['health'] = $health ?: null;
+            $snapshot['health_check'] = [
+                'enabled' => $app['health_check_enabled'] ?? null,
+                'path' => $app['health_check_path'] ?? null,
+                'port' => $app['health_check_port'] ?? null,
+                'method' => $app['health_check_method'] ?? null,
+                'return_code' => $app['health_check_return_code'] ?? null,
+            ];
         } catch (\Throwable $e) {
             $snapshot['unreachable'] = true;
             $snapshot['status'] = 'unknown';

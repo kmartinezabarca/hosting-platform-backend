@@ -3,13 +3,37 @@
 return [
     // Sin default: una instalación sin COOLIFY_URL debe fallar de forma
     // explícita, no apuntar silenciosamente a la infraestructura de prod.
-    'base_url'    => env('COOLIFY_URL'),
-    'api_token'   => env('COOLIFY_API_TOKEN'),
-    'team_id'     => env('COOLIFY_TEAM_ID', '0'),
+    'base_url' => env('COOLIFY_URL'),
+    'api_token' => env('COOLIFY_API_TOKEN'),
+    'team_id' => env('COOLIFY_TEAM_ID', '0'),
     'server_uuid' => env('COOLIFY_SERVER_UUID'),
-    'verify_ssl'  => env('COOLIFY_VERIFY_SSL', true),
+    'verify_ssl' => env('COOLIFY_VERIFY_SSL', true),
 
     // IP pública/destino de los registros A de DNS para sitios de hosting
     // (Cloudflare). Sin default por la misma razón que base_url.
     'hosting_dns_ip' => env('COOLIFY_HOSTING_DNS_IP'),
+
+    // Dominio base para los subdominios automáticos de hosting:
+    // {subdomain}.{hosting_base_domain}. En producción = rokeindustries.com;
+    // en desarrollo se sobreescribe a rokeindustries.dev vía HOSTING_BASE_DOMAIN.
+    // Por defecto se alinea con la zona de Cloudflare para que el registro A
+    // del subdominio caiga en la zona correcta (de lo contrario el DNS falla).
+    'hosting_base_domain' => env('HOSTING_BASE_DOMAIN', env('CLOUDFLARE_ZONE_NAME', 'rokeindustries.com')),
+
+    // Health check que se manda al crear aplicaciones en Coolify. Traefik/Caddy
+    // enrutan mejor cuando Coolify sabe cuando el contenedor ya esta listo.
+    'health_check' => [
+        'enabled' => env('COOLIFY_HEALTH_CHECK_ENABLED', true),
+        'path' => env('COOLIFY_HEALTH_CHECK_PATH', '/'),
+        'port' => env('COOLIFY_HEALTH_CHECK_PORT'),
+        'host' => env('COOLIFY_HEALTH_CHECK_HOST'),
+        'method' => env('COOLIFY_HEALTH_CHECK_METHOD', 'GET'),
+        'return_code' => (int) env('COOLIFY_HEALTH_CHECK_RETURN_CODE', 200),
+        'scheme' => env('COOLIFY_HEALTH_CHECK_SCHEME', 'http'),
+        'response_text' => env('COOLIFY_HEALTH_CHECK_RESPONSE_TEXT'),
+        'interval' => (int) env('COOLIFY_HEALTH_CHECK_INTERVAL', 30),
+        'timeout' => (int) env('COOLIFY_HEALTH_CHECK_TIMEOUT', 10),
+        'retries' => (int) env('COOLIFY_HEALTH_CHECK_RETRIES', 3),
+        'start_period' => (int) env('COOLIFY_HEALTH_CHECK_START_PERIOD', 30),
+    ],
 ];

@@ -3,18 +3,17 @@
 namespace App\Domains\Platform\Services\Coolify;
 
 use App\Domains\Platform\Models\Service;
-use App\Models\User;
 use App\Domains\Platform\Notifications\HostingProvisioned;
 use App\Domains\Platform\Services\CloudflareService;
+use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Str;
 use RuntimeException;
 
 class HostingProvisioningService
 {
     public function __construct(
-        private readonly CoolifyService  $coolify,
+        private readonly CoolifyService $coolify,
         private readonly CloudflareService $cloudflare,
     ) {}
 
@@ -41,21 +40,22 @@ class HostingProvisioningService
 
         $conn = $service->connection_details ?? [];
 
-        $domain    = $this->normalizeDomain($service->domain);
+        $domain = $this->normalizeDomain($service->domain);
         // Reusar el subdominio ya persistido en un intento previo para no
         // derivar uno distinto (-2, -3…) en el reintento.
         $subdomain = $conn['subdomain'] ?? $this->buildSubdomain($user);
-        $fqdn      = $conn['fqdn'] ?? ($domain
+        $baseDomain = $this->baseDomain();
+        $fqdn = $conn['fqdn'] ?? ($domain
             ? "https://{$domain}"
-            : "https://{$subdomain}.rokeindustries.com");
+            : "https://{$subdomain}.{$baseDomain}");
         $buildPack = $plan->provisioner_config['build_pack'] ?? 'static';
         $dbEnabled = (bool) ($plan->provisioner_config['db_enabled'] ?? false);
-        $dbType    = $plan->provisioner_config['db_type'] ?? 'mariadb';
+        $dbType = $plan->provisioner_config['db_type'] ?? 'mariadb';
 
         // Estado resumible de intentos anteriores.
-        $projectUuid  = $conn['coolify_project_uuid'] ?? null;
-        $appUuid      = $conn['coolify_app_uuid'] ?? null;
-        $dbUuid       = $conn['coolify_db_uuid'] ?? null;
+        $projectUuid = $conn['coolify_project_uuid'] ?? null;
+        $appUuid = $conn['coolify_app_uuid'] ?? null;
+        $dbUuid = $conn['coolify_db_uuid'] ?? null;
         $dnsRecordIds = $conn['dns_record_ids'] ?? [];
 
         // Coolify valida el nombre: solo letras (unicode), números, espacios y
@@ -66,7 +66,7 @@ class HostingProvisioningService
         try {
             // 1) Proyecto — persistir el UUID INMEDIATAMENTE (fix de huérfanos).
             if (! $projectUuid) {
-                $project     = $this->coolify->createProject(
+                $project = $this->coolify->createProject(
                     $coolifyName,
                     "Hosting para {$user->email}"
                 );
@@ -74,20 +74,20 @@ class HostingProvisioningService
 
                 $this->mergeConnectionDetails($service, [
                     'coolify_project_uuid' => $projectUuid,
-                    'subdomain'            => $subdomain,
-                    'fqdn'                 => $fqdn,
-                    'domain'               => $domain,
+                    'subdomain' => $subdomain,
+                    'fqdn' => $fqdn,
+                    'domain' => $domain,
                 ]);
             }
 
             // 2) Aplicación — resumible.
             if (! $appUuid) {
-                $app     = $this->coolify->createApplication([
+                $app = $this->coolify->createApplication([
                     'project_uuid' => $projectUuid,
-                    'server_uuid'  => config('coolify.server_uuid'),
-                    'name'         => $coolifyName,
-                    'build_pack'   => $buildPack,
-                    'fqdn'         => $fqdn,
+                    'server_uuid' => config('coolify.server_uuid'),
+                    'name' => $coolifyName,
+                    'build_pack' => $buildPack,
+                    'fqdn' => $fqdn,
                 ]);
                 $appUuid = $app['uuid'];
 
@@ -97,20 +97,20 @@ class HostingProvisioningService
 
             // 3) Base de datos — resumible.
             if ($dbEnabled && ! $dbUuid) {
-                $db     = $this->coolify->createDatabase([
+                $db = $this->coolify->createDatabase([
                     'project_uuid' => $projectUuid,
-                    'server_uuid'  => config('coolify.server_uuid'),
-                    'name'         => "db_{$subdomain}",
-                    'type'         => $dbType,
+                    'server_uuid' => config('coolify.server_uuid'),
+                    'name' => "db_{$subdomain}",
+                    'type' => $dbType,
                 ]);
                 $dbUuid = $db['uuid'] ?? null;
 
                 $this->mergeConnectionDetails($service, [
                     'coolify_db_uuid' => $dbUuid,
-                    'db_host'         => $db['internal_db_url'] ?? null,
-                    'db_name'         => $db['_db_name'] ?? null,
-                    'db_user'         => $db['_db_user'] ?? null,
-                    'db_type'         => $db['_db_type'] ?? null,
+                    'db_host' => $db['internal_db_url'] ?? null,
+                    'db_name' => $db['_db_name'] ?? null,
+                    'db_user' => $db['_db_user'] ?? null,
+                    'db_type' => $db['_db_type'] ?? null,
                 ]);
 
                 $dbPassword = $db['_db_password'] ?? null;
@@ -131,10 +131,10 @@ class HostingProvisioningService
                 if (empty($dnsIp)) {
                     Log::warning('COOLIFY_HOSTING_DNS_IP no configurada: se omite el registro A de DNS para el hosting.', [
                         'service_id' => $service->id,
-                        'fqdn'       => $fqdn,
+                        'fqdn' => $fqdn,
                     ]);
                 } else {
-                    $dnsTarget = $domain ?? "{$subdomain}.rokeindustries.com";
+                    $dnsTarget = $domain ?? "{$subdomain}.{$baseDomain}";
                     try {
                         $dnsRecordIds['a'] = $this->cloudflare->createARecord(
                             $this->cloudflareName($dnsTarget),
@@ -144,8 +144,8 @@ class HostingProvisioningService
                     } catch (\Throwable $e) {
                         Log::warning('DNS Cloudflare para hosting Coolify no creado (no fatal)', [
                             'service_id' => $service->id,
-                            'fqdn'       => $fqdn,
-                            'error'      => $e->getMessage(),
+                            'fqdn' => $fqdn,
+                            'error' => $e->getMessage(),
                         ]);
                     }
                 }
@@ -153,7 +153,7 @@ class HostingProvisioningService
 
             // 5) Marcar finalización y activar.
             $this->mergeConnectionDetails($service, [
-                'panel_url'              => config('coolify.base_url'),
+                'panel_url' => config('coolify.base_url'),
                 'coolify_provisioned_at' => now()->toIso8601String(),
             ]);
             $service->update(['status' => 'active']);
@@ -162,23 +162,23 @@ class HostingProvisioningService
             $this->notifyProvisioned($user, $service->fresh(['plan', 'user']));
 
             Log::info('Hosting Coolify aprovisionado', [
-                'service_id'   => $service->id,
+                'service_id' => $service->id,
                 'project_uuid' => $projectUuid,
-                'app_uuid'     => $appUuid,
-                'db_uuid'      => $dbUuid,
-                'fqdn'         => $fqdn,
-                'dns_records'  => $dnsRecordIds,
+                'app_uuid' => $appUuid,
+                'db_uuid' => $dbUuid,
+                'fqdn' => $fqdn,
+                'dns_records' => $dnsRecordIds,
             ]);
         } catch (\Throwable $e) {
             $service->update(['status' => 'failed']);
 
             Log::error('Aprovisionamiento Coolify fallido (estado parcial persistido para reanudar)', [
-                'service_id'   => $service->id,
-                'plan_id'      => $plan?->id,
+                'service_id' => $service->id,
+                'plan_id' => $plan?->id,
                 'project_uuid' => $projectUuid,
-                'app_uuid'     => $appUuid,
-                'error'        => $e->getMessage(),
-                'trace'        => $e->getTraceAsString(),
+                'app_uuid' => $appUuid,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             throw $e;
@@ -193,6 +193,79 @@ class HostingProvisioningService
     {
         $current = $service->fresh()->connection_details ?? [];
         $service->update(['connection_details' => array_merge($current, $changes)]);
+    }
+
+    /**
+     * Aprovisiona (idempotente) un gestor web Adminer para que el cliente
+     * administre su base de datos desde el navegador, estilo phpMyAdmin de
+     * cPanel. Adminer corre como una app más en el MISMO proyecto Coolify, por
+     * lo que alcanza la DB por la red interna; el cliente entra con las
+     * credenciales que ya ve en el panel.
+     *
+     * @return array{url:string, app_uuid:?string, status:string}
+     */
+    public function provisionDbConsole(Service $service): array
+    {
+        $service->loadMissing('user');
+        $conn = $service->connection_details ?? [];
+
+        if (empty($conn['coolify_db_uuid'])) {
+            throw new RuntimeException('Este hosting no tiene una base de datos que administrar.');
+        }
+
+        $projectUuid = $conn['coolify_project_uuid'] ?? null;
+        if (! $projectUuid) {
+            throw new RuntimeException('El hosting todavía no está aprovisionado en Coolify.');
+        }
+
+        // Idempotente: si ya existe, devolver su URL sin recrear.
+        if (! empty($conn['adminer_app_uuid']) && ! empty($conn['adminer_fqdn'])) {
+            return ['url' => $conn['adminer_fqdn'], 'app_uuid' => $conn['adminer_app_uuid'], 'status' => 'ready'];
+        }
+
+        $subdomain = $conn['subdomain'] ?? $this->buildSubdomain($service->user);
+        $host = "db-{$subdomain}." . $this->baseDomain();
+        $fqdn = "https://{$host}";
+
+        $app = $this->coolify->createApplication([
+            'project_uuid'   => $projectUuid,
+            'server_uuid'    => config('coolify.server_uuid'),
+            'name'           => "adminer-{$subdomain}",
+            'docker_image'   => 'adminer:4',
+            'fqdn'           => $fqdn,
+            'ports_exposes'  => '8080',
+            'instant_deploy' => true,
+        ]);
+
+        $this->mergeConnectionDetails($service, [
+            'adminer_app_uuid' => $app['uuid'] ?? null,
+            'adminer_fqdn'     => $fqdn,
+        ]);
+
+        // DNS best-effort, igual que el sitio principal.
+        $dnsIp = config('coolify.hosting_dns_ip');
+        if (! empty($dnsIp)) {
+            try {
+                $recordId = $this->cloudflare->createARecord($this->cloudflareName($host), $dnsIp);
+                $ids = ($service->fresh()->connection_details['dns_record_ids'] ?? []);
+                $ids['adminer'] = $recordId;
+                $this->mergeConnectionDetails($service, ['dns_record_ids' => $ids]);
+            } catch (\Throwable $e) {
+                Log::warning('DNS del gestor Adminer no creado (no fatal)', [
+                    'service_id' => $service->id,
+                    'host'       => $host,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('Gestor de base de datos (Adminer) aprovisionado', [
+            'service_id' => $service->id,
+            'fqdn'       => $fqdn,
+            'app_uuid'   => $app['uuid'] ?? null,
+        ]);
+
+        return ['url' => $fqdn, 'app_uuid' => $app['uuid'] ?? null, 'status' => 'deploying'];
     }
 
     public function suspend(Service $service): void
@@ -226,46 +299,60 @@ class HostingProvisioningService
             } catch (\Throwable $e) {
                 Log::warning('No se pudo borrar DNS de hosting Coolify', [
                     'service_id' => $service->id,
-                    'record_id'  => $recordId,
-                    'error'      => $e->getMessage(),
+                    'record_id' => $recordId,
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
         // Borrar base de datos
-        if (!empty($conn['coolify_db_uuid'])) {
+        if (! empty($conn['coolify_db_uuid'])) {
             try {
                 $this->coolify->deleteDatabase($conn['coolify_db_uuid']);
             } catch (\Throwable $e) {
                 Log::warning('No se pudo borrar DB Coolify', [
                     'service_id' => $service->id,
-                    'db_uuid'    => $conn['coolify_db_uuid'],
-                    'error'      => $e->getMessage(),
+                    'db_uuid' => $conn['coolify_db_uuid'],
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
         // Borrar aplicación
-        if (!empty($conn['coolify_app_uuid'])) {
+        if (! empty($conn['coolify_app_uuid'])) {
             try {
                 $this->coolify->deleteApplication($conn['coolify_app_uuid']);
             } catch (\Throwable $e) {
                 Log::warning('No se pudo borrar aplicación Coolify', [
                     'service_id' => $service->id,
-                    'app_uuid'   => $conn['coolify_app_uuid'],
-                    'error'      => $e->getMessage(),
+                    'app_uuid' => $conn['coolify_app_uuid'],
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Borrar gestor web Adminer (si se aprovisionó); su DNS ya se borró en el
+        // bucle de dns_record_ids de arriba.
+        if (! empty($conn['adminer_app_uuid'])) {
+            try {
+                $this->coolify->deleteApplication($conn['adminer_app_uuid']);
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo borrar el gestor Adminer', [
+                    'service_id' => $service->id,
+                    'adminer_app_uuid' => $conn['adminer_app_uuid'],
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
         // Borrar proyecto (con reintentos: tras borrar la app, Coolify puede
         // tardar un instante en liberar el proyecto y rechazar el primer borrado).
-        if (!empty($conn['coolify_project_uuid'])) {
+        if (! empty($conn['coolify_project_uuid'])) {
             $this->deleteProjectWithRetry($service, $conn['coolify_project_uuid']);
         }
 
         $service->update([
-            'status'        => 'terminated',
+            'status' => 'terminated',
             'terminated_at' => now(),
         ]);
 
@@ -288,10 +375,10 @@ class HostingProvisioningService
             } catch (\Throwable $e) {
                 if ($i === $attempts) {
                     Log::warning('No se pudo borrar proyecto Coolify tras reintentos', [
-                        'service_id'   => $service->id,
+                        'service_id' => $service->id,
                         'project_uuid' => $projectUuid,
-                        'attempts'     => $attempts,
-                        'error'        => $e->getMessage(),
+                        'attempts' => $attempts,
+                        'error' => $e->getMessage(),
                     ]);
 
                     return;
@@ -306,11 +393,11 @@ class HostingProvisioningService
     public function syncStatus(Service $service): array
     {
         $appUuid = $this->requireAppUuid($service);
-        $conn    = $service->connection_details ?? [];
-        $app     = $this->coolify->getApplication($appUuid);
+        $conn = $service->connection_details ?? [];
+        $app = $this->coolify->getApplication($appUuid);
 
         $db = null;
-        if (!empty($conn['coolify_db_uuid'])) {
+        if (! empty($conn['coolify_db_uuid'])) {
             try {
                 $db = $this->coolify->getDatabase($conn['coolify_db_uuid']);
             } catch (\Throwable) {
@@ -319,12 +406,12 @@ class HostingProvisioningService
         }
 
         return [
-            'status'      => $app['status'] ?? 'unknown',
-            'app_uuid'    => $appUuid,
-            'fqdn'        => $app['fqdn'] ?? $conn['fqdn'] ?? null,
-            'app'         => $app,
-            'database'    => $db,
-            'panel_url'   => config('coolify.base_url'),
+            'status' => $app['status'] ?? 'unknown',
+            'app_uuid' => $appUuid,
+            'fqdn' => $app['fqdn'] ?? $conn['fqdn'] ?? null,
+            'app' => $app,
+            'database' => $db,
+            'panel_url' => config('coolify.base_url'),
         ];
     }
 
@@ -332,16 +419,16 @@ class HostingProvisioningService
 
     private function buildSubdomain(User $user): string
     {
-        $base  = $user->username ?? explode('@', $user->email)[0];
+        $base = $user->username ?? explode('@', $user->email)[0];
         $clean = preg_replace('/[^a-z0-9-]/', '-', strtolower($base));
         $clean = trim(preg_replace('/-+/', '-', $clean), '-');
-        $base  = substr($clean ?: 'hosting' . $user->id, 0, 25);
+        $base = substr($clean ?: 'hosting'.$user->id, 0, 25);
 
         $existing = Service::where('user_id', $user->id)
             ->whereIn('status', ['active', 'pending'])
             ->whereNotNull('connection_details')
             ->get()
-            ->map(fn($s) => $s->connection_details['subdomain'] ?? null)
+            ->map(fn ($s) => $s->connection_details['subdomain'] ?? null)
             ->filter()
             ->values();
 
@@ -356,7 +443,17 @@ class HostingProvisioningService
             }
         }
 
-        return substr($base, 0, 20) . '-' . substr((string) $user->id, 0, 5);
+        return substr($base, 0, 20).'-'.substr((string) $user->id, 0, 5);
+    }
+
+    /**
+     * Dominio base para subdominios automáticos ({sub}.{base}). Configurable
+     * por ambiente (HOSTING_BASE_DOMAIN): rokeindustries.dev en dev,
+     * rokeindustries.com en prod. NUNCA hornear el dominio en el código.
+     */
+    private function baseDomain(): string
+    {
+        return trim((string) config('coolify.hosting_base_domain', 'rokeindustries.com'), '.');
     }
 
     private function normalizeDomain(?string $domain): ?string
@@ -386,8 +483,8 @@ class HostingProvisioningService
     {
         $zone = config('services.cloudflare.zone_name', 'rokeindustries.com');
 
-        if (str_ends_with($domain, '.' . $zone)) {
-            return substr($domain, 0, -strlen('.' . $zone));
+        if (str_ends_with($domain, '.'.$zone)) {
+            return substr($domain, 0, -strlen('.'.$zone));
         }
 
         return $domain;
@@ -397,7 +494,7 @@ class HostingProvisioningService
     {
         $uuid = $service->connection_details['coolify_app_uuid'] ?? $service->external_id;
 
-        if (!$uuid) {
+        if (! $uuid) {
             throw new RuntimeException("El servicio #{$service->id} no tiene aplicación Coolify asociada.");
         }
 
@@ -411,7 +508,7 @@ class HostingProvisioningService
         } catch (\Throwable $e) {
             Log::warning('No se pudo notificar hosting Coolify aprovisionado', [
                 'service_id' => $service->id,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
