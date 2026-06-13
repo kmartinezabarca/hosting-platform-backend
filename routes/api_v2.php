@@ -9,6 +9,7 @@ use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\TeamController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\TeamMemberController;
+use App\Domains\Platform\SiteBuilder\Http\Controllers\V2\PageGeneratorController;
 use App\Domains\Platform\Git\Http\Controllers\GithubWebhookController;
 use App\Domains\Platform\Git\Http\Controllers\V2\GithubController;
 use Illuminate\Support\Facades\Route;
@@ -91,6 +92,11 @@ Route::prefix('v2')
         // ejecutan cuando el usuario las confirma (o las rechaza).
         Route::post('/ai/conversations/{conversation}/actions/{action}/confirm', [ConversationController::class, 'confirmAction']);
         Route::post('/ai/conversations/{conversation}/actions/{action}/reject', [ConversationController::class, 'rejectAction']);
+
+        // SiteBuilder: generación de páginas con IA (proveedor agnóstico por env).
+        // Throttle bajo: cada llamada es una generación LLM (cara/lenta).
+        Route::post('/site-builder/generate', [PageGeneratorController::class, 'generate'])
+            ->middleware('throttle:10,1');
 
         // Mes 2 pendiente: tier destructive del agente, game servers self-service
         // v2 — ver docs/blueprint/02-api-and-modules.md
