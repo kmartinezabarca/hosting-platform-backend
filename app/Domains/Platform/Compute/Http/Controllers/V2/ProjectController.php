@@ -153,6 +153,8 @@ class ProjectController extends Controller
             'slug'           => $project->slug,
             'repo_full_name' => $project->repo_full_name,
             'default_branch' => $project->default_branch,
+            // Stack detectado también en la lista (la tarjeta muestra el framework).
+            'detected_stack' => $project->detected_stack,
             'team'           => $project->relationLoaded('team') ? [
                 'uuid' => $project->team->uuid,
                 'name' => $project->team->name,
@@ -162,7 +164,6 @@ class ProjectController extends Controller
         ];
 
         if ($detailed) {
-            $data['detected_stack'] = $project->detected_stack;
             $data['environments']   = $project->environments->map(fn ($env) => [
                 'uuid'        => $env->uuid,
                 'name'        => $env->name,
