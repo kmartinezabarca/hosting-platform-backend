@@ -42,12 +42,16 @@ class ChatConversation extends Model
     protected $fillable = [
         'brand', 'channel', 'source',
         'owner_id', 'assigned_agent_id',
+        'guest_token', 'guest_name', 'guest_email', 'guest_phone',
         'status', 'priority', 'subject',
         'ai_enabled', 'ai_status',
         'unread_for_owner', 'unread_for_agent',
         'last_message_at', 'escalated_at', 'escalation_reason',
         'resolved_at', 'closed_at', 'metadata',
     ];
+
+    /** El guest_token nunca debe serializarse hacia el cliente. */
+    protected $hidden = ['guest_token'];
 
     protected $casts = [
         'ai_enabled'       => 'boolean',
@@ -97,6 +101,11 @@ class ChatConversation extends Model
         return $q->where('owner_id', $ownerId);
     }
 
+    public function scopeForGuest($q, string $token)
+    {
+        return $q->whereNull('owner_id')->where('guest_token', $token);
+    }
+
     /** Conversaciones activas pero inactivas desde hace más de STALE_AFTER_HOURS. */
     public function scopeStale($q)
     {
@@ -116,6 +125,12 @@ class ChatConversation extends Model
     public function isClosed(): bool
     {
         return in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CLOSED], true);
+    }
+
+    /** Conversación iniciada por un invitado de la landing (sin sesión). */
+    public function isGuest(): bool
+    {
+        return $this->owner_id === null && $this->guest_token !== null;
     }
 
     /** Última actividad real de la conversación (último mensaje o, si no hay, su creación). */

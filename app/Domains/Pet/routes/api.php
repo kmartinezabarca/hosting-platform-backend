@@ -24,6 +24,7 @@ use App\Domains\Pet\Http\Controllers\VetContactController;
 use App\Domains\Pet\Http\Controllers\VetLinkController;
 use App\Domains\Pet\Http\Controllers\WeightHistoryController;
 use App\Domains\Pet\Http\Controllers\Chat\OwnerChatController;
+use App\Domains\Pet\Http\Controllers\Chat\GuestChatController;
 use App\Domains\Pet\Http\Controllers\Chat\AdminChatController;
 use Illuminate\Support\Facades\Route;
 
@@ -93,6 +94,22 @@ Route::post('/auth/google/callback',   [AuthController::class, 'handleGoogleCall
 Route::middleware('throttle:5,1')->group(function () {
     Route::post('/auth/forgot-password', [PasswordResetController::class, 'sendResetLink']);
     Route::post('/auth/reset-password',  [PasswordResetController::class, 'reset']);
+});
+
+// ── Chat de invitado (landing pública, sin sesión) ────────────────────────────
+// Alta protegida por Turnstile + rate-limit estricto (5/min IP). El resto se
+// autoriza por header X-Guest-Token. Sin tiempo real: el frontend hace polling.
+Route::prefix('chat/guest')->group(function () {
+    Route::middleware('throttle:5,1')->group(function () {
+        Route::post('/conversation', [GuestChatController::class, 'start']);
+    });
+    Route::get('/conversation',          [GuestChatController::class, 'current'])->middleware('throttle:60,1');
+    Route::get('/conversation/messages', [GuestChatController::class, 'messages'])->middleware('throttle:120,1');
+    Route::middleware('throttle:30,1')->group(function () {
+        Route::post('/conversation/messages',  [GuestChatController::class, 'send']);
+        Route::post('/conversation/escalate',  [GuestChatController::class, 'escalate']);
+        Route::post('/conversation/read',       [GuestChatController::class, 'read']);
+    });
 });
 
 // Stripe webhook — sin auth, verificado por firma

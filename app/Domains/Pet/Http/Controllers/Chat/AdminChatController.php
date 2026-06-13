@@ -59,6 +59,7 @@ class AdminChatController extends Controller
                 'display_name' => $c->owner->display_name,
                 'email'        => $c->owner->email,
             ] : null;
+            $arr['guest'] = $this->guestLead($c);
             $arr['last_message'] = $lastByConv->get($c->id);
             return $arr;
         });
@@ -85,6 +86,7 @@ class AdminChatController extends Controller
             'pets'         => $conv->owner->pets,
             'subscription' => $conv->owner->subscription,
         ] : null;
+        $data['guest'] = $this->guestLead($conv);
 
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -262,6 +264,25 @@ class AdminChatController extends Controller
             'escalated_at'      => $conv->escalated_at?->toISOString(),
             'last_message_at'   => $conv->last_message_at?->toISOString(),
             'created_at'        => $conv->created_at?->toISOString(),
+        ];
+    }
+
+    /**
+     * Datos de contacto del lead cuando la conversación la inició un invitado de
+     * la landing (sin sesión). null para conversaciones de dueños registrados.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function guestLead(ChatConversation $conv): ?array
+    {
+        if (! $conv->isGuest()) {
+            return null;
+        }
+
+        return [
+            'name'  => $conv->guest_name,
+            'email' => $conv->guest_email,
+            'phone' => $conv->guest_phone,
         ];
     }
 }
