@@ -49,6 +49,11 @@ Route::middleware('throttle:5,1')->group(function () {
 });
 Route::get('/pets/{slug}/lost-poster',  [LostController::class, 'publicLostPoster']);
 
+// Lista de espera de la app móvil (público) — "avísame cuando salga". 5/min por IP.
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/app-waitlist', [PublicController::class, 'joinAppWaitlist']);
+});
+
 // Planes (público — para la página de pricing)
 Route::get('/plans',        [PlanController::class, 'index']);
 Route::get('/plans/{slug}', [PlanController::class, 'show']);

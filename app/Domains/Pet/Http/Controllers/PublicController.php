@@ -5,6 +5,7 @@ namespace App\Domains\Pet\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Domains\Pet\Events\PetScanBroadcast;
 use App\Domains\Pet\Models\ActivationEvent;
+use App\Domains\Pet\Models\AppWaitlistEntry;
 use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\NotificationLog;
 use App\Domains\Pet\Models\Owner;
@@ -358,5 +359,44 @@ class PublicController extends Controller
         } catch (\Throwable) {
             // best-effort, nunca rompe el flujo
         }
+    }
+
+    /**
+     * POST /app-waitlist — lista de espera de la app móvil (público, sin sesión).
+     * Mientras la app no está publicada, la landing captura aquí el correo/teléfono
+     * de quien quiere que le avisemos del lanzamiento.
+     */
+    public function joinAppWaitlist(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name'     => 'nullable|string|max:120',
+            'email'    => 'required_without:phone|nullable|email|max:180',
+            'phone'    => 'required_without:email|nullable|string|max:40',
+            'platform' => 'nullable|in:ios,android,any',
+        ]);
+
+        $email = isset($data['email']) ? trim((string) $data['email']) : null;
+        $phone = isset($data['phone']) ? trim((string) $data['phone']) : null;
+
+        // Idempotente: no duplicar el mismo correo/teléfono en la lista.
+        $exists = AppWaitlistEntry::query()
+            ->when($email, fn ($q) => $q->orWhere('email', $email))
+            ->when($phone, fn ($q) => $q->orWhere('phone', $phone))
+            ->exists();
+
+        if (! $exists) {
+            AppWaitlistEntry::create([
+                'name'     => $data['name'] ?? null,
+                'email'    => $email ?: null,
+                'phone'    => $phone ?: null,
+                'platform' => $data['platform'] ?? 'any',
+                'source'   => 'landing',
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => '¡Listo! Te avisaremos en cuanto la app esté disponible. 💛',
+        ], 201);
     }
 }
