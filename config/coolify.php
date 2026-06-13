@@ -20,6 +20,14 @@ return [
     // del subdominio caiga en la zona correcta (de lo contrario el DNS falla).
     'hosting_base_domain' => env('HOSTING_BASE_DOMAIN', env('CLOUDFLARE_ZONE_NAME', 'rokeindustries.com')),
 
+    // Host alcanzable desde el backend de Laravel para el gestor de base de datos
+    // NATIVO del portal. La DB corre en un contenedor del nodo Coolify (Ryzen); su
+    // host interno de Docker NO es accesible desde el server de Laravel, así que el
+    // backend conecta a este host (la IP/hostname de Tailscale del nodo) + el puerto
+    // que Coolify publica por base (connection_details.db_public_port). Red privada,
+    // nunca expuesto a internet. Sin esto, el gestor responde "no habilitado".
+    'db_gateway_host' => env('COOLIFY_DB_GATEWAY_HOST'),
+
     // Health check que se manda al crear aplicaciones en Coolify. Traefik/Caddy
     // enrutan mejor cuando Coolify sabe cuando el contenedor ya esta listo.
     'health_check' => [

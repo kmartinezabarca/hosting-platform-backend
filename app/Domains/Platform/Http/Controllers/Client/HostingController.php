@@ -5,7 +5,7 @@ namespace App\Domains\Platform\Http\Controllers\Client;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Services\CloudflareService;
 use App\Domains\Platform\Services\Coolify\CoolifyService;
-use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
+use App\Domains\Platform\Services\Coolify\HostingDatabaseConsole;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -154,16 +154,52 @@ class HostingController extends Controller
     }
 
     /**
-     * POST /hosting/{uuid}/db-console
-     * Aprovisiona (idempotente) un gestor web Adminer para que el cliente
-     * administre su base de datos desde el navegador, y devuelve su URL.
+     * GET /hosting/{uuid}/db/tables
+     * Lista las tablas de la base de datos del servicio (gestor nativo).
      */
-    public function dbConsole(string $uuid): JsonResponse
+    public function dbTables(string $uuid): JsonResponse
     {
         $service = $this->hostingService($uuid);
 
-        return $this->coolifyResponse(
-            fn () => app(HostingProvisioningService::class)->provisionDbConsole($service)
+        return $this->dbConsoleResponse(fn () => [
+            'tables' => app(HostingDatabaseConsole::class)->tables($service),
+        ]);
+    }
+
+    /**
+     * GET /hosting/{uuid}/db/rows?table=&page=
+     * Devuelve filas paginadas de una tabla.
+     */
+    public function dbRows(Request $request, string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+
+        $validated = $request->validate([
+            'table' => ['required', 'string', 'max:128'],
+            'page'  => ['sometimes', 'integer', 'min:1'],
+        ]);
+
+        return $this->dbConsoleResponse(fn () => app(HostingDatabaseConsole::class)->rows(
+            $service,
+            $validated['table'],
+            (int) ($validated['page'] ?? 1),
+        ));
+    }
+
+    /**
+     * POST /hosting/{uuid}/db/query
+     * Ejecuta una consulta SQL en la base del cliente y devuelve el resultado.
+     */
+    public function dbQuery(Request $request, string $uuid): JsonResponse
+    {
+        $service = $this->hostingService($uuid);
+
+        $validated = $request->validate([
+            'sql' => ['required', 'string', 'max:20000'],
+        ]);
+
+        return $this->dbConsoleResponse(
+            fn () => app(HostingDatabaseConsole::class)->runQuery($service, $validated['sql'])
         );
     }
 
@@ -900,6 +936,30 @@ class HostingController extends Controller
                 'success' => false,
                 'message' => 'No se pudo conectar con el panel de hosting. Intenta de nuevo.',
                 'debug' => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
+    }
+
+    /**
+     * Respuesta para el gestor de base de datos nativo. A diferencia de
+     * coolifyResponse, surface el mensaje real de la excepción (el servicio
+     * lanza mensajes ya aptos para el usuario: conexión, tabla inexistente, etc.).
+     */
+    private function dbConsoleResponse(callable $callback, int $status = 200): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $callback(),
+            ], $status);
+        } catch (HttpExceptionInterface $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::warning('Gestor de base de datos: error', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
             ], 502);
         }
     }

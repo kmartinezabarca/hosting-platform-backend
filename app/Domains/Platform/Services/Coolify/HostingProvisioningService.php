@@ -195,79 +195,6 @@ class HostingProvisioningService
         $service->update(['connection_details' => array_merge($current, $changes)]);
     }
 
-    /**
-     * Aprovisiona (idempotente) un gestor web Adminer para que el cliente
-     * administre su base de datos desde el navegador, estilo phpMyAdmin de
-     * cPanel. Adminer corre como una app más en el MISMO proyecto Coolify, por
-     * lo que alcanza la DB por la red interna; el cliente entra con las
-     * credenciales que ya ve en el panel.
-     *
-     * @return array{url:string, app_uuid:?string, status:string}
-     */
-    public function provisionDbConsole(Service $service): array
-    {
-        $service->loadMissing('user');
-        $conn = $service->connection_details ?? [];
-
-        if (empty($conn['coolify_db_uuid'])) {
-            throw new RuntimeException('Este hosting no tiene una base de datos que administrar.');
-        }
-
-        $projectUuid = $conn['coolify_project_uuid'] ?? null;
-        if (! $projectUuid) {
-            throw new RuntimeException('El hosting todavía no está aprovisionado en Coolify.');
-        }
-
-        // Idempotente: si ya existe, devolver su URL sin recrear.
-        if (! empty($conn['adminer_app_uuid']) && ! empty($conn['adminer_fqdn'])) {
-            return ['url' => $conn['adminer_fqdn'], 'app_uuid' => $conn['adminer_app_uuid'], 'status' => 'ready'];
-        }
-
-        $subdomain = $conn['subdomain'] ?? $this->buildSubdomain($service->user);
-        $host = "db-{$subdomain}." . $this->baseDomain();
-        $fqdn = "https://{$host}";
-
-        $app = $this->coolify->createApplication([
-            'project_uuid'   => $projectUuid,
-            'server_uuid'    => config('coolify.server_uuid'),
-            'name'           => "adminer-{$subdomain}",
-            'docker_image'   => 'adminer:4',
-            'fqdn'           => $fqdn,
-            'ports_exposes'  => '8080',
-            'instant_deploy' => true,
-        ]);
-
-        $this->mergeConnectionDetails($service, [
-            'adminer_app_uuid' => $app['uuid'] ?? null,
-            'adminer_fqdn'     => $fqdn,
-        ]);
-
-        // DNS best-effort, igual que el sitio principal.
-        $dnsIp = config('coolify.hosting_dns_ip');
-        if (! empty($dnsIp)) {
-            try {
-                $recordId = $this->cloudflare->createARecord($this->cloudflareName($host), $dnsIp);
-                $ids = ($service->fresh()->connection_details['dns_record_ids'] ?? []);
-                $ids['adminer'] = $recordId;
-                $this->mergeConnectionDetails($service, ['dns_record_ids' => $ids]);
-            } catch (\Throwable $e) {
-                Log::warning('DNS del gestor Adminer no creado (no fatal)', [
-                    'service_id' => $service->id,
-                    'host'       => $host,
-                    'error'      => $e->getMessage(),
-                ]);
-            }
-        }
-
-        Log::info('Gestor de base de datos (Adminer) aprovisionado', [
-            'service_id' => $service->id,
-            'fqdn'       => $fqdn,
-            'app_uuid'   => $app['uuid'] ?? null,
-        ]);
-
-        return ['url' => $fqdn, 'app_uuid' => $app['uuid'] ?? null, 'status' => 'deploying'];
-    }
-
     public function suspend(Service $service): void
     {
         $appUuid = $this->requireAppUuid($service);
@@ -326,20 +253,6 @@ class HostingProvisioningService
                 Log::warning('No se pudo borrar aplicación Coolify', [
                     'service_id' => $service->id,
                     'app_uuid' => $conn['coolify_app_uuid'],
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // Borrar gestor web Adminer (si se aprovisionó); su DNS ya se borró en el
-        // bucle de dns_record_ids de arriba.
-        if (! empty($conn['adminer_app_uuid'])) {
-            try {
-                $this->coolify->deleteApplication($conn['adminer_app_uuid']);
-            } catch (\Throwable $e) {
-                Log::warning('No se pudo borrar el gestor Adminer', [
-                    'service_id' => $service->id,
-                    'adminer_app_uuid' => $conn['adminer_app_uuid'],
                     'error' => $e->getMessage(),
                 ]);
             }
