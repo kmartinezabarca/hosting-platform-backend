@@ -3,6 +3,7 @@
 namespace App\Domains\Pet\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Domains\Pet\Events\PetModerationReportBroadcast;
 use App\Domains\Pet\Models\AdoptionFollowup;
 use App\Domains\Pet\Models\AdoptionListing;
 use App\Domains\Pet\Models\AdoptionReview;
@@ -210,6 +211,10 @@ class ReputationController extends Controller
         if ($count >= 3 && $review->moderation_status === 'active') {
             $review->update(['moderation_status' => 'flagged']);
         }
+
+        // Aviso en vivo a los admins.
+        $title = '“' . \Illuminate\Support\Str::limit($review->comment ?? 'Reseña', 50) . '”';
+        PetModerationReportBroadcast::dispatch('review', (string) $review->id, $title, $data['reason'], $count);
 
         return response()->json(['ok' => true]);
     }

@@ -3,6 +3,7 @@
 namespace App\Domains\Pet\Http\Controllers;
 
 use App\Domains\Pet\Events\AdoptionRequestBroadcast;
+use App\Domains\Pet\Events\PetModerationReportBroadcast;
 use App\Domains\Pet\Models\AdoptionListing;
 use App\Domains\Pet\Models\AdoptionReport;
 use App\Domains\Pet\Models\AdoptionRequest;
@@ -189,6 +190,11 @@ class AdoptionController extends Controller
         if ($count >= 3 && $listing->moderation_status === 'active') {
             $listing->update(['moderation_status' => 'flagged']);
         }
+
+        // Aviso en vivo a los admins (toast + refresco de la cola de moderación).
+        PetModerationReportBroadcast::dispatch(
+            'adoption', (string) $listing->id, (string) $listing->name, $data['reason'], $count,
+        );
 
         return response()->json(['ok' => true]);
     }

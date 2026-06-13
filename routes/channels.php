@@ -204,3 +204,10 @@ Broadcast::channel('rp-admin.chat', function ($user) {
     $userUuid = $user->uuid ?? null;
     return $userUuid && \App\Domains\Pet\Models\AppAdmin::where('user_id', $userUuid)->exists();
 });
+
+// Feed de moderación de Pet — sólo admins de Pet. Avisa en vivo de nuevos
+// reportes (adopciones / comunidad / reseñas) para refrescar la cola y el badge.
+Broadcast::channel('rp-admin.moderation', function ($user) {
+    $userUuid = $user->uuid ?? null;
+    return $userUuid && \App\Domains\Pet\Models\AppAdmin::where('user_id', $userUuid)->exists();
+});

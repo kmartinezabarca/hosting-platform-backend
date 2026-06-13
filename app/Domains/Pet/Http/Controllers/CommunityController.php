@@ -3,6 +3,7 @@
 namespace App\Domains\Pet\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Domains\Pet\Events\PetModerationReportBroadcast;
 use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\Pet;
 use App\Domains\Pet\Models\PetPost;
@@ -280,6 +281,11 @@ class CommunityController extends Controller
         if ($count >= 3 && $post->moderation_status === 'active') {
             $post->update(['moderation_status' => 'flagged']);
         }
+
+        // Aviso en vivo a los admins.
+        $post->loadMissing('pet');
+        $title = $post->pet?->name ? "Foto de {$post->pet->name}" : 'Publicación';
+        PetModerationReportBroadcast::dispatch('post', (string) $post->id, $title, $data['reason'], $count);
 
         return response()->json(['ok' => true]);
     }
