@@ -33,6 +33,22 @@ class PlatformServiceProvider extends ServiceProvider
             \App\Domains\Platform\Compute\Providers\Contracts\DatabaseDriver::class,
             \App\Domains\Platform\Compute\Providers\Coolify\CoolifyDatabaseDriver::class,
         );
+
+        // Generador de páginas con IA (SiteBuilder). El proveedor se elige por
+        // env (PAGE_GENERATOR_DRIVER) — cambiar de proveedor no toca lógica.
+        // Driver inválido = falla clara al resolver, no un default silencioso.
+        $this->app->singleton(
+            \App\Domains\Platform\SiteBuilder\Contracts\PageGeneratorProvider::class,
+            function ($app) {
+                return match (config('page_generator.driver')) {
+                    'ollama' => $app->make(\App\Domains\Platform\SiteBuilder\Providers\OllamaPageGenerator::class),
+                    // 'claude' => $app->make(\App\Domains\Platform\SiteBuilder\Providers\ClaudePageGenerator::class), // fase 3
+                    default  => throw new \InvalidArgumentException(
+                        'PAGE_GENERATOR_DRIVER inválido o no soportado: ' . (config('page_generator.driver') ?? 'null')
+                    ),
+                };
+            },
+        );
     }
 
     public function boot(): void
