@@ -42,7 +42,7 @@ class PlatformServiceProvider extends ServiceProvider
             function ($app) {
                 return match (config('page_generator.driver')) {
                     'ollama' => $app->make(\App\Domains\Platform\SiteBuilder\Providers\OllamaPageGenerator::class),
-                    // 'claude' => $app->make(\App\Domains\Platform\SiteBuilder\Providers\ClaudePageGenerator::class), // fase 3
+                    'claude' => $app->make(\App\Domains\Platform\SiteBuilder\Providers\ClaudePageGenerator::class),
                     default  => throw new \InvalidArgumentException(
                         'PAGE_GENERATOR_DRIVER inválido o no soportado: ' . (config('page_generator.driver') ?? 'null')
                     ),
