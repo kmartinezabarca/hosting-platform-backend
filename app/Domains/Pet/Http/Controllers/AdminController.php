@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Pet\Jobs\RetryNotificationJob;
 use App\Domains\Pet\Models\ActivationEvent;
 use App\Domains\Pet\Models\AppAdmin;
+use App\Domains\Pet\Models\AppWaitlistEntry;
 use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\NotificationLog;
 use App\Domains\Pet\Models\Owner;
@@ -510,6 +511,33 @@ class AdminController extends Controller
         }
 
         return $result;
+    }
+
+    /**
+     * GET /admin/app-waitlist — lista de espera de la app móvil (leads "avísame").
+     * Búsqueda opcional por nombre/correo/teléfono.
+     */
+    public function appWaitlist(Request $request): JsonResponse
+    {
+        $this->requireAdmin($request);
+
+        $query = AppWaitlistEntry::query()->orderByDesc('created_at');
+
+        if ($search = trim((string) $request->get('search', ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        $page = $query->paginate(min((int) $request->get('per_page', 30), 100));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $page,
+            'total'   => AppWaitlistEntry::count(),
+        ]);
     }
 
     private function requireAdmin(Request $request): void

@@ -287,6 +287,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/admin/community/comments/{id}',      [AdminModerationController::class, 'deleteComment']);
         Route::get('/admin/moderation-queue',                [AdminModerationController::class, 'moderationQueue']);
 
+        // Lista de espera de la app móvil (leads "avísame")
+        Route::get('/admin/app-waitlist',              [AdminController::class, 'appWaitlist']);
+
         // Registro de notificaciones
         Route::get('/admin/notifications',             [AdminController::class, 'listNotifications']);
         Route::get('/admin/notifications/{id}',        [AdminController::class, 'getNotification']);
