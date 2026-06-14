@@ -257,6 +257,9 @@ pipeline {
                                     export APP_GIT_COMMIT='${env.GIT_SHORT}'
                                     export APP_BUILD_ID='${env.BUILD_NUMBER}'
                                     export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+                                    # Release tracking en Sentry: lo lee config/sentry.php (env SENTRY_RELEASE).
+                                    # Debe exportarse ANTES de deploy:refresh (que corre config:cache).
+                                    export SENTRY_RELEASE='${env.RELEASE_NAME}'
 
                                     if [ "${runMigrations}" = "true" ]; then
                                         export DB_HOST=127.0.0.1
@@ -317,6 +320,8 @@ REMOTE
                         export APP_GIT_COMMIT='${env.GIT_SHORT}'
                         export APP_BUILD_ID='${env.BUILD_NUMBER}'
                         export APP_BUILD_TIMESTAMP='${env.RELEASE_TS}'
+                        # Release tracking en Sentry (lo lee config/sentry.php antes de config:cache).
+                        export SENTRY_RELEASE='${env.RELEASE_NAME}'
 
                         php artisan deploy:refresh --migrate --skip-restarts --no-interaction
 
