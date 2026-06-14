@@ -5,7 +5,7 @@ namespace App\Domains\Platform\Services;
 use App\Domains\Platform\Models\ActivityLog;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Services\Coolify\HostingProvisioningService;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Log;
 class ServiceSuspensionService
 {
     public function __construct(
-        private readonly PterodactylService $pterodactyl,
+        private readonly GameServerDriver $games,
         private readonly HostingProvisioningService $hosting,
     ) {}
 
@@ -77,7 +77,7 @@ class ServiceSuspensionService
     {
         try {
             if ($service->pterodactyl_server_id) {
-                $this->pterodactyl->suspendServer((int) $service->pterodactyl_server_id);
+                $this->games->suspendServer((int) $service->pterodactyl_server_id);
             } elseif ($service->plan?->isCoolifyManaged()) {
                 $this->hosting->suspend($service);
             }
@@ -93,7 +93,7 @@ class ServiceSuspensionService
     {
         try {
             if ($service->pterodactyl_server_id) {
-                $this->pterodactyl->unsuspendServer((int) $service->pterodactyl_server_id);
+                $this->games->unsuspendServer((int) $service->pterodactyl_server_id);
             } elseif ($service->plan?->isCoolifyManaged()) {
                 $this->hosting->unsuspend($service);
             }
