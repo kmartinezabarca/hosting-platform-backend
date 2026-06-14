@@ -23,6 +23,12 @@ return [
         'deployments'  => 'deployments',
     ],
 
+    // Panel de servidores de juego (seam agnóstico). Hoy 'pterodactyl';
+    // 'pelican' u otro se enchufa bajo el mismo contrato GameServerDriver.
+    'game_server' => [
+        'driver' => env('GAME_SERVER_DRIVER', 'pterodactyl'),
+    ],
+
     // Ambientes preview de PR: efímeros, con TTL de seguridad por si el webhook
     // de cierre nunca llega (el scheduler los barre al expirar).
     'previews' => [

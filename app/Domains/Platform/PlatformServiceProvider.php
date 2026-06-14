@@ -49,6 +49,22 @@ class PlatformServiceProvider extends ServiceProvider
                 };
             },
         );
+
+        // Panel de servidores de juego (seam agnóstico, fase 1). Se elige por
+        // env (GAME_SERVER_DRIVER); driver inválido = falla clara, no default mudo.
+        // Pterodactyl es hoy un adaptador delgado sobre PterodactylService.
+        $this->app->singleton(
+            \App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver::class,
+            function ($app) {
+                return match (config('compute.game_server.driver')) {
+                    'pterodactyl' => $app->make(\App\Domains\Platform\Services\GameServers\Drivers\PterodactylGameServerDriver::class),
+                    // 'pelican' => $app->make(\App\Domains\Platform\Services\GameServers\Drivers\PelicanGameServerDriver::class), // fase 3
+                    default       => throw new \InvalidArgumentException(
+                        'GAME_SERVER_DRIVER inválido o no soportado: ' . (config('compute.game_server.driver') ?? 'null')
+                    ),
+                };
+            },
+        );
     }
 
     public function boot(): void
