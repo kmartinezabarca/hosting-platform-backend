@@ -73,6 +73,7 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'admin'           => \App\Http\Middleware\AdminMiddleware::class,
         'role'            => \App\Http\Middleware\EnsureUserHasRole::class,
+        'active'          => \App\Http\Middleware\EnsureAccountActive::class,
         'session.timeout' => \App\Http\Middleware\SessionTimeoutMiddleware::class,
         'verify.n8n'      => \App\Http\Middleware\VerifyN8nToken::class,
         'pet.admin'       => \App\Http\Middleware\EnsurePetAppAdmin::class,

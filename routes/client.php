@@ -52,7 +52,9 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
     });
 
     // ── Services ──────────────────────────────────────────────────────────────
-    Route::prefix('services')->group(function () {
+    // Gated por 'active': un cliente suspendido no puede operar sus servicios
+    // (encender/apagar, archivos, backups, deploy). Ver EnsureAccountActive.
+    Route::middleware('active')->prefix('services')->group(function () {
 
         // Globales (sin UUID)
         Route::get ('/plans',             [ServiceController::class, 'getServicePlans']);
@@ -206,7 +208,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
     // NOTA: El sistema NO compra dominios automáticamente. Los clientes importan
     // dominios que ya poseen (desde cualquier registrador) y ROKE gestiona el DNS
     // vía Cloudflare. La verificación de ownership usa un reto TXT.
-    Route::prefix('domains')->group(function () {
+    Route::middleware('active')->prefix('domains')->group(function () {
         Route::get  ('/',                          [DomainController::class, 'index']);
         Route::post ('/',                          [DomainController::class, 'store']);
         Route::get  ('/stats',                     [DomainController::class, 'getStats']);
