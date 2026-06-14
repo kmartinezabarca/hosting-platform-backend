@@ -3,6 +3,7 @@
 namespace App\Domains\Pet\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Domains\Pet\Mail\PetReceiptMail;
 use App\Domains\Pet\Models\ActivationEvent;
 use App\Domains\Pet\Models\Owner;
 use App\Domains\Pet\Models\OwnerSubscription;
@@ -320,6 +321,40 @@ class StripeController extends Controller
                 ?? StripeObjectReader::timestamp($invoice->period_end ?? null),
             ...$this->clearedDunningFields(),
         ]);
+
+        $this->sendReceipt($ownerId, $invoice);
+    }
+
+    /**
+     * Envía el recibo de pago al dueño (best-effort, encolado). Solo para cobros
+     * reales (monto > 0): los ciclos de prueba con $0 no generan recibo.
+     */
+    private function sendReceipt(string $ownerId, object $invoice): void
+    {
+        $amountCents = (int) ($invoice->amount_paid ?? 0);
+        if ($amountCents <= 0) {
+            return;
+        }
+
+        $owner = Owner::find($ownerId);
+        $email = OwnerSubscription::where('owner_id', $ownerId)->value('billing_email')
+            ?? $owner?->email;
+        if (!$email) {
+            return;
+        }
+
+        try {
+            \Illuminate\Support\Facades\Mail::to($email)->queue(new PetReceiptMail(
+                name:          $owner?->display_name,
+                amount:        number_format($amountCents / 100, 2),
+                currency:      strtoupper((string) ($invoice->currency ?? 'mxn')),
+                invoiceNumber: (string) ($invoice->number ?? $invoice->id),
+                invoiceUrl:    $invoice->hosted_invoice_url ?? null,
+                dateLabel:     now()->translatedFormat('j \d\e F \d\e Y'),
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('Recibo de pago falló: ' . $e->getMessage());
+        }
     }
 
     private function onInvoiceFailed(object $invoice, ?string $ownerId): void
