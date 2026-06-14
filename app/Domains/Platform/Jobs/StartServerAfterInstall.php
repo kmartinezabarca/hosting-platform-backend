@@ -3,7 +3,7 @@
 namespace App\Domains\Platform\Jobs;
 
 use App\Domains\Platform\Models\Service;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -21,7 +21,7 @@ class StartServerAfterInstall implements ShouldQueue
 
     public function __construct(protected Service $service) {}
 
-    public function handle(PterodactylService $pterodactyl)
+    public function handle(GameServerDriver $pterodactyl)
     {
         $identifier = $this->service->connection_details['identifier'] ?? null;
 

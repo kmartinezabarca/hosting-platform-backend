@@ -4,7 +4,7 @@ namespace App\Domains\Platform\Services;
 
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Services\Coolify\CoolifyService;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -39,7 +39,7 @@ class ServiceStatusSyncService
     ];
 
     public function __construct(
-        private readonly PterodactylService $ptero,
+        private readonly GameServerDriver $ptero,
         private readonly CoolifyService $coolify,
         private readonly HostingHealthService $health,
     ) {}

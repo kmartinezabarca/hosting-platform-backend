@@ -4,8 +4,8 @@ namespace App\Domains\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Domains\Platform\Models\Service;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use App\Domains\Platform\Services\Pterodactyl\GameServerProvisioningService;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -16,7 +16,7 @@ class GameServerController extends Controller
 {
     public function __construct(
         private readonly GameServerProvisioningService $provisioner,
-        private readonly PterodactylService $pterodactyl,
+        private readonly GameServerDriver $pterodactyl,
     ) {}
 
     /**

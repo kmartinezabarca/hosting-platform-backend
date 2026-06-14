@@ -4,7 +4,7 @@ namespace App\Domains\Platform\Console\Commands;
 
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Models\ServiceMetric;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -23,7 +23,7 @@ class CollectServiceMetrics extends Command
 
     protected $description = 'Muestrea y persiste métricas de recursos de todos los game servers activos';
 
-    public function handle(PterodactylService $pterodactyl): int
+    public function handle(GameServerDriver $pterodactyl): int
     {
         $dryRun   = $this->option('dry-run');
         $uuidOnly = $this->option('service');

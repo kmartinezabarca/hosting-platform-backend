@@ -8,7 +8,7 @@ use App\Domains\Platform\Models\ServerNode;
 use App\Domains\Platform\Models\Service;
 use App\Domains\Platform\Models\Ticket;
 use App\Domains\Platform\Services\Coolify\CoolifyService;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Log;
 class ServiceSupportOverviewService
 {
     public function __construct(
-        private readonly PterodactylService $pterodactyl,
+        private readonly GameServerDriver $pterodactyl,
         private readonly CoolifyService $coolify,
     ) {
     }

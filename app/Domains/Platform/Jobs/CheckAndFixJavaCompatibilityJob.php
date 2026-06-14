@@ -4,8 +4,8 @@ namespace App\Domains\Platform\Jobs;
 
 use App\Domains\Platform\Models\Service;
 use App\Models\User;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use App\Domains\Platform\Services\Minecraft\MinecraftServerConfigurationService;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -56,7 +56,7 @@ class CheckAndFixJavaCompatibilityJob implements ShouldQueue
     ) {}
 
     public function handle(
-        PterodactylService                    $pterodactyl,
+        GameServerDriver                      $pterodactyl,
         MinecraftServerConfigurationService   $javaService
     ): void {
         $this->service->refresh();

@@ -4,7 +4,7 @@ namespace App\Domains\Platform\Console\Commands;
 
 use App\Domains\Platform\Jobs\CheckAndFixJavaCompatibilityJob;
 use App\Domains\Platform\Models\Service;
-use App\Domains\Platform\Services\Pterodactyl\PterodactylService;
+use App\Domains\Platform\Services\GameServers\Contracts\GameServerDriver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -32,7 +32,7 @@ class MonitorGameServerHealth extends Command
 
     protected $description = 'Monitorea la salud de todos los servidores de juego activos y auto-corrige errores de Java';
 
-    public function handle(PterodactylService $pterodactyl): int
+    public function handle(GameServerDriver $pterodactyl): int
     {
         $dryRun    = $this->option('dry-run');
         $uuidOnly  = $this->option('service');
