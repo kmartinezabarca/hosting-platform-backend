@@ -9,9 +9,11 @@ use App\Domains\Pet\Models\AdoptionRequest;
 use App\Domains\Pet\Models\AdoptionReview;
 use App\Domains\Pet\Models\AdoptionReviewReport;
 use App\Domains\Pet\Models\AppAdmin;
+use App\Domains\Pet\Models\InboxNotification;
 use App\Domains\Pet\Models\PetPost;
 use App\Domains\Pet\Models\PetPostComment;
 use App\Domains\Pet\Models\PetPostReport;
+use App\Domains\Pet\Services\PushNotificationService;
 use App\Domains\Pet\Services\ReputationService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -30,6 +32,35 @@ class AdminModerationController extends Controller
     {
         if (! AppAdmin::where('user_id', $request->user()->uuid)->exists()) {
             abort(403, 'Acceso denegado');
+        }
+    }
+
+    /**
+     * Avisa al dueño (bandeja + push) que su contenido fue ocultado por
+     * moderación. Best-effort: nunca rompe la acción del admin.
+     */
+    private function notifyContentHidden(?string $ownerId, string $label): void
+    {
+        if (! $ownerId) {
+            return;
+        }
+
+        $title = 'Contenido retirado por moderación';
+        $body  = "{$label} fue ocultada por el equipo de ROKE Pet tras una revisión. Si crees que es un error, escríbenos desde el chat de soporte.";
+
+        InboxNotification::createForOwner(
+            ownerId:   $ownerId,
+            title:     $title,
+            body:      $body,
+            notifType: 'moderation',
+            url:       null,
+            tag:       'moderation-' . now()->timestamp,
+        );
+
+        try {
+            (new PushNotificationService())->sendToOwner($ownerId, $title, $body, ['type' => 'moderation']);
+        } catch (\Throwable) {
+            // best-effort
         }
     }
 
@@ -140,6 +171,10 @@ class AdminModerationController extends Controller
             AdoptionReport::where('listing_id', $listing->id)->where('resolved', false)->update(['resolved' => true]);
         }
 
+        if ($data['moderationStatus'] === 'hidden') {
+            $this->notifyContentHidden($listing->owner_id, 'Tu publicación de adopción');
+        }
+
         return response()->json(['ok' => true, 'moderationStatus' => $listing->moderation_status]);
     }
 
@@ -189,6 +224,10 @@ class AdminModerationController extends Controller
             AdoptionReviewReport::where('review_id', $review->id)->where('resolved', false)->update(['resolved' => true]);
         }
 
+        if ($data['moderationStatus'] === 'hidden') {
+            $this->notifyContentHidden($review->reviewer_owner_id, 'Tu reseña');
+        }
+
         // La reputación del evaluado cambia si se oculta/restaura una reseña.
         (new ReputationService)->recompute($review->reviewee_owner_id);
 
@@ -235,6 +274,10 @@ class AdminModerationController extends Controller
 
         if (in_array($data['moderationStatus'], ['hidden', 'active'], true)) {
             PetPostReport::where('post_id', $post->id)->where('resolved', false)->update(['resolved' => true]);
+        }
+
+        if ($data['moderationStatus'] === 'hidden') {
+            $this->notifyContentHidden($post->owner_id, 'Tu publicación en la comunidad');
         }
 
         return response()->json(['ok' => true, 'moderationStatus' => $post->moderation_status]);
