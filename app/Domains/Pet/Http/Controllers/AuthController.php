@@ -3,6 +3,7 @@
 namespace App\Domains\Pet\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Domains\Pet\Mail\PetWelcomeMail;
 use App\Domains\Pet\Models\AppAdmin;
 use App\Domains\Pet\Models\ActivationEvent;
 use App\Domains\Pet\Models\Owner;
@@ -11,6 +12,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -53,6 +55,8 @@ class AuthController extends Controller
             'metadata'    => ['email' => $data['email']],
             'occurred_at' => now(),
         ]);
+
+        $this->sendWelcomeEmail($data['email'], $data['display_name']);
 
         $token = $user->createToken('roke-pet')->plainTextToken;
 
@@ -166,10 +170,15 @@ class AuthController extends Controller
 
         $displayName = trim("{$data['first_name']} {$data['last_name']}");
 
-        Owner::firstOrCreate(
+        $owner = Owner::firstOrCreate(
             ['id' => $user->uuid],
             ['display_name' => $displayName, 'email' => $user->email]
         );
+
+        // Bienvenida solo en el primer registro (no en cada login con Google).
+        if ($owner->wasRecentlyCreated) {
+            $this->sendWelcomeEmail($user->email, $displayName);
+        }
 
         OwnerSubscription::firstOrCreate(
             ['owner_id' => $user->uuid],
@@ -210,5 +219,18 @@ class AuthController extends Controller
             'displayName' => $owner?->display_name ?? trim("{$user->first_name} {$user->last_name}"),
             'isAdmin'     => $isAdmin,
         ]);
+    }
+
+    /**
+     * Envía el correo de bienvenida (best-effort). Se encola si hay worker; con
+     * QUEUE_CONNECTION=sync corre inline. Nunca rompe el registro si el mail falla.
+     */
+    private function sendWelcomeEmail(string $email, ?string $name): void
+    {
+        try {
+            Mail::to($email)->queue(new PetWelcomeMail($name));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Welcome email falló: ' . $e->getMessage());
+        }
     }
 }
