@@ -13,9 +13,28 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    /**
+     * Añade la verificación Turnstile a las reglas SOLO si está habilitada por
+     * config (services.turnstile.auth_enabled). Mantenerlo gated evita dejar sin
+     * acceso a los usuarios si el widget del frontend o el secret no están
+     * desplegados todavía: el código viaja desactivado y se enciende por env.
+     *
+     * @param array<string, mixed> $rules
+     * @param array<string, string> $messages
+     */
+    private function applyTurnstileRule(Request $request, array &$rules, array &$messages): void
+    {
+        if (! config('services.turnstile.auth_enabled')) {
+            return;
+        }
+
+        $rules['cf-turnstile-response'] = ['bail', 'required', 'string', new \App\Rules\TurnstileToken($request)];
+        $messages['cf-turnstile-response.required'] = 'Verificación anti-bot fallida, recarga e intenta de nuevo.';
+    }
+
     public function register(Request $request)
     {
-        $request->validate([
+        $rules = [
             'first_name' => ['required', 'string', 'max:100'],
             'last_name'  => ['required', 'string', 'max:100'],
             'username'   => [
@@ -28,11 +47,17 @@ class AuthController extends Controller
             ],
             'email'    => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8', 'max:255', 'confirmed'],
-        ], [
+        ];
+
+        $messages = [
             'username.regex'  => 'El nombre de usuario solo puede contener letras, números, guiones y guiones bajos.',
             'username.unique' => 'Este nombre de usuario ya está en uso.',
             'email.unique'    => 'Este correo ya tiene una cuenta registrada.',
-        ]);
+        ];
+
+        $this->applyTurnstileRule($request, $rules, $messages);
+
+        $request->validate($rules, $messages);
 
         $user = User::create([
             'first_name' => $request->first_name,
@@ -74,11 +99,16 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        $request->validate([
+        $rules = [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
             'remember_me' => ['sometimes', 'boolean'],
-        ]);
+        ];
+        $messages = [];
+
+        $this->applyTurnstileRule($request, $rules, $messages);
+
+        $request->validate($rules, $messages);
 
         $user = User::where('email', $request->email)->first();
 

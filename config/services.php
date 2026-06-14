@@ -86,6 +86,11 @@ return [
 
     'turnstile' => [
         'secret' => env('TURNSTILE_SECRET_KEY'),
+        // Activa la verificación Turnstile en login/registro. Por defecto FALSE
+        // para no romper el acceso si el widget del frontend o el secret aún no
+        // están desplegados (la regla TurnstileToken falla-cerrado sin token).
+        // Encender (TURNSTILE_AUTH_ENABLED=true) solo cuando AMBOS estén en vivo.
+        'auth_enabled' => env('TURNSTILE_AUTH_ENABLED', false),
     ],
 
 ];

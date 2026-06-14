@@ -55,6 +55,40 @@ Lo que falta es **encenderlo** con la config correcta.
 - Hay una falla **preexistente y ajena** en `tests/Feature/PetSupportChatTest.php` (dominio Pet) — no es
   de la plataforma de cómputo.
 
+## 5. Remediación de auditoría (Tandas 2–3) — código listo, falta config
+
+> Estos cuatro features ya están **completos en código** y pusheados. Solo faltan
+> credenciales/variables en el `.env` del servidor (no van en el repo).
+
+### 5.1 Firebase FCM (push nativo)
+- [ ] Firebase Console → Project Settings → Service Accounts → *Generate new private key* (JSON).
+- [ ] Guardar el JSON en `storage/firebase-credentials.json` del backend.
+- [ ] `.env`: `FIREBASE_CREDENTIALS=firebase-credentials.json`, `FCM_PROJECT_ID=<project id>`.
+- [ ] Web Push (VAPID): `ROKEPET_VAPID_PUBLIC_KEY`, `ROKEPET_VAPID_PRIVATE_KEY`.
+- Nota: `PushNotificationService` (dominio Pet) ya envía por FCM v1 + VAPID; solo faltan credenciales.
+
+### 5.2 Facturama / CFDI
+- [ ] `.env`: `FACTURAMA_USER`, `FACTURAMA_PASSWORD`, `FACTURAMA_SANDBOX=false` (true en dev),
+      `FACTURAMA_ISSUER_RFC`, `FACTURAMA_ISSUER_NAME`, `FACTURAMA_ISSUER_REGIMEN` (601 por defecto), `FACTURAMA_ISSUER_ZIP`.
+- Nota: el timbrado ya se dispara en **compra inicial** (auto si hay perfil fiscal), **renovación** y **cron 72 h**.
+      Sin credenciales el timbrado falla ruidoso (log), no rompe la compra.
+
+### 5.3 Compute v2 — checkout de planes (Stripe)
+- [ ] Stripe: `STRIPE_KEY`, `STRIPE_SECRET` (ya en config).
+- [ ] Precios por tier/intervalo en `.env` (en centavos, moneda `COMPUTE_BILLING_CURRENCY`, default MXN):
+      `COMPUTE_PRICE_{STARTER,PRO,TEAM,AGENCY}_{MONTHLY,ANNUAL}` y opcional `COMPUTE_STRIPE_{...}` (price IDs;
+      si faltan, `ComputeStripeSyncService` los crea en Stripe al primer checkout).
+- Nota: `PlanCheckoutController` maneja free/upgrade/proración end-to-end; solo faltan montos/price IDs.
+
+### 5.4 Turnstile en login / registro — ENCENDER con orden
+- [ ] `.env` backend: `TURNSTILE_SECRET_KEY=<secret de Cloudflare>`.
+- [ ] `.env` frontend (build): `VITE_TURNSTILE_SITE_KEY=<site key de Cloudflare>`.
+- [ ] **Orden de encendido (crítico):** (1) desplegar el frontend con `VITE_TURNSTILE_SITE_KEY` → el widget
+      aparece en login/registro y envía el token; (2) confirmar que funciona; (3) **solo entonces**
+      `TURNSTILE_AUTH_ENABLED=true` en el backend. La regla **falla-cerrado**: encenderla sin el widget en
+      vivo bloquearía el acceso. Default `false` (ships desactivado, sin romper nada).
+- Nota: Turnstile ya estaba activo en contacto/newsletter/blog/chat; esto suma login + registro, gated por flag.
+
 ---
 
 _Documento de referencia operativa. El código de todo lo anterior ya está en `develop`._
