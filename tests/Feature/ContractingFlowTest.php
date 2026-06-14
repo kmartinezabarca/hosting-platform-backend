@@ -59,6 +59,10 @@ class ContractingFlowTest extends TestCase
 
         $user = User::where('email', 'aldair@example.com')->firstOrFail();
 
+        // El usuario verifica su correo antes de poder contratar. Es la regla de
+        // negocio actual: contratar/pagar exige email verificado (EnsureEmailVerified).
+        $user->forceFill(['email_verified_at' => now()])->save();
+
         // 2) Catálogo
         $gamePlan = $this->gameServerTrialPlan();
         $egg      = $this->activeEgg(nestId: 1);
@@ -121,6 +125,23 @@ class ContractingFlowTest extends TestCase
     // ──────────────────────────────────────────────────────────────────────────
     // Seguridad y validación
     // ──────────────────────────────────────────────────────────────────────────
+
+    public function test_unverified_user_cannot_contract(): void
+    {
+        // Un usuario recién registrado (email sin verificar) NO puede contratar:
+        // EnsureEmailVerified bloquea /services/contract hasta que verifique.
+        $user = User::factory()->create(['email_verified_at' => null]);
+        $plan = $this->hostingTrialPlan();
+
+        $this->actingAs($user)->postJson('/api/services/contract', [
+            'plan_id'       => $plan->slug,
+            'billing_cycle' => 'monthly',
+            'service_name'  => 'Sin verificar',
+        ])->assertStatus(403)
+            ->assertJsonPath('error_code', 'EMAIL_NOT_VERIFIED');
+
+        $this->assertSame(0, Service::count());
+    }
 
     public function test_contract_requires_authentication(): void
     {
