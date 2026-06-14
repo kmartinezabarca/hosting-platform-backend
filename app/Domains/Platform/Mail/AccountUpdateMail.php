@@ -47,7 +47,7 @@ class AccountUpdateMail extends Mailable implements ShouldQueue
     {
         return new Envelope(
             subject: 'Actualización de cuenta - Roke Industries',
-            from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
+            from: config('mail.from.address', 'soporte@rokeindustries.com'),
         );
     }
 

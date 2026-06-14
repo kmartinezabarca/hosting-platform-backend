@@ -37,7 +37,7 @@ class InvoiceGeneratedMail extends Mailable implements ShouldQueue
     {
         return new Envelope(
             subject: 'Nueva factura generada - Roke Industries',
-            from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
+            from: config('mail.from.address', 'soporte@rokeindustries.com'),
         );
     }
 

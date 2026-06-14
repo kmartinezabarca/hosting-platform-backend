@@ -33,7 +33,7 @@ class WelcomeMail extends Mailable implements ShouldQueue
     {
         return new Envelope(
             subject: '¡Bienvenido a Roke Industries!',
-            from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
+            from: config('mail.from.address', 'soporte@rokeindustries.com'),
         );
     }
 

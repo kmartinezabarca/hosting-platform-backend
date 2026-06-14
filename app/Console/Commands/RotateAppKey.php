@@ -33,6 +33,8 @@ use Illuminate\Support\Facades\File;
 class RotateAppKey extends Command
 {
     protected $signature = 'security:rotate-app-key
+        {--old= : APP_KEY anterior (base64:...); si se omite usa OLD_APP_KEY del entorno}
+        {--new= : APP_KEY nueva (base64:...); si se omite usa NEW_APP_KEY del entorno}
         {--dry-run : No muta nada; solo reporta}
         {--backup= : Ruta de archivo JSON donde respaldar los payloads cifrados originales}
         {--chunk=200 : Tamaño de lote}';
@@ -44,11 +46,14 @@ class RotateAppKey extends Command
 
     public function handle(): int
     {
-        $oldKey = env('OLD_APP_KEY');
-        $newKey = env('NEW_APP_KEY');
+        // Preferir las opciones explícitas (--old/--new): funcionan aunque la
+        // config esté cacheada (config:cache), donde env() del .env no se lee.
+        // Fallback a las variables de entorno exportadas en el shell.
+        $oldKey = $this->option('old') ?: env('OLD_APP_KEY');
+        $newKey = $this->option('new') ?: env('NEW_APP_KEY');
 
         if (! $oldKey || ! $newKey) {
-            $this->error('Faltan OLD_APP_KEY y/o NEW_APP_KEY en el entorno. No se rota nada.');
+            $this->error('Faltan las llaves. Pásalas con --old= y --new=, o exporta OLD_APP_KEY/NEW_APP_KEY en el entorno. No se rota nada.');
             return self::FAILURE;
         }
 

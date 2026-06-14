@@ -43,7 +43,7 @@ class ServiceNotificationMail extends Mailable implements ShouldQueue
     {
         return new Envelope(
             subject: 'Notificación de servicio - Roke Industries',
-            from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
+            from: config('mail.from.address', 'soporte@rokeindustries.com'),
         );
     }
 

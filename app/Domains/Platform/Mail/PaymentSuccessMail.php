@@ -41,7 +41,7 @@ class PaymentSuccessMail extends Mailable implements ShouldQueue
     {
         return new Envelope(
             subject: 'Pago procesado - Roke Industries',
-            from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
+            from: config('mail.from.address', 'soporte@rokeindustries.com'),
         );
     }
 

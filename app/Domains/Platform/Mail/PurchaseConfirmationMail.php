@@ -26,7 +26,7 @@ class PurchaseConfirmationMail extends Mailable implements ShouldQueue
     {
         return new Envelope(
             subject: "Confirmación de compra - {$this->service->name}",
-            from: env('MAIL_FROM_ADDRESS', 'soporte@rokeindustries.com'),
+            from: config('mail.from.address', 'soporte@rokeindustries.com'),
         );
     }
 
