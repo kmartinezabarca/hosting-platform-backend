@@ -4,6 +4,7 @@ use App\Domains\Platform\Ai\Http\Controllers\V2\ConversationController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\DeploymentController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\EnvVarController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\GamePresetController;
+use App\Domains\Platform\Compute\Http\Controllers\V2\PlanCheckoutController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\PlanController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ProjectController;
 use App\Domains\Platform\Compute\Http\Controllers\V2\ResourceController;
@@ -40,6 +41,8 @@ Route::prefix('v2')
 
         // Catálogo de planes de cómputo (precios mensual/anual + ahorro).
         Route::get('/plans', [PlanController::class, 'index']);
+        Route::post('/teams/{team}/plan-checkout', [PlanCheckoutController::class, 'store'])
+            ->middleware('throttle:10,1');
 
         // Catálogo de presets de servidores de juego (specs + disponibilidad).
         Route::get('/game-presets', [GamePresetController::class, 'index']);
@@ -54,6 +57,8 @@ Route::prefix('v2')
         Route::get('/projects', [ProjectController::class, 'index']);
         Route::post('/projects', [ProjectController::class, 'store']);
         Route::get('/projects/{project}', [ProjectController::class, 'show']);
+        Route::patch('/projects/{project}', [ProjectController::class, 'update']);
+        Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
         Route::post('/projects/{project}/analyze', [ProjectController::class, 'analyze'])
             ->middleware('throttle:10,1'); // golpea la API de GitHub
 

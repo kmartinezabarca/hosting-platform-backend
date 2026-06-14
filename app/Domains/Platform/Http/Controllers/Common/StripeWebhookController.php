@@ -2,6 +2,9 @@
 
 namespace App\Domains\Platform\Http\Controllers\Common;
 
+use App\Domains\Platform\Compute\Enums\BillingInterval;
+use App\Domains\Platform\Compute\Enums\PlanTier;
+use App\Domains\Platform\Compute\Models\Team;
 use App\Http\Controllers\Controller;
 use App\Domains\Platform\Models\Receipt;
 use App\Domains\Platform\Models\Service;
@@ -324,6 +327,7 @@ class StripeWebhookController extends Controller
             $subscription = Subscription::where('stripe_subscription_id', $subId)->first();
 
             if (!$subscription) {
+                $this->cancelComputeTeamFromSubscription($stripeSub);
                 return;
             }
 
@@ -396,6 +400,7 @@ class StripeWebhookController extends Controller
         $subscription = Subscription::where('stripe_subscription_id', $stripeSub->id)->first();
 
         if (!$subscription) {
+            $this->syncComputeTeamFromSubscription($stripeSub);
             return;
         }
 
@@ -461,6 +466,7 @@ class StripeWebhookController extends Controller
             $subscription = Subscription::where('stripe_subscription_id', $stripeSub->id)->first();
 
             if (!$subscription) {
+                $this->cancelComputeTeamFromSubscription($stripeSub);
                 return;
             }
 
@@ -515,6 +521,7 @@ class StripeWebhookController extends Controller
         $subscription = Subscription::where('stripe_subscription_id', $stripeSub->id)->first();
 
         if (!$subscription) {
+            $this->syncComputeTeamFromSubscription($stripeSub);
             Log::info("subscription.created sin fila local todavía: {$stripeSub->id}");
             return;
         }
@@ -579,15 +586,82 @@ class StripeWebhookController extends Controller
     /**
      * checkout.session.completed
      *
-     * El sistema NO usa Stripe Checkout Sessions (el flujo es PaymentIntent +
-     * /services/contract). Se registra por si en el futuro se habilita Checkout,
-     * para no perder el evento silenciosamente.
+     * Checkout Sessions se usa en ROKE Deploy Compute para upgrades de plan.
+     * Los servicios legacy siguen entrando por PaymentIntent + /services/contract.
      */
     private function onCheckoutSessionCompleted(object $session): void
     {
+        if (($session->metadata->source ?? null) === 'roke_compute') {
+            $teamUuid = $session->metadata->team_uuid ?? null;
+            $tier = $session->metadata->plan_tier ?? null;
+            $interval = $session->metadata->billing_interval ?? null;
+
+            if (! $teamUuid || ! in_array($tier, PlanTier::values(), true) || ! in_array($interval, BillingInterval::values(), true)) {
+                Log::warning('Stripe: checkout compute sin metadata completa', [
+                    'session_id' => $session->id ?? null,
+                    'team_uuid' => $teamUuid,
+                    'plan_tier' => $tier,
+                    'billing_interval' => $interval,
+                ]);
+                return;
+            }
+
+            Team::where('uuid', $teamUuid)->update([
+                'plan_tier' => $tier,
+                'billing_interval' => $interval,
+                'billing_status' => 'active',
+                'stripe_subscription_id' => $session->subscription ?? null,
+                'stripe_checkout_session_id' => $session->id ?? null,
+            ]);
+
+            Log::info('Stripe: checkout.session.completed compute aplicado', [
+                'session_id' => $session->id ?? null,
+                'team_uuid' => $teamUuid,
+                'plan_tier' => $tier,
+                'billing_interval' => $interval,
+            ]);
+
+            return;
+        }
+
         Log::info('Stripe: checkout.session.completed (no usado por esta plataforma)', [
             'session_id' => $session->id ?? null,
         ]);
+    }
+
+    private function syncComputeTeamFromSubscription(object $stripeSub): void
+    {
+        $teamUuid = $stripeSub->metadata->team_uuid ?? null;
+        $tier = $stripeSub->metadata->plan_tier ?? null;
+        $interval = $stripeSub->metadata->billing_interval ?? null;
+
+        if (! $teamUuid || ! in_array($tier, PlanTier::values(), true) || ! in_array($interval, BillingInterval::values(), true)) {
+            return;
+        }
+
+        Team::where('uuid', $teamUuid)->update([
+            'plan_tier' => $tier,
+            'billing_interval' => $interval,
+            'billing_status' => $stripeSub->status ?? null,
+            'stripe_subscription_id' => $stripeSub->id ?? null,
+            'current_period_ends_at' => StripeObjectReader::subscriptionPeriodEnd($stripeSub),
+        ]);
+    }
+
+    private function cancelComputeTeamFromSubscription(object $stripeSub): void
+    {
+        $teamUuid = $stripeSub->metadata->team_uuid ?? null;
+
+        if (! $teamUuid) {
+            return;
+        }
+
+        Team::where('uuid', $teamUuid)
+            ->where('stripe_subscription_id', $stripeSub->id ?? null)
+            ->update([
+                'billing_status' => 'canceled',
+                'current_period_ends_at' => StripeObjectReader::subscriptionPeriodEnd($stripeSub),
+            ]);
     }
 
     // ──────────────────────────────────────────────

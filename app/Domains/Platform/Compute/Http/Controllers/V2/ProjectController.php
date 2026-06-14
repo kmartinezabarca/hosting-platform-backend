@@ -6,6 +6,7 @@ use App\Domains\Platform\Compute\Detection\DetectionEngine;
 use App\Domains\Platform\Compute\Detection\GithubRepoFiles;
 use App\Domains\Platform\Compute\Enums\EnvironmentType;
 use App\Domains\Platform\Compute\Http\Requests\StoreProjectRequest;
+use App\Domains\Platform\Compute\Http\Requests\UpdateProjectRequest;
 use App\Domains\Platform\Compute\Jobs\AnalyzeProjectRepo;
 use App\Domains\Platform\Compute\Models\GithubInstallation;
 use App\Domains\Platform\Compute\Models\Project;
@@ -107,6 +108,8 @@ class ProjectController extends Controller
     {
         $this->authorize('update', $project);
 
+        abort_if($project->archived_at !== null, 404);
+
         if (! $project->repo_full_name || ! $project->githubInstallation) {
             abort(422, 'El proyecto no tiene repositorio de GitHub conectado.');
         }
@@ -133,6 +136,8 @@ class ProjectController extends Controller
     {
         $this->authorize('view', $project);
 
+        abort_if($project->archived_at !== null, 404);
+
         // El espejo "Game Servers" (slug 'game-servers' sin repo) no es un proyecto
         // desplegable; se gestiona en "Mis Servicios", no aquí.
         abort_if($project->slug === 'game-servers' && $project->repo_full_name === null, 404);
@@ -142,6 +147,52 @@ class ProjectController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $this->transform($project, detailed: true),
+        ]);
+    }
+
+    /**
+     * PATCH /api/v2/projects/{project} — ajustes del proyecto (nombre, rama).
+     *
+     * El slug NO se reescribe al renombrar: las URLs/dominios derivados ya
+     * pueden estar publicados. Cambiar el repo conectado es un flujo aparte.
+     */
+    public function update(UpdateProjectRequest $request, Project $project): JsonResponse
+    {
+        $this->authorize('update', $project);
+
+        abort_if($project->archived_at !== null, 404);
+        abort_if($project->slug === 'game-servers' && $project->repo_full_name === null, 404);
+
+        $project->fill($request->validated())->save();
+
+        $project->load(['team:id,uuid,name', 'environments.resources']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->transform($project, detailed: true),
+        ]);
+    }
+
+    /**
+     * DELETE /api/v2/projects/{project} — archiva el proyecto del workspace.
+     *
+     * No destruye recursos ni proveedor: esa operación debe tener su propio
+     * flujo destructivo con confirmación fuerte. Aquí retiramos el proyecto de
+     * la navegación y de webhooks futuros usando archived_at.
+     */
+    public function destroy(Request $request, Project $project): JsonResponse
+    {
+        $this->authorize('delete', $project);
+
+        abort_if($project->slug === 'game-servers' && $project->repo_full_name === null, 404);
+
+        if ($project->archived_at === null) {
+            $project->forceFill(['archived_at' => now()])->save();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => ['archived_at' => $project->archived_at],
         ]);
     }
 

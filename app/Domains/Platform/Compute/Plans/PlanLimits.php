@@ -2,13 +2,14 @@
 
 namespace App\Domains\Platform\Compute\Plans;
 
+use App\Domains\Platform\Compute\Models\ComputePlan;
 use App\Domains\Platform\Compute\Models\Team;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 /**
- * Enforcement de límites por plan (mes 2 #7). Los topes viven en
- * config('compute.plans') por tier; aquí se resuelven y se comprueban contra
- * el uso real del equipo. Una sola fuente de verdad para el conteo de recursos
- * y el tope de RAM, usada al crear recursos y para mostrar uso/cupo en la UI.
+ * Enforcement de límites por plan. La fuente primaria es el catálogo compute
+ * en DB; config('compute.plans') queda como fallback para entornos sin migrar.
  */
 class PlanLimits
 {
@@ -19,10 +20,9 @@ class PlanLimits
      */
     public function forTeam(Team $team): array
     {
-        $plans   = config('compute.plans', []);
-        $tier    = $team->plan_tier?->value ?? 'free';
+        $tier = $team->plan_tier?->value ?? 'free';
         $default = ['max_resources' => 1, 'ram_mb_max' => 512, 'max_members' => 1];
-        $limit   = ($plans[$tier] ?? $plans['free'] ?? $default) + $default;
+        $limit = ($this->dbLimitsForTier($tier) ?? $this->configLimitsForTier($tier) ?? $default) + $default;
 
         // El tope de RAM del plan nunca puede exceder la cota absoluta de spec.
         $limit['ram_mb_max'] = min($limit['ram_mb_max'], (int) config('compute.limits.ram_mb_max', 4096));
@@ -89,5 +89,48 @@ class PlanLimits
         }
 
         return null;
+    }
+
+    /**
+     * @return array{max_resources?: int, ram_mb_max?: int, max_members?: int}|null
+     */
+    private function dbLimitsForTier(string $tier): ?array
+    {
+        try {
+            if (! Schema::hasTable('compute_plan_catalog_entries')) {
+                return null;
+            }
+
+            $plan = ComputePlan::query()
+                ->compute()
+                ->where('is_active', true)
+                ->where('tier', $tier)
+                ->first();
+
+            if (! $plan) {
+                return null;
+            }
+
+            $limits = [];
+            foreach (['max_resources', 'ram_mb_max', 'max_members'] as $key) {
+                if ($plan->{$key} !== null) {
+                    $limits[$key] = (int) $plan->{$key};
+                }
+            }
+
+            return $limits === [] ? null : $limits;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array{max_resources?: int, ram_mb_max?: int, max_members?: int}|null
+     */
+    private function configLimitsForTier(string $tier): ?array
+    {
+        $plans = config('compute.plans', []);
+
+        return $plans[$tier] ?? $plans['free'] ?? null;
     }
 }

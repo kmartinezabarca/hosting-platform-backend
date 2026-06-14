@@ -29,6 +29,8 @@ class TeamController extends Controller
                 'slug'           => $team->slug,
                 'plan_tier'        => $team->plan_tier,
                 'billing_interval' => $team->billing_interval,
+                'billing_status'   => $team->billing_status,
+                'current_period_ends_at' => $team->current_period_ends_at?->toIso8601String(),
                 'is_personal'      => $team->is_personal,
                 'projects_count' => $team->projects_count,
                 'role'           => $team->roleFor($request->user())?->value,

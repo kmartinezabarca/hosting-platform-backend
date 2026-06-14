@@ -88,6 +88,76 @@ class ComputeProjectsApiTest extends TestCase
         $response->assertOk()->assertJsonCount(1, 'data');
     }
 
+    public function test_admin_can_archive_project(): void
+    {
+        $user = $this->actingUser();
+        $team = Team::factory()->personal()->create(['owner_user_id' => $user->id]);
+        $project = Project::factory()->create(['team_id' => $team->id]);
+
+        $this->actingAs($user)->deleteJson("/api/v2/projects/{$project->uuid}")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['data' => ['archived_at']]);
+
+        $this->assertNotNull($project->fresh()->archived_at);
+
+        $this->actingAs($user)->getJson('/api/v2/projects')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_developer_can_update_project_settings(): void
+    {
+        $user = $this->actingUser();
+        $team = Team::factory()->create();
+        $team->members()->attach($user->id, ['role' => TeamRole::Developer->value]);
+        $project = Project::factory()->create([
+            'team_id'        => $team->id,
+            'name'           => 'Nombre viejo',
+            'default_branch' => 'main',
+        ]);
+
+        $this->actingAs($user)->patchJson("/api/v2/projects/{$project->uuid}", [
+            'name'           => 'Nombre nuevo',
+            'default_branch' => 'develop',
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.name', 'Nombre nuevo')
+            ->assertJsonPath('data.default_branch', 'develop');
+
+        $fresh = $project->fresh();
+        $this->assertSame('Nombre nuevo', $fresh->name);
+        $this->assertSame('develop', $fresh->default_branch);
+    }
+
+    public function test_viewer_cannot_update_project_settings(): void
+    {
+        $user = $this->actingUser();
+        $team = Team::factory()->create();
+        $team->members()->attach($user->id, ['role' => TeamRole::Viewer->value]);
+        $project = Project::factory()->create(['team_id' => $team->id, 'name' => 'Intacto']);
+
+        $this->actingAs($user)->patchJson("/api/v2/projects/{$project->uuid}", [
+            'name' => 'Hackeado',
+        ])->assertForbidden();
+
+        $this->assertSame('Intacto', $project->fresh()->name);
+    }
+
+    public function test_developer_cannot_archive_project(): void
+    {
+        $user = $this->actingUser();
+        $team = Team::factory()->create();
+        $team->members()->attach($user->id, ['role' => TeamRole::Developer->value]);
+        $project = Project::factory()->create(['team_id' => $team->id]);
+
+        $this->actingAs($user)->deleteJson("/api/v2/projects/{$project->uuid}")
+            ->assertForbidden();
+
+        $this->assertNull($project->fresh()->archived_at);
+    }
+
     public function test_game_server_mirror_is_excluded_from_projects(): void
     {
         $user = $this->actingUser();

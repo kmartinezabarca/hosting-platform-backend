@@ -28,13 +28,20 @@ class Team extends Model
         'owner_user_id',
         'plan_tier',
         'billing_interval',
+        'stripe_customer_id',
+        'stripe_subscription_id',
+        'stripe_checkout_session_id',
+        'stripe_price_id',
+        'billing_status',
+        'current_period_ends_at',
         'is_personal',
     ];
 
     protected $casts = [
-        'plan_tier'        => PlanTier::class,
-        'billing_interval' => BillingInterval::class,
-        'is_personal'      => 'boolean',
+        'plan_tier'              => PlanTier::class,
+        'billing_interval'       => BillingInterval::class,
+        'current_period_ends_at' => 'datetime',
+        'is_personal'            => 'boolean',
     ];
 
     public function owner(): BelongsTo

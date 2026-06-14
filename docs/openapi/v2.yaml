@@ -94,6 +94,30 @@ paths:
         '200': { description: OK }
         '403': { description: No es miembro del equipo }
         '404': { description: No existe }
+    delete:
+      summary: Archivar proyecto del workspace
+      description: |
+        Retira el proyecto del panel estableciendo archived_at. No destruye
+        recursos ni infraestructura del proveedor; esa operación se modela como
+        un flujo destructivo separado.
+      tags: [Projects]
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Archivado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      archived_at: { type: string, format: date-time }
+        '403': { description: Rol insuficiente (requiere admin/owner) }
+        '404': { description: No existe }
 
   /v2/projects/{project}/analyze:
     post:

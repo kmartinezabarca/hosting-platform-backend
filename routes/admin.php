@@ -34,6 +34,7 @@ use App\Domains\Platform\Http\Controllers\Admin\AnalyticsController;
 use App\Domains\Platform\Http\Controllers\Admin\ApiRequestLogController;
 use App\Domains\Platform\Http\Controllers\Admin\AuditLogController;
 use App\Domains\Platform\Http\Controllers\Admin\UserRequestController;
+use App\Domains\Platform\Compute\Http\Controllers\Admin\ComputePlanController;
 
 /*
 |--------------------------------------------------------------------------
@@ -284,6 +285,13 @@ Route::middleware(["auth:sanctum", "session.timeout", "throttle:admin-writes"])-
             Route::get("/{uuid}", [ServicePlanController::class, "show"]);
             Route::put("/{uuid}", [ServicePlanController::class, "update"]);
             Route::delete("/{uuid}", [ServicePlanController::class, "destroy"]);
+        });
+
+        // Compute/Roke Deploy plans: catálogo separado por kind=compute.
+        Route::prefix("compute-plans")->group(function () {
+            Route::get("/", [ComputePlanController::class, "index"]);
+            Route::put("/{plan}", [ComputePlanController::class, "update"]);
+            Route::post("/{plan}/sync-stripe", [ComputePlanController::class, "syncStripe"]);
         });
 
         // Rutas de Notificaciones para Admin
