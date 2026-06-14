@@ -109,6 +109,7 @@ Route::prefix('chat/guest')->group(function () {
     Route::middleware('throttle:5,1')->group(function () {
         Route::post('/conversation', [GuestChatController::class, 'start']);
     });
+    Route::post('/broadcasting/auth',    [GuestChatController::class, 'broadcastingAuth'])->middleware('throttle:60,1');
     Route::get('/conversation',          [GuestChatController::class, 'current'])->middleware('throttle:60,1');
     Route::get('/conversation/messages', [GuestChatController::class, 'messages'])->middleware('throttle:120,1');
     Route::middleware('throttle:30,1')->group(function () {

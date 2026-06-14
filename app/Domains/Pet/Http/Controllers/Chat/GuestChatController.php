@@ -146,6 +146,30 @@ class GuestChatController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * POST /chat/guest/broadcasting/auth — autoriza al invitado a escuchar SU
+     * canal privado de Reverb (rp-chat.{id}) sin sesión, validando el guest_token.
+     * Firma el auth con el protocolo Pusher/Reverb (HMAC del par socket:canal).
+     */
+    public function broadcastingAuth(Request $request): JsonResponse
+    {
+        $conv     = $this->resolveOrFail($request);
+        $socketId = (string) $request->input('socket_id', '');
+        $channel  = (string) $request->input('channel_name', '');
+
+        // El invitado solo puede autorizar el canal privado de SU conversación.
+        $expected = 'private-' . $conv->broadcastChannelName();
+        abort_unless($channel === $expected, 403, 'Canal no autorizado.');
+
+        $key    = config('broadcasting.connections.reverb.key');
+        $secret = config('broadcasting.connections.reverb.secret');
+        abort_if(! $key || ! $secret, 503, 'Tiempo real no disponible.');
+
+        $signature = hash_hmac('sha256', $socketId . ':' . $channel, $secret);
+
+        return response()->json(['auth' => $key . ':' . $signature]);
+    }
+
     /* ===================== Helpers ===================== */
 
     private function guestToken(Request $request): string
