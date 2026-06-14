@@ -4,6 +4,7 @@ namespace Tests\Feature\Compute;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PlanCatalogEndpointTest extends TestCase
@@ -12,9 +13,16 @@ class PlanCatalogEndpointTest extends TestCase
 
     public function test_plans_endpoint_returns_catalog_with_annual_savings(): void
     {
-        config()->set('compute.billing.currency', 'MXN');
-        config()->set('compute.billing.pricing.pro.monthly.amount', '100');
-        config()->set('compute.billing.pricing.pro.annual.amount', '1000');
+        // El catálogo es DB-first (compute_plan_catalog_entries); el config solo es
+        // fallback. Fijamos precios conocidos en los planes sembrados para validar
+        // el cálculo de ahorro anual de forma determinista (100/mes vs 1000/año
+        // → 200 ahorrados, 16.67 %).
+        DB::table('compute_plan_catalog_entries')
+            ->where('kind', 'compute')->where('tier', 'pro')
+            ->update(['monthly_amount' => 100, 'annual_amount' => 1000, 'currency' => 'MXN', 'is_active' => true]);
+        DB::table('compute_plan_catalog_entries')
+            ->where('kind', 'compute')->where('tier', 'free')
+            ->update(['monthly_amount' => 0, 'currency' => 'MXN', 'is_active' => true]);
 
         $user = User::factory()->create(['status' => 'active']);
 
