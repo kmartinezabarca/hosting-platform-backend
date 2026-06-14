@@ -34,6 +34,22 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->ip());
         });
 
+        // Mutaciones del panel admin — acotar abuso/scripts. Los GET/HEAD NO se
+        // tocan (los dashboards hacen polling y no deben verse afectados); solo
+        // los verbos de escritura se limitan, por administrador autenticado.
+        RateLimiter::for('admin-writes', function (Request $request) {
+            if (in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)) {
+                return Limit::none();
+            }
+
+            return Limit::perMinute(60)
+                ->by($request->user()?->id ?: $request->ip())
+                ->response(fn () => response()->json([
+                    'success' => false,
+                    'message' => 'Demasiadas operaciones administrativas en poco tiempo. Espera un minuto.',
+                ], 429));
+        });
+
         // Búsqueda global — evitar abuso
         RateLimiter::for('search', function (Request $request) {
             return Limit::perMinute(30)->by($request->user()?->id ?: $request->ip());

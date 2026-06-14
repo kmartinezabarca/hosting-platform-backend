@@ -58,7 +58,8 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
 
         // Globales (sin UUID)
         Route::get ('/plans',             [ServiceController::class, 'getServicePlans']);
-        Route::post('/contract',          [ServiceController::class, 'contractService']);
+        // Exige email verificado para concretar la contratación (no para navegar).
+        Route::post('/contract',          [ServiceController::class, 'contractService'])->middleware('email.verified');
         Route::get ('/user',              [ServiceController::class, 'getUserServices']);
         Route::post('/sync-status',       [ServiceController::class, 'syncStatus'])->middleware('throttle:sync-status');
         Route::get ('/upcoming-charges',  [ServiceController::class, 'upcomingCharges']);
@@ -156,8 +157,9 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
         Route::put   ('/methods/{id}',  [PaymentController::class, 'updatePaymentMethod']);
         Route::delete('/methods/{id}',  [PaymentController::class, 'deletePaymentMethod']);
         Route::post  ('/setup-intent',  [PaymentController::class, 'createSetupIntent']);
-        Route::post  ('/process',       [PaymentController::class, 'processPayment']);
-        Route::post  ('/intent',        [PaymentController::class, 'createPaymentIntentFromQuote']);
+        // Pagos reales: requieren email verificado (evita compras con correos falsos).
+        Route::post  ('/process',       [PaymentController::class, 'processPayment'])->middleware('email.verified');
+        Route::post  ('/intent',        [PaymentController::class, 'createPaymentIntentFromQuote'])->middleware('email.verified');
         Route::get   ('/stats',         [PaymentController::class, 'getPaymentStats']);
         Route::get   ('/transactions',  [PaymentController::class, 'getTransactions']);
     });
@@ -168,7 +170,7 @@ Route::middleware(['auth:sanctum', 'session.timeout'])->group(function () {
     // ── Subscriptions ─────────────────────────────────────────────────────────
     Route::prefix('subscriptions')->group(function () {
         Route::get ('/',                        [SubscriptionController::class, 'getUserSubscriptions']);
-        Route::post('/',                        [SubscriptionController::class, 'createSubscription']);
+        Route::post('/',                        [SubscriptionController::class, 'createSubscription'])->middleware('email.verified');
         Route::get ('/{subscriptionId}',        [SubscriptionController::class, 'getSubscriptionDetails']);
         Route::post('/{subscriptionId}/cancel', [SubscriptionController::class, 'cancelSubscription']);
         Route::post('/{subscriptionId}/resume', [SubscriptionController::class, 'resumeSubscription']);

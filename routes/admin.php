@@ -56,7 +56,7 @@ use App\Domains\Platform\Http\Controllers\Admin\UserRequestController;
 |
 */
 
-Route::middleware(["auth:sanctum", "session.timeout"])->prefix("admin")->group(function () {
+Route::middleware(["auth:sanctum", "session.timeout", "throttle:admin-writes"])->prefix("admin")->group(function () {
 
     /*
     |----------------------------------------------------------------------

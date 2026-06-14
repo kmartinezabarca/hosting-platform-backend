@@ -82,9 +82,14 @@ class EventServiceProvider extends ServiceProvider
             \App\Domains\Platform\Listeners\CreateInvoiceNotification::class . '@handleStatusChanged',
         ],
 
-        // Quotation Events — wire listeners here as needed
-        \App\Domains\Platform\Events\QuotationAccepted::class => [],
-        \App\Domains\Platform\Events\QuotationRejected::class => [],
+        // Quotation Events — solo Aceptada/Rechazada avisan al equipo (panel +
+        // correo). Vista/Reabierta quedan solo en el audit-log (sin ruido).
+        \App\Domains\Platform\Events\QuotationAccepted::class => [
+            \App\Domains\Platform\Listeners\NotifyQuotationResponse::class . '@handleAccepted',
+        ],
+        \App\Domains\Platform\Events\QuotationRejected::class => [
+            \App\Domains\Platform\Listeners\NotifyQuotationResponse::class . '@handleRejected',
+        ],
         \App\Domains\Platform\Events\QuotationReopened::class => [],
         \App\Domains\Platform\Events\QuotationViewed::class   => [],
     ];
